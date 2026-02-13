@@ -4,7 +4,9 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import express from 'express'
 import { randomUUID } from 'node:crypto'
 import { createServer, Server } from 'node:http'
-import detectPort from 'detect-port'
+import detectPortModule from 'detect-port'
+// detect-port CJS exports .default as the function
+const detectPort = (detectPortModule as any).default || detectPortModule
 import { BrowserWindow } from 'electron'
 import { registerMcpTools } from './tools'
 
