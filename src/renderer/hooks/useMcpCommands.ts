@@ -39,12 +39,36 @@ export function useMcpCommands() {
       window.api.mcp.onStartPreview(async ({ command, cwd }) => {
         const projectCwd = cwd || useProjectStore.getState().currentProject?.path
         if (!projectCwd) return
-        await window.api.dev.start(projectCwd, command)
-        useProjectStore.getState().setDevServerRunning(true)
-        if (useWorkspaceStore.getState().mode !== 'terminal-canvas') {
-          useWorkspaceStore.getState().openCanvas()
+
+        // Listen for dev server output to detect URL
+        const removeOutput = window.api.dev.onOutput((data) => {
+          // Match common dev server URL patterns (Vite, Next, CRA, etc.)
+          const urlMatch = data.match(/https?:\/\/localhost:\d+/)
+          if (urlMatch) {
+            const url = urlMatch[0]
+            useCanvasStore.getState().setPreviewUrl(url)
+            useProjectStore.getState().setDevServerRunning(true)
+            if (useWorkspaceStore.getState().mode !== 'terminal-canvas') {
+              useWorkspaceStore.getState().openCanvas()
+            }
+            useCanvasStore.getState().setActiveTab('preview')
+            useToastStore.getState().addToast(`Preview loaded: ${url}`, 'success')
+          }
+        })
+        cleanups.push(removeOutput)
+
+        const result = await window.api.dev.start(projectCwd, command)
+
+        // If port was detected immediately, set the URL
+        if (result?.port) {
+          const url = result.url || `http://localhost:${result.port}`
+          useCanvasStore.getState().setPreviewUrl(url)
+          useProjectStore.getState().setDevServerRunning(true)
+          if (useWorkspaceStore.getState().mode !== 'terminal-canvas') {
+            useWorkspaceStore.getState().openCanvas()
+          }
+          useCanvasStore.getState().setActiveTab('preview')
         }
-        useCanvasStore.getState().setActiveTab('preview')
       })
     )
 
