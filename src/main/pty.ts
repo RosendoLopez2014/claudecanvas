@@ -1,6 +1,7 @@
 import { spawn, IPty } from 'node-pty'
 import { ipcMain, BrowserWindow } from 'electron'
 import { platform } from 'os'
+import { getMcpPort } from './mcp/server'
 
 const ptys = new Map<string, IPty>()
 let idCounter = 0
@@ -16,7 +17,18 @@ export function setupPtyHandlers(getWindow: () => BrowserWindow | null): void {
       cols: 80,
       rows: 24,
       cwd: process.env.HOME || '/',
-      env: { ...process.env } as Record<string, string>
+      env: (() => {
+        const env = { ...process.env } as Record<string, string>
+        // Remove Claude Code session markers so Claude CLI can run inside the embedded terminal
+        delete env.CLAUDECODE
+        delete env.CLAUDE_CODE_SESSION
+        delete env.CLAUDE_CODE_ENTRY_POINT
+        // Signal to Claude Code that it's running inside Canvas
+        env.CLAUDE_CANVAS = '1'
+        const mcpPort = getMcpPort()
+        if (mcpPort) env.CLAUDE_CANVAS_MCP_PORT = String(mcpPort)
+        return env
+      })()
     })
 
     ptys.set(id, ptyProcess)

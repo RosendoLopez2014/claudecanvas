@@ -62,7 +62,7 @@ export function setupDevServerHandlers(getWindow: () => BrowserWindow | null): v
     })
 
     const port = await portPromise
-    return { port, pid: devProcess?.pid }
+    return { port, pid: devProcess?.pid, url: port ? `http://localhost:${port}` : null }
   })
 
   ipcMain.handle('dev:stop', () => {
