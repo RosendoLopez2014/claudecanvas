@@ -58,6 +58,11 @@ const api = {
     }
   },
 
+  render: {
+    evaluate: (html: string, css?: string) =>
+      ipcRenderer.invoke('render:evaluate', html, css)
+  },
+
   dev: {
     start: (cwd: string, command?: string) => ipcRenderer.invoke('dev:start', cwd, command),
     stop: () => ipcRenderer.invoke('dev:stop'),

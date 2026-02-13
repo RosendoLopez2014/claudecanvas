@@ -5,6 +5,7 @@ import { setupPtyHandlers, killAllPtys } from './pty'
 import { setupSettingsHandlers } from './store'
 import { setupFileWatcher, closeWatcher } from './watcher'
 import { setupDevServerHandlers, killDevServer } from './services/dev-server'
+import { setupRenderRouter } from './render-router'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -53,6 +54,7 @@ app.whenReady().then(() => {
   setupSettingsHandlers()
   setupFileWatcher(() => mainWindow)
   setupDevServerHandlers(() => mainWindow)
+  setupRenderRouter(() => mainWindow)
 
   // Dialog
   ipcMain.handle('dialog:selectDirectory', async () => {
