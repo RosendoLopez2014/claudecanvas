@@ -6,6 +6,7 @@ import { setupSettingsHandlers } from './store'
 import { setupFileWatcher, closeWatcher } from './watcher'
 import { setupDevServerHandlers, killDevServer } from './services/dev-server'
 import { setupRenderRouter } from './render-router'
+import { setupGitHandlers } from './services/git'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -55,6 +56,7 @@ app.whenReady().then(() => {
   setupFileWatcher(() => mainWindow)
   setupDevServerHandlers(() => mainWindow)
   setupRenderRouter(() => mainWindow)
+  setupGitHandlers()
 
   // Dialog
   ipcMain.handle('dialog:selectDirectory', async () => {

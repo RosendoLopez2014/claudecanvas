@@ -4,6 +4,9 @@ import { useFileWatcher } from '@/hooks/useFileWatcher'
 import { useInspector } from '@/hooks/useInspector'
 import { useRef, useCallback } from 'react'
 import { X, RotateCw } from 'lucide-react'
+import { Gallery } from '../Gallery/Gallery'
+import { Timeline } from '../CheckpointTimeline/Timeline'
+import { DiffView } from '../DiffView/DiffView'
 
 export function CanvasPanel() {
   const { previewUrl, activeTab, setActiveTab } = useCanvasStore()
@@ -17,12 +20,9 @@ export function CanvasPanel() {
     }
   }, [])
 
-  // Reload canvas on file changes (debounced by chokidar's awaitWriteFinish)
   useFileWatcher(
     useCallback((_path: string) => {
-      // HMR handles most updates automatically via the Vite dev server.
-      // This watcher is here for non-HMR scenarios (e.g. CSS-only files,
-      // static assets) where a hard reload may be needed.
+      // HMR handles most updates; watcher for non-HMR scenarios
     }, [])
   )
 
@@ -61,7 +61,7 @@ export function CanvasPanel() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 relative">
+      <div className="flex-1 relative overflow-hidden">
         {activeTab === 'preview' &&
           (previewUrl ? (
             <iframe
@@ -77,21 +77,9 @@ export function CanvasPanel() {
               Start a dev server to see your app here
             </div>
           ))}
-        {activeTab === 'gallery' && (
-          <div className="h-full flex items-center justify-center text-white/30 text-sm">
-            Gallery — component variants
-          </div>
-        )}
-        {activeTab === 'timeline' && (
-          <div className="h-full flex items-center justify-center text-white/30 text-sm">
-            Timeline — checkpoint snapshots
-          </div>
-        )}
-        {activeTab === 'diff' && (
-          <div className="h-full flex items-center justify-center text-white/30 text-sm">
-            Diff — visual comparison
-          </div>
-        )}
+        {activeTab === 'gallery' && <Gallery />}
+        {activeTab === 'timeline' && <Timeline />}
+        {activeTab === 'diff' && <DiffView />}
       </div>
     </div>
   )

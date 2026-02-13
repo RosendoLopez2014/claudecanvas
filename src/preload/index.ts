@@ -63,6 +63,16 @@ const api = {
       ipcRenderer.invoke('render:evaluate', html, css)
   },
 
+  git: {
+    init: (cwd: string) => ipcRenderer.invoke('git:init', cwd),
+    status: () => ipcRenderer.invoke('git:status'),
+    branch: () => ipcRenderer.invoke('git:branch'),
+    log: (maxCount?: number) => ipcRenderer.invoke('git:log', maxCount),
+    checkpoint: (message: string) => ipcRenderer.invoke('git:checkpoint', message),
+    diff: (hash?: string) => ipcRenderer.invoke('git:diff', hash),
+    show: (hash: string, filePath: string) => ipcRenderer.invoke('git:show', hash, filePath)
+  },
+
   dev: {
     start: (cwd: string, command?: string) => ipcRenderer.invoke('dev:start', cwd, command),
     stop: () => ipcRenderer.invoke('dev:stop'),
