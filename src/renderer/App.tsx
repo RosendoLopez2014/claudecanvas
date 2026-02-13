@@ -4,6 +4,7 @@ import { StatusBar } from './components/StatusBar/StatusBar'
 import { OnboardingWizard } from './components/Onboarding/Wizard'
 import { ProjectPicker } from './components/Onboarding/ProjectPicker'
 import { QuickActions } from './components/QuickActions/QuickActions'
+import { ToastContainer } from './components/Toast/Toast'
 import { useProjectStore } from './stores/project'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useMcpCommands } from './hooks/useMcpCommands'
@@ -50,6 +51,7 @@ export default function App() {
       </div>
       {screen === 'workspace' && <StatusBar />}
       <QuickActions open={quickActionsOpen} onClose={() => setQuickActionsOpen(false)} />
+      <ToastContainer />
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { useCanvasStore } from '@/stores/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useGalleryStore } from '@/stores/gallery'
 import { useProjectStore } from '@/stores/project'
+import { useToastStore } from '@/stores/toast'
 
 /**
  * Listens for MCP commands forwarded from the main process via IPC
@@ -99,10 +100,10 @@ export function useMcpCommands() {
       })
     )
 
-    // canvas_notify — log for now, toast system added in Task 13
+    // canvas_notify — show toast notification
     cleanups.push(
       window.api.mcp.onNotify(({ message, type }) => {
-        console.log(`[MCP Notify] (${type}): ${message}`)
+        useToastStore.getState().addToast(message, type as 'info' | 'success' | 'error')
       })
     )
 

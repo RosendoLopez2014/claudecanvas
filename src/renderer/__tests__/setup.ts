@@ -65,6 +65,18 @@ const mockApi = {
     stop: vi.fn().mockResolvedValue(undefined),
     onOutput: vi.fn().mockReturnValue(vi.fn()),
     onExit: vi.fn().mockReturnValue(vi.fn())
+  },
+  mcp: {
+    projectOpened: vi.fn().mockResolvedValue({ port: 9315 }),
+    projectClosed: vi.fn().mockResolvedValue(undefined),
+    onCanvasRender: vi.fn().mockReturnValue(() => {}),
+    onStartPreview: vi.fn().mockReturnValue(() => {}),
+    onStopPreview: vi.fn().mockReturnValue(() => {}),
+    onSetPreviewUrl: vi.fn().mockReturnValue(() => {}),
+    onOpenTab: vi.fn().mockReturnValue(() => {}),
+    onAddToGallery: vi.fn().mockReturnValue(() => {}),
+    onCheckpoint: vi.fn().mockReturnValue(() => {}),
+    onNotify: vi.fn().mockReturnValue(() => {})
   }
 }
 
