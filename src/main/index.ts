@@ -7,6 +7,9 @@ import { setupFileWatcher, closeWatcher } from './watcher'
 import { setupDevServerHandlers, killDevServer } from './services/dev-server'
 import { setupRenderRouter } from './render-router'
 import { setupGitHandlers } from './services/git'
+import { setupGithubOAuth } from './oauth/github'
+import { setupVercelOAuth } from './oauth/vercel'
+import { setupSupabaseOAuth } from './oauth/supabase'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -57,6 +60,9 @@ app.whenReady().then(() => {
   setupDevServerHandlers(() => mainWindow)
   setupRenderRouter(() => mainWindow)
   setupGitHandlers()
+  setupGithubOAuth()
+  setupVercelOAuth()
+  setupSupabaseOAuth()
 
   // Dialog
   ipcMain.handle('dialog:selectDirectory', async () => {

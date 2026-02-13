@@ -73,6 +73,24 @@ const api = {
     show: (hash: string, filePath: string) => ipcRenderer.invoke('git:show', hash, filePath)
   },
 
+  oauth: {
+    github: {
+      start: () => ipcRenderer.invoke('oauth:github:start'),
+      status: () => ipcRenderer.invoke('oauth:github:status'),
+      logout: () => ipcRenderer.invoke('oauth:github:logout')
+    },
+    vercel: {
+      start: () => ipcRenderer.invoke('oauth:vercel:start'),
+      status: () => ipcRenderer.invoke('oauth:vercel:status'),
+      logout: () => ipcRenderer.invoke('oauth:vercel:logout')
+    },
+    supabase: {
+      start: () => ipcRenderer.invoke('oauth:supabase:start'),
+      status: () => ipcRenderer.invoke('oauth:supabase:status'),
+      logout: () => ipcRenderer.invoke('oauth:supabase:logout')
+    }
+  },
+
   dev: {
     start: (cwd: string, command?: string) => ipcRenderer.invoke('dev:start', cwd, command),
     stop: () => ipcRenderer.invoke('dev:stop'),

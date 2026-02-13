@@ -1,5 +1,6 @@
 import { Minus, Square, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import { ServiceIcons } from '../ServiceIcons/ServiceIcons'
 
 export function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false)
@@ -21,6 +22,11 @@ export function TitleBar() {
       {/* Left: macOS traffic lights get space, or app title on Windows */}
       <div className="flex items-center gap-2 pl-20">
         <span className="text-xs font-medium text-white/50 no-drag">Claude Canvas</span>
+      </div>
+
+      {/* Center/Right: Service icons + Windows controls */}
+      <div className="flex items-center gap-2">
+        <ServiceIcons />
       </div>
 
       {/* Right: Windows controls (hidden on macOS) */}
