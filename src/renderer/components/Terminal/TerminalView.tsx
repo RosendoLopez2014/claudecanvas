@@ -9,9 +9,10 @@ import { usePty } from '@/hooks/usePty'
 
 interface TerminalViewProps {
   cwd?: string
+  autoLaunchClaude?: boolean
 }
 
-export function TerminalView({ cwd }: TerminalViewProps) {
+export function TerminalView({ cwd, autoLaunchClaude = true }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -79,7 +80,7 @@ export function TerminalView({ cwd }: TerminalViewProps) {
     fitAddon.fit()
 
     // Spawn PTY now that terminal is ready
-    connect(terminal, cwd)
+    connect(terminal, cwd, { autoLaunchClaude })
 
     return () => {
       terminal.dispose()

@@ -2,12 +2,16 @@ import { useEffect, useRef, useCallback } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { useTerminalStore } from '@/stores/terminal'
 
+interface ConnectOptions {
+  autoLaunchClaude?: boolean
+}
+
 export function usePty() {
   const ptyIdRef = useRef<string | null>(null)
   const cleanupRef = useRef<(() => void)[]>([])
   const { setPtyId, setIsRunning } = useTerminalStore()
 
-  const connect = useCallback(async (terminal: Terminal, cwd?: string) => {
+  const connect = useCallback(async (terminal: Terminal, cwd?: string, options?: ConnectOptions) => {
     // Avoid double-spawning
     if (ptyIdRef.current) return
 
@@ -38,6 +42,15 @@ export function usePty() {
     // Set working directory if provided
     if (cwd) {
       window.api.pty.setCwd(id, cwd)
+    }
+
+    // Auto-launch Claude Code after shell initializes
+    if (options?.autoLaunchClaude) {
+      setTimeout(() => {
+        if (ptyIdRef.current) {
+          window.api.pty.write(ptyIdRef.current, 'claude\r')
+        }
+      }, 800)
     }
   }, [setPtyId, setIsRunning])
 

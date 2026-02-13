@@ -6,6 +6,7 @@ import { ProjectPicker } from './components/Onboarding/ProjectPicker'
 import { QuickActions } from './components/QuickActions/QuickActions'
 import { ToastContainer } from './components/Toast/Toast'
 import { useProjectStore } from './stores/project'
+import { useToastStore } from './stores/toast'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useMcpCommands } from './hooks/useMcpCommands'
 import { useMcpStateExposer } from './hooks/useMcpStateExposer'
@@ -26,7 +27,16 @@ export default function App() {
   // Start/stop MCP server when entering/leaving workspace
   useEffect(() => {
     if (screen === 'workspace' && currentProject?.path) {
-      window.api.mcp.projectOpened(currentProject.path)
+      const { addToast } = useToastStore.getState()
+      addToast('Initializing Claude Canvas...', 'info')
+
+      window.api.mcp.projectOpened(currentProject.path).then(({ port }) => {
+        addToast(`MCP bridge active on port ${port}`, 'success')
+        setTimeout(() => {
+          addToast('Claude Code launching — canvas tools ready', 'success')
+        }, 1200)
+      })
+
       return () => {
         window.api.mcp.projectClosed()
       }
