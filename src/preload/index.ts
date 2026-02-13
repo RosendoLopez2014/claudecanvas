@@ -104,6 +104,52 @@ const api = {
       ipcRenderer.on('dev:exit', handler)
       return () => ipcRenderer.removeListener('dev:exit', handler)
     }
+  },
+
+  mcp: {
+    projectOpened: (projectPath: string) => ipcRenderer.invoke('mcp:project-opened', projectPath),
+    projectClosed: () => ipcRenderer.invoke('mcp:project-closed'),
+
+    onCanvasRender: (cb: (data: { html: string; css?: string }) => void) => {
+      const handler = (_: unknown, data: { html: string; css?: string }) => cb(data)
+      ipcRenderer.on('mcp:canvas-render', handler)
+      return () => ipcRenderer.removeListener('mcp:canvas-render', handler)
+    },
+    onStartPreview: (cb: (data: { command?: string; cwd?: string }) => void) => {
+      const handler = (_: unknown, data: { command?: string; cwd?: string }) => cb(data)
+      ipcRenderer.on('mcp:start-preview', handler)
+      return () => ipcRenderer.removeListener('mcp:start-preview', handler)
+    },
+    onStopPreview: (cb: () => void) => {
+      const handler = () => cb()
+      ipcRenderer.on('mcp:stop-preview', handler)
+      return () => ipcRenderer.removeListener('mcp:stop-preview', handler)
+    },
+    onSetPreviewUrl: (cb: (data: { url: string }) => void) => {
+      const handler = (_: unknown, data: { url: string }) => cb(data)
+      ipcRenderer.on('mcp:set-preview-url', handler)
+      return () => ipcRenderer.removeListener('mcp:set-preview-url', handler)
+    },
+    onOpenTab: (cb: (data: { tab: string }) => void) => {
+      const handler = (_: unknown, data: { tab: string }) => cb(data)
+      ipcRenderer.on('mcp:open-tab', handler)
+      return () => ipcRenderer.removeListener('mcp:open-tab', handler)
+    },
+    onAddToGallery: (cb: (data: { label: string; html: string; css?: string }) => void) => {
+      const handler = (_: unknown, data: { label: string; html: string; css?: string }) => cb(data)
+      ipcRenderer.on('mcp:add-to-gallery', handler)
+      return () => ipcRenderer.removeListener('mcp:add-to-gallery', handler)
+    },
+    onCheckpoint: (cb: (data: { message: string }) => void) => {
+      const handler = (_: unknown, data: { message: string }) => cb(data)
+      ipcRenderer.on('mcp:checkpoint', handler)
+      return () => ipcRenderer.removeListener('mcp:checkpoint', handler)
+    },
+    onNotify: (cb: (data: { message: string; type: string }) => void) => {
+      const handler = (_: unknown, data: { message: string; type: string }) => cb(data)
+      ipcRenderer.on('mcp:notify', handler)
+      return () => ipcRenderer.removeListener('mcp:notify', handler)
+    }
   }
 }
 

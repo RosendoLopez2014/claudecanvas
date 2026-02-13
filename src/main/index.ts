@@ -10,6 +10,8 @@ import { setupGitHandlers } from './services/git'
 import { setupGithubOAuth } from './oauth/github'
 import { setupVercelOAuth } from './oauth/vercel'
 import { setupSupabaseOAuth } from './oauth/supabase'
+import { startMcpServer, stopMcpServer } from './mcp/server'
+import { writeMcpConfig, removeMcpConfig } from './mcp/config-writer'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -64,6 +66,19 @@ app.whenReady().then(() => {
   setupVercelOAuth()
   setupSupabaseOAuth()
 
+  // MCP Bridge — start server when a project opens
+  ipcMain.handle('mcp:project-opened', async (_event, projectPath: string) => {
+    const port = await startMcpServer(() => mainWindow)
+    await writeMcpConfig(projectPath, port)
+    return { port }
+  })
+
+  // MCP Bridge — stop server when project closes
+  ipcMain.handle('mcp:project-closed', async () => {
+    await removeMcpConfig()
+    await stopMcpServer()
+  })
+
   // Dialog
   ipcMain.handle('dialog:selectDirectory', async () => {
     const result = await dialog.showOpenDialog(mainWindow!, {
@@ -90,8 +105,14 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  removeMcpConfig()
+  stopMcpServer()
   killAllPtys()
   closeWatcher()
   killDevServer()
   if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('before-quit', () => {
+  removeMcpConfig()
 })
