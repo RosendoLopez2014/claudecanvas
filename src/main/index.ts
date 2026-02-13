@@ -1,6 +1,7 @@
 import { app, BrowserWindow, shell, ipcMain } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
+import { setupPtyHandlers, killAllPtys } from './pty'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -44,6 +45,9 @@ function createWindow(): void {
 app.whenReady().then(() => {
   createWindow()
 
+  // PTY management
+  setupPtyHandlers(() => mainWindow)
+
   // Window controls
   ipcMain.on('window:minimize', () => mainWindow?.minimize())
   ipcMain.on('window:maximize', () => {
@@ -62,5 +66,6 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  killAllPtys()
   if (process.platform !== 'darwin') app.quit()
 })
