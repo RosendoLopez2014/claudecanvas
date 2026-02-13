@@ -1,7 +1,10 @@
-import { app, BrowserWindow, shell, ipcMain } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { setupPtyHandlers, killAllPtys } from './pty'
+import { setupSettingsHandlers } from './store'
+import { setupFileWatcher, closeWatcher } from './watcher'
+import { setupDevServerHandlers, killDevServer } from './services/dev-server'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -45,8 +48,19 @@ function createWindow(): void {
 app.whenReady().then(() => {
   createWindow()
 
-  // PTY management
+  // Core services
   setupPtyHandlers(() => mainWindow)
+  setupSettingsHandlers()
+  setupFileWatcher(() => mainWindow)
+  setupDevServerHandlers(() => mainWindow)
+
+  // Dialog
+  ipcMain.handle('dialog:selectDirectory', async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      properties: ['openDirectory', 'createDirectory']
+    })
+    return result.canceled ? null : result.filePaths[0]
+  })
 
   // Window controls
   ipcMain.on('window:minimize', () => mainWindow?.minimize())
@@ -67,5 +81,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   killAllPtys()
+  closeWatcher()
+  killDevServer()
   if (process.platform !== 'darwin') app.quit()
 })

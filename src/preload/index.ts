@@ -26,6 +26,51 @@ const api = {
       ipcRenderer.on(`pty:exit:${id}`, handler)
       return () => ipcRenderer.removeListener(`pty:exit:${id}`, handler)
     }
+  },
+
+  settings: {
+    get: (key: string) => ipcRenderer.invoke('settings:get', key),
+    set: (key: string, value: unknown) => ipcRenderer.invoke('settings:set', key, value),
+    getAll: () => ipcRenderer.invoke('settings:getAll')
+  },
+
+  dialog: {
+    selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory')
+  },
+
+  fs: {
+    watch: (path: string) => ipcRenderer.invoke('fs:watch', path),
+    unwatch: () => ipcRenderer.invoke('fs:unwatch'),
+    onChange: (cb: (path: string) => void) => {
+      const handler = (_: unknown, path: string) => cb(path)
+      ipcRenderer.on('fs:change', handler)
+      return () => ipcRenderer.removeListener('fs:change', handler)
+    },
+    onAdd: (cb: (path: string) => void) => {
+      const handler = (_: unknown, path: string) => cb(path)
+      ipcRenderer.on('fs:add', handler)
+      return () => ipcRenderer.removeListener('fs:add', handler)
+    },
+    onUnlink: (cb: (path: string) => void) => {
+      const handler = (_: unknown, path: string) => cb(path)
+      ipcRenderer.on('fs:unlink', handler)
+      return () => ipcRenderer.removeListener('fs:unlink', handler)
+    }
+  },
+
+  dev: {
+    start: (cwd: string, command?: string) => ipcRenderer.invoke('dev:start', cwd, command),
+    stop: () => ipcRenderer.invoke('dev:stop'),
+    onOutput: (cb: (data: string) => void) => {
+      const handler = (_: unknown, data: string) => cb(data)
+      ipcRenderer.on('dev:output', handler)
+      return () => ipcRenderer.removeListener('dev:output', handler)
+    },
+    onExit: (cb: (code: number) => void) => {
+      const handler = (_: unknown, code: number) => cb(code)
+      ipcRenderer.on('dev:exit', handler)
+      return () => ipcRenderer.removeListener('dev:exit', handler)
+    }
   }
 }
 
