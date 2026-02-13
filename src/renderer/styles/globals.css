@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+:root {
+  --accent-cyan: #4AEAFF;
+  --accent-coral: #FF6B4A;
+  --bg-primary: #0A0F1A;
+  --bg-secondary: #111827;
+  --bg-tertiary: #1F2937;
+  --border: rgba(255, 255, 255, 0.1);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
