@@ -6,13 +6,15 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { SearchAddon } from '@xterm/addon-search'
 import '@xterm/xterm/css/xterm.css'
 import { usePty } from '@/hooks/usePty'
+import { useTerminalStore } from '@/stores/terminal'
 
 interface TerminalViewProps {
   cwd?: string
+  tabId?: string
   autoLaunchClaude?: boolean
 }
 
-export function TerminalView({ cwd, autoLaunchClaude = true }: TerminalViewProps) {
+export function TerminalView({ cwd, tabId, autoLaunchClaude = true }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -82,28 +84,46 @@ export function TerminalView({ cwd, autoLaunchClaude = true }: TerminalViewProps
     // Spawn PTY now that terminal is ready
     connect(terminal, cwd, { autoLaunchClaude })
 
+    // Expose focus function so other components can focus the terminal
+    useTerminalStore.getState().setFocusFn(() => terminal.focus())
+
     return () => {
+      useTerminalStore.getState().setFocusFn(null)
       terminal.dispose()
       terminalRef.current = null
       initializedRef.current = false
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle resize
-  const handleResize = useCallback(() => {
-    if (fitAddonRef.current && terminalRef.current) {
-      fitAddonRef.current.fit()
-      resize(terminalRef.current.cols, terminalRef.current.rows)
-    }
-  }, [resize])
-
+  // Handle resize — debounced so the terminal only re-fits AFTER
+  // the canvas animation completes, not on every intermediate frame.
+  // Uses 320ms debounce to match the 300ms CSS transition.
   useEffect(() => {
-    const observer = new ResizeObserver(handleResize)
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const doFit = () => {
+      if (fitAddonRef.current && terminalRef.current) {
+        fitAddonRef.current.fit()
+        resize(terminalRef.current.cols, terminalRef.current.rows)
+      }
+    }
+
+    const observer = new ResizeObserver(() => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = null
+        doFit()
+      }, 320)
+    })
+
     if (containerRef.current) {
       observer.observe(containerRef.current)
     }
-    return () => observer.disconnect()
-  }, [handleResize])
+    return () => {
+      observer.disconnect()
+      if (timer) clearTimeout(timer)
+    }
+  }, [resize])
 
   return (
     <div
