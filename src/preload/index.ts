@@ -185,19 +185,19 @@ const api = {
 
   dev: {
     start: (cwd: string, command?: string) => ipcRenderer.invoke('dev:start', cwd, command),
-    stop: () => ipcRenderer.invoke('dev:stop'),
-    onOutput: (cb: (data: string) => void) => {
-      const handler = (_: unknown, data: string) => cb(data)
+    stop: (cwd?: string) => ipcRenderer.invoke('dev:stop', cwd),
+    onOutput: (cb: (data: { cwd: string; data: string }) => void) => {
+      const handler = (_: unknown, data: { cwd: string; data: string }) => cb(data)
       ipcRenderer.on('dev:output', handler)
       return () => ipcRenderer.removeListener('dev:output', handler)
     },
-    onExit: (cb: (code: number) => void) => {
-      const handler = (_: unknown, code: number) => cb(code)
+    onExit: (cb: (data: { cwd: string; code: number }) => void) => {
+      const handler = (_: unknown, data: { cwd: string; code: number }) => cb(data)
       ipcRenderer.on('dev:exit', handler)
       return () => ipcRenderer.removeListener('dev:exit', handler)
     },
-    onStatus: (cb: (status: { stage: string; message: string; url?: string }) => void) => {
-      const handler = (_: unknown, status: { stage: string; message: string; url?: string }) => cb(status)
+    onStatus: (cb: (status: { cwd?: string; stage: string; message: string; url?: string }) => void) => {
+      const handler = (_: unknown, status: { cwd?: string; stage: string; message: string; url?: string }) => cb(status)
       ipcRenderer.on('dev:status', handler)
       return () => ipcRenderer.removeListener('dev:status', handler)
     }

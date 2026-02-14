@@ -68,7 +68,8 @@ const mockApi = {
     start: vi.fn().mockResolvedValue({ port: 3000, pid: 12345 }),
     stop: vi.fn().mockResolvedValue(undefined),
     onOutput: vi.fn().mockReturnValue(vi.fn()),
-    onExit: vi.fn().mockReturnValue(vi.fn())
+    onExit: vi.fn().mockReturnValue(vi.fn()),
+    onStatus: vi.fn().mockReturnValue(vi.fn())
   },
   mcp: {
     projectOpened: vi.fn().mockResolvedValue({ port: 9315 }),

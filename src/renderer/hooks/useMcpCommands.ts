@@ -48,7 +48,7 @@ export function useMcpCommands() {
         if (!projectCwd) return
 
         // Listen for dev server output to detect URL
-        const removeOutput = window.api.dev.onOutput((data) => {
+        const removeOutput = window.api.dev.onOutput(({ data }) => {
           // Match common dev server URL patterns (Vite, Next, CRA, etc.)
           const urlMatch = data.match(/https?:\/\/localhost:\d+/)
           if (urlMatch) {
@@ -84,7 +84,8 @@ export function useMcpCommands() {
     // canvas_stop_preview
     cleanups.push(
       window.api.mcp.onStopPreview(async () => {
-        await window.api.dev.stop()
+        const projectCwd = useProjectStore.getState().currentProject?.path
+        await window.api.dev.stop(projectCwd)
         useProjectStore.getState().setDevServerRunning(false)
         updateActiveTab({ isDevServerRunning: false, previewUrl: null })
         useWorkspaceStore.getState().closeCanvas()

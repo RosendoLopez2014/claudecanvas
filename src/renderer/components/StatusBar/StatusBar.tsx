@@ -16,7 +16,7 @@ export function StatusBar() {
 
   // Listen for dev server exit (crash, manual kill, etc.)
   useEffect(() => {
-    const removeExit = window.api.dev.onExit(() => {
+    const removeExit = window.api.dev.onExit(({ cwd: _cwd, code: _code }) => {
       setDevServerRunning(false)
       setPreviewUrl(null)
       setStartingStatus(null)
@@ -83,12 +83,12 @@ export function StatusBar() {
   }, [currentProject, isDevServerRunning, startingStatus, setDevServerRunning, setPreviewUrl, openCanvas])
 
   const stopApp = useCallback(async () => {
-    await window.api.dev.stop()
+    await window.api.dev.stop(currentProject?.path)
     setDevServerRunning(false)
     setPreviewUrl(null)
     setStartingStatus(null)
     useToastStore.getState().addToast('Dev server stopped', 'info')
-  }, [setDevServerRunning, setPreviewUrl])
+  }, [currentProject?.path, setDevServerRunning, setPreviewUrl])
 
   return (
     <div className="h-6 flex items-center justify-between px-3 bg-[var(--bg-secondary)] border-t border-white/10 text-[11px] text-white/50">
