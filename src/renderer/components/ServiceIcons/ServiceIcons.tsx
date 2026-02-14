@@ -337,6 +337,31 @@ export function ServiceIcons() {
     return () => window.removeEventListener('keydown', handleKey)
   }, [codeData])
 
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd+Shift+G — Open on GitHub
+      if (e.metaKey && e.shiftKey && e.key === 'G') {
+        e.preventDefault()
+        if (repoName) {
+          window.open(`https://github.com/${repoName}`, '_blank')
+        }
+      }
+      // Cmd+Shift+V — Open Vercel Dashboard
+      if (e.metaKey && e.shiftKey && e.key === 'V') {
+        e.preventDefault()
+        if (status.vercel && vercelUser && linkedProject) {
+          window.open(
+            `https://vercel.com/${vercelUser.username}/${linkedProject.project.name}`,
+            '_blank'
+          )
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [repoName, status.vercel, vercelUser, linkedProject])
+
   // Fetch service statuses + user info on mount
   useEffect(() => {
     Promise.all([
