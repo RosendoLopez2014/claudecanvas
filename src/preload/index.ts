@@ -109,7 +109,8 @@ const api = {
     createPr: (projectPath: string, opts: { title: string; body: string; base: string }) =>
       ipcRenderer.invoke('git:createPr', projectPath, opts) as Promise<
         { url: string; number: number } | { error: string }
-      >
+      >,
+    cleanup: (projectPath: string) => ipcRenderer.invoke('git:cleanup', projectPath)
   },
 
   oauth: {
@@ -191,9 +192,54 @@ const api = {
         >
     },
     supabase: {
-      start: () => ipcRenderer.invoke('oauth:supabase:start'),
-      status: () => ipcRenderer.invoke('oauth:supabase:status'),
-      logout: () => ipcRenderer.invoke('oauth:supabase:logout')
+      start: (args: {
+        bounds: { x: number; y: number; width: number; height: number }
+      }) => ipcRenderer.invoke('oauth:supabase:start', args) as Promise<
+        { token: string } | { error: string }
+      >,
+      cancel: () => ipcRenderer.invoke('oauth:supabase:cancel'),
+      updateBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
+        ipcRenderer.send('oauth:supabase:updateBounds', bounds),
+      status: () =>
+        ipcRenderer.invoke('oauth:supabase:status') as Promise<{
+          connected: boolean
+          name?: string
+          email?: string
+          avatar_url?: string | null
+        }>,
+      logout: () => ipcRenderer.invoke('oauth:supabase:logout'),
+      listProjects: () =>
+        ipcRenderer.invoke('oauth:supabase:listProjects') as Promise<
+          Array<{ id: string; name: string; ref: string; region: string; status: string }> | { error: string }
+        >,
+      projectDetails: (projectRef: string) =>
+        ipcRenderer.invoke('oauth:supabase:projectDetails', projectRef) as Promise<
+          { id: string; name: string; ref: string; region: string; status: string; dbHost: string } | { error: string }
+        >,
+      listTables: (projectRef: string) =>
+        ipcRenderer.invoke('oauth:supabase:listTables', projectRef) as Promise<
+          Array<{ schema: string; name: string; columns: Array<{ name: string; type: string; nullable: boolean }> }> | { error: string }
+        >,
+      runSql: (projectRef: string, sql: string) =>
+        ipcRenderer.invoke('oauth:supabase:runSql', projectRef, sql) as Promise<
+          { rows: unknown[]; rowCount: number } | { error: string }
+        >,
+      listFunctions: (projectRef: string) =>
+        ipcRenderer.invoke('oauth:supabase:listFunctions', projectRef) as Promise<
+          Array<{ id: string; name: string; status: string; created_at: string }> | { error: string }
+        >,
+      listBuckets: (projectRef: string) =>
+        ipcRenderer.invoke('oauth:supabase:listBuckets', projectRef) as Promise<
+          Array<{ id: string; name: string; public: boolean }> | { error: string }
+        >,
+      listPolicies: (projectRef: string) =>
+        ipcRenderer.invoke('oauth:supabase:listPolicies', projectRef) as Promise<
+          Array<{ table: string; name: string; command: string; definition: string }> | { error: string }
+        >,
+      getConnectionInfo: (projectRef: string) =>
+        ipcRenderer.invoke('oauth:supabase:getConnectionInfo', projectRef) as Promise<
+          { url: string; anonKey: string; serviceKey: string; dbUrl: string } | { error: string }
+        >
     }
   },
 
