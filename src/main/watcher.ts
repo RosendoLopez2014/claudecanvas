@@ -1,13 +1,13 @@
 import { watch, FSWatcher } from 'chokidar'
 import { BrowserWindow, ipcMain } from 'electron'
 
-let watcher: FSWatcher | null = null
+const watchers = new Map<string, FSWatcher>()
 
 export function setupFileWatcher(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('fs:watch', (_event, projectPath: string) => {
-    if (watcher) watcher.close()
+    if (watchers.has(projectPath)) return true
 
-    watcher = watch(projectPath, {
+    const w = watch(projectPath, {
       ignored: [
         '**/node_modules/**',
         '**/.git/**',
@@ -20,36 +20,43 @@ export function setupFileWatcher(getWindow: () => BrowserWindow | null): void {
       awaitWriteFinish: { stabilityThreshold: 150, pollInterval: 50 }
     })
 
-    watcher.on('change', (path) => {
+    w.on('change', (path) => {
       const win = getWindow()
       if (win && !win.isDestroyed()) {
-        win.webContents.send('fs:change', path)
+        win.webContents.send('fs:change', { projectPath, path })
       }
     })
 
-    watcher.on('add', (path) => {
+    w.on('add', (path) => {
       const win = getWindow()
       if (win && !win.isDestroyed()) {
-        win.webContents.send('fs:add', path)
+        win.webContents.send('fs:add', { projectPath, path })
       }
     })
 
-    watcher.on('unlink', (path) => {
+    w.on('unlink', (path) => {
       const win = getWindow()
       if (win && !win.isDestroyed()) {
-        win.webContents.send('fs:unlink', path)
+        win.webContents.send('fs:unlink', { projectPath, path })
       }
     })
 
+    watchers.set(projectPath, w)
     return true
   })
 
-  ipcMain.handle('fs:unwatch', () => {
-    watcher?.close()
-    watcher = null
+  ipcMain.handle('fs:unwatch', (_event, projectPath?: string) => {
+    if (projectPath && watchers.has(projectPath)) {
+      watchers.get(projectPath)!.close()
+      watchers.delete(projectPath)
+    } else if (!projectPath) {
+      for (const [, w] of watchers) w.close()
+      watchers.clear()
+    }
   })
 }
 
 export function closeWatcher(): void {
-  watcher?.close()
+  for (const [, w] of watchers) w.close()
+  watchers.clear()
 }
