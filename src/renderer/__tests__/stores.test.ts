@@ -4,6 +4,7 @@ import { useTerminalStore } from '@/stores/terminal'
 import { useCanvasStore } from '@/stores/canvas'
 import { useProjectStore } from '@/stores/project'
 import { useGalleryStore } from '@/stores/gallery'
+import { useTabsStore } from '@/stores/tabs'
 
 describe('WorkspaceStore', () => {
   beforeEach(() => {
@@ -66,7 +67,7 @@ describe('CanvasStore', () => {
       activeTab: 'preview',
       previewUrl: null,
       inspectorActive: false,
-      selectedElement: null
+      selectedElements: []
     })
   })
 
@@ -89,10 +90,16 @@ describe('CanvasStore', () => {
     expect(useCanvasStore.getState().inspectorActive).toBe(true)
   })
 
-  it('sets selected element', () => {
-    const element = { tagName: 'div', componentName: 'Button' }
-    useCanvasStore.getState().setSelectedElement(element)
-    expect(useCanvasStore.getState().selectedElement).toEqual(element)
+  it('adds and clears selected elements', () => {
+    const el1 = { tagName: 'div', componentName: 'Button' }
+    const el2 = { tagName: 'span', componentName: 'Label' }
+    useCanvasStore.getState().addSelectedElement(el1)
+    useCanvasStore.getState().addSelectedElement(el2)
+    expect(useCanvasStore.getState().selectedElements).toHaveLength(2)
+    expect(useCanvasStore.getState().selectedElements[0]).toEqual(el1)
+
+    useCanvasStore.getState().clearSelectedElements()
+    expect(useCanvasStore.getState().selectedElements).toHaveLength(0)
   })
 })
 
@@ -164,5 +171,23 @@ describe('GalleryStore', () => {
   it('selects variant', () => {
     useGalleryStore.getState().setSelectedId('v1')
     expect(useGalleryStore.getState().selectedId).toBe('v1')
+  })
+})
+
+describe('Tab store timestamp fields', () => {
+  beforeEach(() => {
+    useTabsStore.setState({ tabs: [], activeTabId: null })
+  })
+
+  it('tracks lastPushTime and lastFetchTime on tabs', () => {
+    const id = useTabsStore.getState().addTab({ name: 'test', path: '/tmp/test' })
+    const tab = useTabsStore.getState().tabs.find(t => t.id === id)
+    expect(tab?.lastPushTime).toBe(null)
+    expect(tab?.lastFetchTime).toBe(null)
+
+    const now = Date.now()
+    useTabsStore.getState().updateTab(id, { lastPushTime: now })
+    const updated = useTabsStore.getState().tabs.find(t => t.id === id)
+    expect(updated?.lastPushTime).toBe(now)
   })
 })

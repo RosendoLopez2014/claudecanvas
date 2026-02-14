@@ -38,6 +38,8 @@ export interface TabState {
   gitBehind: number
   gitSyncing: boolean
   gitRemoteConfigured: boolean
+  lastPushTime: number | null
+  lastFetchTime: number | null
 }
 
 function createDefaultTabState(project: ProjectInfo): TabState {
@@ -65,6 +67,8 @@ function createDefaultTabState(project: ProjectInfo): TabState {
     gitBehind: 0,
     gitSyncing: false,
     gitRemoteConfigured: false,
+    lastPushTime: null,
+    lastFetchTime: null,
   }
 }
 
@@ -74,6 +78,7 @@ interface TabsStore {
 
   addTab: (project: ProjectInfo) => string
   closeTab: (id: string) => void
+  closeTabAsync: (id: string) => Promise<void>
   setActiveTab: (id: string) => void
   updateTab: (id: string, partial: Omit<Partial<TabState>, 'id' | 'project'>) => void
   getActiveTab: () => TabState | null
@@ -106,6 +111,31 @@ export async function cleanupTabResources(tab: TabState): Promise<void> {
   }
   // Stop file watcher for this project
   window.api.fs.unwatch(tab.project.path)
+  // Release cached git instance for this project
+  window.api.git.cleanup(tab.project.path)
+}
+
+/**
+ * Restore tabs from persisted settings on app startup.
+ * Restores project info and worktree metadata, but NOT runtime state (PTY, dev server).
+ */
+export async function restoreTabs(): Promise<void> {
+  if (typeof window === 'undefined' || !window.api?.settings) return
+  const saved = await window.api.settings.get('tabs')
+  if (!Array.isArray(saved) || saved.length === 0) return
+
+  const tabs: TabState[] = saved.map((s: { project: ProjectInfo; worktreeBranch?: string; worktreePath?: string }) =>
+    ({
+      ...createDefaultTabState(s.project),
+      worktreeBranch: s.worktreeBranch || null,
+      worktreePath: s.worktreePath || null,
+    })
+  )
+
+  useTabsStore.setState({
+    tabs,
+    activeTabId: tabs[0].id,
+  })
 }
 
 export const useTabsStore = create<TabsStore>((set, get) => ({
@@ -135,6 +165,14 @@ export const useTabsStore = create<TabsStore>((set, get) => ({
       return { tabs: newTabs, activeTabId: newActive }
     })
     persistTabs()
+  },
+
+  closeTabAsync: async (id) => {
+    const tab = get().tabs.find((t) => t.id === id)
+    if (tab) {
+      await cleanupTabResources(tab)
+    }
+    get().closeTab(id)
   },
 
   setActiveTab: (id) => set({ activeTabId: id }),
