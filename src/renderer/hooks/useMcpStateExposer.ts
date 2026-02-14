@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useCanvasStore } from '@/stores/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useProjectStore } from '@/stores/project'
@@ -9,12 +9,20 @@ import { useProjectStore } from '@/stores/project'
  * query renderer state synchronously without round-tripping through IPC.
  *
  * window.__canvasState   — general canvas & workspace info
- * window.__inspectorContext — currently-selected inspector element (if any)
+ * window.__inspectorContext — selected inspector elements (array)
  */
 export function useMcpStateExposer() {
-  const { activeTab, previewUrl, inspectorActive, selectedElement } = useCanvasStore()
+  const { activeTab, previewUrl, inspectorActive, selectedElements } = useCanvasStore()
   const { mode } = useWorkspaceStore()
   const { isDevServerRunning, currentProject } = useProjectStore()
+  const [supabaseConnected, setSupabaseConnected] = useState(false)
+
+  // Fetch Supabase connection status
+  useEffect(() => {
+    window.api.oauth.supabase.status().then((s) => {
+      setSupabaseConnected((s as { connected: boolean }).connected)
+    }).catch(() => {})
+  }, [currentProject])
 
   useEffect(() => {
     ;(window as any).__canvasState = {
@@ -24,13 +32,20 @@ export function useMcpStateExposer() {
       workspaceMode: mode,
       devServerRunning: isDevServerRunning,
       projectName: currentProject?.name || null,
-      projectPath: currentProject?.path || null
+      projectPath: currentProject?.path || null,
+      supabaseConnected
     }
-  }, [activeTab, previewUrl, inspectorActive, mode, isDevServerRunning, currentProject])
+  }, [activeTab, previewUrl, inspectorActive, mode, isDevServerRunning, currentProject, supabaseConnected])
 
   useEffect(() => {
-    ;(window as any).__inspectorContext = selectedElement
-      ? { selected: true, ...selectedElement }
-      : { selected: false }
-  }, [selectedElement])
+    ;(window as any).__inspectorContext = selectedElements.length > 0
+      ? {
+          selected: true,
+          count: selectedElements.length,
+          elements: selectedElements,
+          // Backward compat: first element at root
+          ...selectedElements[0]
+        }
+      : { selected: false, count: 0, elements: [] }
+  }, [selectedElements])
 }
