@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useProjectStore, ProjectInfo } from '@/stores/project'
+import { useTabsStore } from '@/stores/tabs'
 import { Plus, FolderOpen, Clock } from 'lucide-react'
 import { motion } from 'framer-motion'
 
@@ -17,6 +18,7 @@ export function ProjectPicker() {
   const openProject = useCallback(
     async (project: ProjectInfo) => {
       project.lastOpened = Date.now()
+      useTabsStore.getState().addTab(project)
       setCurrentProject(project)
       setScreen('workspace')
 

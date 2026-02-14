@@ -7,6 +7,7 @@ import { ProjectPicker } from './components/Onboarding/ProjectPicker'
 import { QuickActions } from './components/QuickActions/QuickActions'
 import { ToastContainer } from './components/Toast/Toast'
 import { useProjectStore } from './stores/project'
+import { useTabsStore } from './stores/tabs'
 import { useToastStore } from './stores/toast'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useMcpCommands } from './hooks/useMcpCommands'
@@ -34,6 +35,10 @@ export default function App() {
       window.api.mcp.projectOpened(currentProject.path).then(({ port }) => {
         addToast(`MCP bridge active on port ${port}`, 'success')
         useProjectStore.getState().setMcpReady(true, port)
+        const activeTab = useTabsStore.getState().getActiveTab()
+        if (activeTab) {
+          useTabsStore.getState().updateTab(activeTab.id, { mcpReady: true, mcpPort: port })
+        }
       })
 
       return () => {
