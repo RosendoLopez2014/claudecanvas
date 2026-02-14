@@ -51,6 +51,7 @@ const mockApi = {
     squashAndPush: vi.fn().mockResolvedValue({ success: true, branch: 'main' }),
     generateCommitMessage: vi.fn().mockResolvedValue('Update components'),
     createPr: vi.fn().mockResolvedValue({ url: 'https://github.com/test/repo/pull/1', number: 1 }),
+    cleanup: vi.fn().mockResolvedValue(undefined),
   },
   oauth: {
     github: {
@@ -64,9 +65,19 @@ const mockApi = {
       logout: vi.fn().mockResolvedValue(undefined)
     },
     supabase: {
-      start: vi.fn().mockResolvedValue({ token: 'test-token' }),
+      start: vi.fn().mockResolvedValue({ token: 'sb-test-token' }),
+      cancel: vi.fn().mockResolvedValue({ cancelled: true }),
+      updateBounds: vi.fn(),
       status: vi.fn().mockResolvedValue({ connected: false }),
-      logout: vi.fn().mockResolvedValue(undefined)
+      logout: vi.fn().mockResolvedValue(undefined),
+      listProjects: vi.fn().mockResolvedValue([]),
+      projectDetails: vi.fn().mockResolvedValue({ error: 'Not connected' }),
+      listTables: vi.fn().mockResolvedValue([]),
+      runSql: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
+      listFunctions: vi.fn().mockResolvedValue([]),
+      listBuckets: vi.fn().mockResolvedValue([]),
+      listPolicies: vi.fn().mockResolvedValue([]),
+      getConnectionInfo: vi.fn().mockResolvedValue({ error: 'Not connected' })
     }
   },
   dev: {
