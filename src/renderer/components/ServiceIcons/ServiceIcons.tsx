@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Github, Triangle, Database, Circle, Loader2, Copy, Check, ArrowRight, ArrowUp, ArrowDown, X, Plus, GitBranch, GitPullRequest, Link, ExternalLink, ChevronDown, ChevronRight, Rocket, Clock, FileText, Globe } from 'lucide-react'
+import { Github, Triangle, Database, Circle, Loader2, Copy, Check, ArrowRight, ArrowUp, ArrowDown, X, Plus, GitBranch, GitPullRequest, Link, ExternalLink, ChevronDown, ChevronRight, Rocket, Clock, FileText, Globe, RefreshCw } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useProjectStore } from '@/stores/project'
@@ -269,6 +269,9 @@ export function ServiceIcons() {
   const [loadingBuildLogs, setLoadingBuildLogs] = useState(false)
   const [importingProject, setImportingProject] = useState(false)
   const [showImportOptions, setShowImportOptions] = useState(false)
+  const [recentDeploys, setRecentDeploys] = useState<Array<{
+    id: string; url: string; state: string; created: number; source: string | null
+  }>>([])
 
   // Supabase-specific state
   const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null)
@@ -643,6 +646,16 @@ export function ServiceIcons() {
       fetchLinkedProject()
     }
   }, [dropdownOpen, fetchLinkedProject, status.vercel, currentProject?.path])
+
+  // Fetch recent deployments when linked project is available
+  useEffect(() => {
+    if (!linkedProject?.project?.id || dropdownOpen !== 'vercel') return
+    window.api.oauth.vercel.deployments(linkedProject.project.id).then((result) => {
+      if (Array.isArray(result)) {
+        setRecentDeploys(result.slice(1, 4)) // Skip latest (already shown), take next 3
+      }
+    }).catch(() => {})
+  }, [linkedProject, dropdownOpen])
 
   // Fetch build logs for a deployment
   const fetchBuildLogs = useCallback(async (deploymentId: string) => {
@@ -1370,29 +1383,43 @@ export function ServiceIcons() {
                       </div>
                     ) : linkedProject ? (
                       <>
-                        {/* Project section */}
+                        {/* Deployment status */}
                         <div className="px-3 py-2.5 border-b border-white/10">
-                          <div className="text-[10px] uppercase tracking-wider text-white/30 mb-1.5">
-                            Project
+                          <div className="text-[10px] uppercase tracking-wider text-white/30 mb-2">
+                            Deployments
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Triangle size={10} className="shrink-0 text-white/50" />
-                            <span className="text-xs font-medium text-white/80 truncate flex-1">
-                              {linkedProject.project.name}
+
+                          {/* Production */}
+                          <div className="flex items-center gap-2 mb-1">
+                            <Circle size={6} className={`shrink-0 ${
+                              linkedProject.latestDeployment
+                                ? deployStateColor(linkedProject.latestDeployment.state)
+                                : 'text-white/20 fill-white/20'
+                            }`} />
+                            <span className="text-[10px] text-white/40 w-16 shrink-0">Production</span>
+                            <span className={`text-xs font-medium flex-1 ${
+                              linkedProject.latestDeployment
+                                ? deployStateColor(linkedProject.latestDeployment.state).split(' ')[0]
+                                : 'text-white/30'
+                            }`}>
+                              {linkedProject.latestDeployment
+                                ? deployStateLabel(linkedProject.latestDeployment.state)
+                                : 'No deploys'}
                             </span>
-                            {linkedProject.project.framework && (
-                              <span className="text-[10px] text-white/25 shrink-0">
-                                {linkedProject.project.framework}
+                            {linkedProject.latestDeployment && (
+                              <span className="text-[10px] text-white/20 shrink-0">
+                                {timeAgo(linkedProject.latestDeployment.created)}
                               </span>
                             )}
                           </div>
+
+                          {/* Production URL */}
                           <a
                             href={linkedProject.project.productionUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center gap-1.5 mt-1.5 text-[11px] text-[var(--accent-cyan)]/70 hover:text-[var(--accent-cyan)] transition-colors"
+                            className="flex items-center gap-1.5 ml-4 text-[10px] text-[var(--accent-cyan)]/60 hover:text-[var(--accent-cyan)] transition-colors"
                           >
-                            <Globe size={9} className="shrink-0" />
                             <span className="truncate">
                               {linkedProject.project.productionUrl.replace('https://', '')}
                             </span>
@@ -1400,82 +1427,88 @@ export function ServiceIcons() {
                           </a>
                         </div>
 
-                        {/* Latest deployment */}
-                        {linkedProject.latestDeployment && (
-                          <div className="px-3 py-2.5 border-b border-white/10">
-                            <div className="text-[10px] uppercase tracking-wider text-white/30 mb-1.5">
-                              Latest Deploy
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Circle
-                                size={6}
-                                className={`shrink-0 ${deployStateColor(linkedProject.latestDeployment.state)}`}
-                              />
-                              <span className={`text-xs font-medium ${deployStateColor(linkedProject.latestDeployment.state).split(' ')[0]}`}>
-                                {deployStateLabel(linkedProject.latestDeployment.state)}
-                              </span>
-                              <span className="text-[10px] text-white/25 ml-auto shrink-0">
-                                {timeAgo(linkedProject.latestDeployment.created)}
-                              </span>
-                            </div>
-                            {linkedProject.latestDeployment.commitMessage && (
-                              <div className="text-[11px] text-white/40 mt-1 truncate">
-                                &quot;{linkedProject.latestDeployment.commitMessage}&quot;
-                              </div>
-                            )}
-                            <a
-                              href={linkedProject.latestDeployment.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-1.5 mt-1.5 text-[10px] text-white/35 hover:text-white/60 transition-colors"
-                            >
-                              <ExternalLink size={8} className="shrink-0" />
-                              <span className="truncate">
-                                {linkedProject.latestDeployment.url.replace('https://', '')}
-                              </span>
-                            </a>
+                        {/* Quick actions */}
+                        <div className="border-b border-white/10">
+                          <button
+                            onClick={async () => {
+                              if (!linkedProject.latestDeployment) return
+                              const { addToast } = useToastStore.getState()
+                              const result = await window.api.oauth.vercel.redeploy(linkedProject.latestDeployment.id)
+                              if ('error' in result) {
+                                addToast(`Redeploy failed: ${result.error}`, 'error')
+                              } else {
+                                addToast('Redeploying...', 'success')
+                                setTimeout(fetchLinkedProject, 3000)
+                              }
+                            }}
+                            disabled={!linkedProject.latestDeployment}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/60 hover:bg-white/5 hover:text-white/80 transition disabled:opacity-30"
+                          >
+                            <RefreshCw size={11} className="shrink-0" />
+                            Redeploy
+                          </button>
+                          <button
+                            onClick={() => {
+                              const url = `https://vercel.com/${vercelUser?.username}/${linkedProject.project.name}`
+                              window.open(url, '_blank')
+                            }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/60 hover:bg-white/5 hover:text-white/80 transition"
+                          >
+                            <ExternalLink size={11} className="shrink-0" />
+                            <span className="flex-1">Open Dashboard</span>
+                            <kbd className="text-[9px] text-white/15 font-mono">&#8984;&#8679;V</kbd>
+                          </button>
+                          <button
+                            onClick={() => {
+                              const url = `https://vercel.com/${vercelUser?.username}/${linkedProject.project.name}/settings/domains`
+                              window.open(url, '_blank')
+                            }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/60 hover:bg-white/5 hover:text-white/80 transition"
+                          >
+                            <Globe size={11} className="shrink-0" />
+                            Manage Domains
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (linkedProject.latestDeployment) {
+                                window.open(
+                                  `https://vercel.com/${vercelUser?.username}/${linkedProject.project.name}/deployments/${linkedProject.latestDeployment.id}`,
+                                  '_blank'
+                                )
+                              }
+                            }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/60 hover:bg-white/5 hover:text-white/80 transition"
+                          >
+                            <FileText size={11} className="shrink-0" />
+                            View Build Logs
+                          </button>
+                        </div>
 
-                            {/* Build logs toggle */}
-                            <button
-                              onClick={() => {
-                                if (showBuildLogs) {
-                                  setShowBuildLogs(false)
-                                } else if (linkedProject.latestDeployment) {
-                                  fetchBuildLogs(linkedProject.latestDeployment.id)
-                                }
-                              }}
-                              className="flex items-center gap-1.5 mt-2 text-[11px] text-white/40 hover:text-white/60 transition-colors"
-                            >
-                              {showBuildLogs ? (
-                                <ChevronDown size={10} className="shrink-0" />
-                              ) : (
-                                <ChevronRight size={10} className="shrink-0" />
-                              )}
-                              <FileText size={10} className="shrink-0" />
-                              Build Logs
-                              {loadingBuildLogs && (
-                                <Loader2 size={10} className="animate-spin text-[var(--accent-cyan)]" />
-                              )}
-                            </button>
-
-                            {/* Build logs content */}
-                            {showBuildLogs && buildLogs.length > 0 && (
-                              <div className="mt-2 max-h-[160px] overflow-y-auto bg-black/40 rounded-md p-2 scrollbar-thin scrollbar-thumb-white/10">
-                                {buildLogs.map((log, i) => (
-                                  <div
-                                    key={i}
-                                    className="text-[10px] font-mono text-white/45 leading-4 whitespace-pre-wrap break-all"
-                                  >
-                                    {log.text}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                            {showBuildLogs && !loadingBuildLogs && buildLogs.length === 0 && (
-                              <div className="mt-2 text-[10px] text-white/25 italic">
-                                No build logs available
-                              </div>
-                            )}
+                        {/* Recent deploys */}
+                        {recentDeploys.length > 0 && (
+                          <div className="border-b border-white/10">
+                            <div className="px-3 pt-2 pb-1">
+                              <div className="text-[10px] uppercase tracking-wider text-white/30">Recent</div>
+                            </div>
+                            <div className="px-1 pb-1.5">
+                              {recentDeploys.map((deploy) => (
+                                <a
+                                  key={deploy.id}
+                                  href={deploy.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-2 px-2 py-1 text-xs text-white/45 hover:bg-white/5 rounded transition"
+                                >
+                                  <Circle size={5} className={`shrink-0 ${deployStateColor(deploy.state)}`} />
+                                  <span className="truncate flex-1 text-[11px]">
+                                    {deploy.source ? `"${deploy.source}"` : 'Deployment'}
+                                  </span>
+                                  <span className="text-[10px] text-white/20 shrink-0">
+                                    {timeAgo(deploy.created)}
+                                  </span>
+                                </a>
+                              ))}
+                            </div>
                           </div>
                         )}
                       </>
