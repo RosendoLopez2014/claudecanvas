@@ -43,6 +43,7 @@ export function StatusBar() {
         useTabsStore.getState().updateTab(activeTab.id, {
           gitAhead: counts.ahead || 0,
           gitBehind: counts.behind || 0,
+          lastFetchTime: Date.now(),
         })
       }
     } else {

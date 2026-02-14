@@ -58,6 +58,7 @@ export function PushPopover({ onClose }: PushPopoverProps) {
           gitAhead: counts.ahead || 0,
           gitBehind: counts.behind || 0,
           gitSyncing: false,
+          lastPushTime: Date.now(),
         })
       }
 
