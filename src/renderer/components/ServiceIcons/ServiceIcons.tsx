@@ -1558,17 +1558,23 @@ export function ServiceIcons() {
                 {status.vercel ? (
                   <button
                     onClick={() => disconnectService('vercel')}
-                    className="w-full px-3 py-2 text-xs text-left text-white/40 hover:bg-white/5 hover:text-white/60 transition"
+                    className="w-full px-3 py-2 text-xs text-left text-white/30 hover:bg-white/5 hover:text-white/50 transition"
                   >
                     Disconnect
                   </button>
                 ) : (
-                  <button
-                    onClick={() => connectService('vercel')}
-                    className="w-full px-3 py-2 text-xs text-left text-[var(--accent-cyan)] hover:bg-white/5 transition"
-                  >
-                    Connect
-                  </button>
+                  <div className="p-4 text-center">
+                    <Triangle size={24} className="mx-auto mb-2.5 text-white/20" />
+                    <p className="text-xs text-white/40 mb-3 leading-relaxed">
+                      Deploy your app and get a<br />live URL in seconds.
+                    </p>
+                    <button
+                      onClick={() => connectService('vercel')}
+                      className="w-full py-2 text-xs font-medium text-black bg-white hover:bg-white/90 rounded-lg transition-colors"
+                    >
+                      Connect to Vercel
+                    </button>
+                  </div>
                 )}
               </motion.div>
             )}
