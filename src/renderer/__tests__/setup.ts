@@ -41,7 +41,11 @@ const mockApi = {
     log: vi.fn().mockResolvedValue([]),
     checkpoint: vi.fn().mockResolvedValue({ hash: 'abc123', message: 'test' }),
     diff: vi.fn().mockResolvedValue(''),
-    show: vi.fn().mockResolvedValue('')
+    diffBetween: vi.fn().mockResolvedValue(''),
+    show: vi.fn().mockResolvedValue(''),
+    remoteUrl: vi.fn().mockResolvedValue(null),
+    getProjectInfo: vi.fn().mockResolvedValue({ remoteUrl: null, branch: null }),
+    setRemote: vi.fn().mockResolvedValue({ ok: true })
   },
   oauth: {
     github: {

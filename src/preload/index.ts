@@ -7,11 +7,14 @@ const api = {
     minimize: () => ipcRenderer.send('window:minimize'),
     maximize: () => ipcRenderer.send('window:maximize'),
     close: () => ipcRenderer.send('window:close'),
-    isMaximized: () => ipcRenderer.invoke('window:isMaximized')
+    isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+    getBounds: () => ipcRenderer.invoke('window:getBounds') as Promise<{ x: number; y: number; width: number; height: number }>,
+    setSize: (width: number, height: number, animate = true) =>
+      ipcRenderer.invoke('window:setSize', width, height, animate)
   },
 
   pty: {
-    spawn: (shell?: string): Promise<string> => ipcRenderer.invoke('pty:spawn', shell),
+    spawn: (shell?: string, cwd?: string): Promise<string> => ipcRenderer.invoke('pty:spawn', shell, cwd),
     write: (id: string, data: string) => ipcRenderer.send('pty:write', id, data),
     resize: (id: string, cols: number, rows: number) => ipcRenderer.send('pty:resize', id, cols, rows),
     kill: (id: string) => ipcRenderer.send('pty:kill', id),
@@ -40,22 +43,38 @@ const api = {
 
   fs: {
     watch: (path: string) => ipcRenderer.invoke('fs:watch', path),
-    unwatch: () => ipcRenderer.invoke('fs:unwatch'),
-    onChange: (cb: (path: string) => void) => {
-      const handler = (_: unknown, path: string) => cb(path)
+    unwatch: (path?: string) => ipcRenderer.invoke('fs:unwatch', path),
+    onChange: (cb: (data: { projectPath: string; path: string }) => void) => {
+      const handler = (_: unknown, data: { projectPath: string; path: string }) => cb(data)
       ipcRenderer.on('fs:change', handler)
       return () => ipcRenderer.removeListener('fs:change', handler)
     },
-    onAdd: (cb: (path: string) => void) => {
-      const handler = (_: unknown, path: string) => cb(path)
+    onAdd: (cb: (data: { projectPath: string; path: string }) => void) => {
+      const handler = (_: unknown, data: { projectPath: string; path: string }) => cb(data)
       ipcRenderer.on('fs:add', handler)
       return () => ipcRenderer.removeListener('fs:add', handler)
     },
-    onUnlink: (cb: (path: string) => void) => {
-      const handler = (_: unknown, path: string) => cb(path)
+    onUnlink: (cb: (data: { projectPath: string; path: string }) => void) => {
+      const handler = (_: unknown, data: { projectPath: string; path: string }) => cb(data)
       ipcRenderer.on('fs:unlink', handler)
       return () => ipcRenderer.removeListener('fs:unlink', handler)
     }
+  },
+
+  screenshot: {
+    capture: (rect: { x: number; y: number; width: number; height: number }): Promise<string> =>
+      ipcRenderer.invoke('screenshot:capture', rect),
+    captureCheckpoint: (hash: string, projectPath: string): Promise<string | null> =>
+      ipcRenderer.invoke('screenshot:captureCheckpoint', hash, projectPath),
+    loadCheckpoint: (hash: string, projectPath: string): Promise<string | null> =>
+      ipcRenderer.invoke('screenshot:loadCheckpoint', hash, projectPath)
+  },
+
+  inspector: {
+    inject: (): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('inspector:inject'),
+    findFile: (componentName: string, projectPath: string): Promise<string | null> =>
+      ipcRenderer.invoke('inspector:findFile', componentName, projectPath)
   },
 
   render: {
@@ -65,24 +84,97 @@ const api = {
 
   git: {
     init: (cwd: string) => ipcRenderer.invoke('git:init', cwd),
-    status: () => ipcRenderer.invoke('git:status'),
-    branch: () => ipcRenderer.invoke('git:branch'),
-    log: (maxCount?: number) => ipcRenderer.invoke('git:log', maxCount),
-    checkpoint: (message: string) => ipcRenderer.invoke('git:checkpoint', message),
-    diff: (hash?: string) => ipcRenderer.invoke('git:diff', hash),
-    show: (hash: string, filePath: string) => ipcRenderer.invoke('git:show', hash, filePath)
+    status: (projectPath: string) => ipcRenderer.invoke('git:status', projectPath),
+    branch: (projectPath: string) => ipcRenderer.invoke('git:branch', projectPath),
+    log: (projectPath: string, maxCount?: number) => ipcRenderer.invoke('git:log', projectPath, maxCount),
+    checkpoint: (projectPath: string, message: string) => ipcRenderer.invoke('git:checkpoint', projectPath, message),
+    diff: (projectPath: string, hash?: string) => ipcRenderer.invoke('git:diff', projectPath, hash),
+    diffBetween: (projectPath: string, fromHash: string, toHash: string) => ipcRenderer.invoke('git:diffBetween', projectPath, fromHash, toHash),
+    show: (projectPath: string, hash: string, filePath: string) => ipcRenderer.invoke('git:show', projectPath, hash, filePath),
+    remoteUrl: (projectPath: string) => ipcRenderer.invoke('git:remoteUrl', projectPath) as Promise<string | null>,
+    getProjectInfo: (cwd: string) =>
+      ipcRenderer.invoke('git:getProjectInfo', cwd) as Promise<{ remoteUrl: string | null; branch: string | null }>,
+    setRemote: (cwd: string, remoteUrl: string) =>
+      ipcRenderer.invoke('git:setRemote', cwd, remoteUrl) as Promise<{ ok: true } | { error: string }>
   },
 
   oauth: {
     github: {
-      start: () => ipcRenderer.invoke('oauth:github:start'),
+      requestCode: () =>
+        ipcRenderer.invoke('oauth:github:requestCode') as Promise<
+          | { user_code: string; device_code: string; interval: number; expires_in: number }
+          | { error: string }
+        >,
+      start: (args: {
+        bounds: { x: number; y: number; width: number; height: number }
+        deviceCode: string
+        interval: number
+        expiresIn: number
+      }) => ipcRenderer.invoke('oauth:github:start', args),
+      cancel: () => ipcRenderer.invoke('oauth:github:cancel'),
+      updateBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
+        ipcRenderer.send('oauth:github:updateBounds', bounds),
       status: () => ipcRenderer.invoke('oauth:github:status'),
-      logout: () => ipcRenderer.invoke('oauth:github:logout')
+      logout: () => ipcRenderer.invoke('oauth:github:logout'),
+      listRepos: () =>
+        ipcRenderer.invoke('oauth:github:listRepos') as Promise<
+          Array<{ name: string; full_name: string; html_url: string; private: boolean }> | { error: string }
+        >,
+      createRepo: (opts: { name: string; private?: boolean }) =>
+        ipcRenderer.invoke('oauth:github:createRepo', opts) as Promise<
+          { url: string; owner: string } | { error: string }
+        >
     },
     vercel: {
-      start: () => ipcRenderer.invoke('oauth:vercel:start'),
-      status: () => ipcRenderer.invoke('oauth:vercel:status'),
-      logout: () => ipcRenderer.invoke('oauth:vercel:logout')
+      start: (args: {
+        bounds: { x: number; y: number; width: number; height: number }
+      }) => ipcRenderer.invoke('oauth:vercel:start', args) as Promise<
+        { token: string } | { error: string }
+      >,
+      cancel: () => ipcRenderer.invoke('oauth:vercel:cancel'),
+      updateBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
+        ipcRenderer.send('oauth:vercel:updateBounds', bounds),
+      status: () =>
+        ipcRenderer.invoke('oauth:vercel:status') as Promise<{
+          connected: boolean
+          username?: string
+          name?: string | null
+          avatar?: string | null
+        }>,
+      logout: () => ipcRenderer.invoke('oauth:vercel:logout'),
+      listProjects: () =>
+        ipcRenderer.invoke('oauth:vercel:listProjects') as Promise<
+          Array<{ id: string; name: string; framework: string | null; url: string | null }> | { error: string }
+        >,
+      deployments: (projectId: string) =>
+        ipcRenderer.invoke('oauth:vercel:deployments', projectId) as Promise<
+          | Array<{ id: string; url: string; state: string; created: number; source: string | null }>
+          | { error: string }
+        >,
+      buildLogs: (deploymentId: string) =>
+        ipcRenderer.invoke('oauth:vercel:buildLogs', deploymentId) as Promise<
+          Array<{ text: string; created: number; type: string }> | { error: string }
+        >,
+      linkedProject: (args: { projectPath: string; gitRepo?: string }) =>
+        ipcRenderer.invoke('oauth:vercel:linkedProject', args) as Promise<
+          | {
+              linked: true
+              project: { id: string; name: string; framework: string | null; productionUrl: string }
+              latestDeployment: {
+                id: string
+                url: string
+                state: string
+                created: number
+                commitMessage: string | null
+              } | null
+            }
+          | { linked: false }
+          | { error: string }
+        >,
+      importProject: (opts: { name: string; framework?: string; gitRepo: string }) =>
+        ipcRenderer.invoke('oauth:vercel:importProject', opts) as Promise<
+          { id: string; name: string; productionUrl: string } | { error: string }
+        >
     },
     supabase: {
       start: () => ipcRenderer.invoke('oauth:supabase:start'),
@@ -103,6 +195,11 @@ const api = {
       const handler = (_: unknown, code: number) => cb(code)
       ipcRenderer.on('dev:exit', handler)
       return () => ipcRenderer.removeListener('dev:exit', handler)
+    },
+    onStatus: (cb: (status: { stage: string; message: string; url?: string }) => void) => {
+      const handler = (_: unknown, status: { stage: string; message: string; url?: string }) => cb(status)
+      ipcRenderer.on('dev:status', handler)
+      return () => ipcRenderer.removeListener('dev:status', handler)
     }
   },
 

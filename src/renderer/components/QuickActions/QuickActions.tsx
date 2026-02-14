@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { useCanvasStore } from '@/stores/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useProjectStore } from '@/stores/project'
 
 interface QuickAction {
   id: string
@@ -89,8 +90,10 @@ export function QuickActions({ open, onClose }: QuickActionsProps) {
         label: 'Create Checkpoint',
         icon: Save,
         action: async () => {
+          const projectPath = useProjectStore.getState().currentProject?.path
+          if (!projectPath) return
           const message = `Checkpoint at ${new Date().toLocaleTimeString()}`
-          await window.api.git.checkpoint(message)
+          await window.api.git.checkpoint(projectPath, message)
           onClose()
         }
       }

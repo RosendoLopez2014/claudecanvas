@@ -133,9 +133,10 @@ export function useMcpCommands() {
     // canvas_checkpoint — commit + capture screenshot for visual diff
     cleanups.push(
       window.api.mcp.onCheckpoint(async ({ message }) => {
-        const result = await window.api.git.checkpoint(message)
         const project = useProjectStore.getState().currentProject
-        if (result?.hash && project?.path) {
+        if (!project?.path) return
+        const result = await window.api.git.checkpoint(project.path, message)
+        if (result?.hash) {
           await window.api.screenshot.captureCheckpoint(result.hash, project.path)
         }
       })
