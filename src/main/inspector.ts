@@ -191,6 +191,120 @@ const OVERLAY_JS = `(function() {
     'border:2px solid #4AEAFF;background:rgba(74,234,255,0.08);border-radius:2px;display:none;';
   container.appendChild(highlight);
 
+  // Layout overlay elements (margin/padding box model + flex/grid indicators)
+  var marginOverlay = document.createElement('div');
+  marginOverlay.style.cssText = 'position:fixed;pointer-events:none;display:none;' +
+    'border:1px dashed rgba(255,107,74,0.4);background:rgba(255,107,74,0.05);';
+  container.appendChild(marginOverlay);
+
+  var paddingOverlay = document.createElement('div');
+  paddingOverlay.style.cssText = 'position:fixed;pointer-events:none;display:none;' +
+    'border:1px dashed rgba(74,222,128,0.4);background:rgba(74,222,128,0.05);';
+  container.appendChild(paddingOverlay);
+
+  var layoutLabel = document.createElement('div');
+  layoutLabel.style.cssText = 'position:fixed;pointer-events:none;display:none;' +
+    'background:rgba(192,132,252,0.9);color:#fff;padding:1px 5px;font-size:9px;' +
+    "border-radius:2px;font-family:'JetBrains Mono',monospace;white-space:nowrap;";
+  container.appendChild(layoutLabel);
+
+  // Gap visualization lines for flex/grid containers
+  var gapLines = [];
+
+  function clearGapLines() {
+    gapLines.forEach(function(l) { l.remove(); });
+    gapLines = [];
+  }
+
+  function showLayoutOverlay(el) {
+    var computed = getComputedStyle(el);
+    var rect = el.getBoundingClientRect();
+
+    // Margin overlay
+    var mt = parseFloat(computed.marginTop) || 0;
+    var mr = parseFloat(computed.marginRight) || 0;
+    var mb = parseFloat(computed.marginBottom) || 0;
+    var ml = parseFloat(computed.marginLeft) || 0;
+    if (mt || mr || mb || ml) {
+      marginOverlay.style.top = (rect.top - mt) + 'px';
+      marginOverlay.style.left = (rect.left - ml) + 'px';
+      marginOverlay.style.width = (rect.width + ml + mr) + 'px';
+      marginOverlay.style.height = (rect.height + mt + mb) + 'px';
+      marginOverlay.style.display = 'block';
+    } else {
+      marginOverlay.style.display = 'none';
+    }
+
+    // Padding overlay (inner box)
+    var pt = parseFloat(computed.paddingTop) || 0;
+    var pr = parseFloat(computed.paddingRight) || 0;
+    var pb = parseFloat(computed.paddingBottom) || 0;
+    var pl = parseFloat(computed.paddingLeft) || 0;
+    if (pt || pr || pb || pl) {
+      paddingOverlay.style.top = (rect.top + pt) + 'px';
+      paddingOverlay.style.left = (rect.left + pl) + 'px';
+      paddingOverlay.style.width = (rect.width - pl - pr) + 'px';
+      paddingOverlay.style.height = (rect.height - pt - pb) + 'px';
+      paddingOverlay.style.display = 'block';
+    } else {
+      paddingOverlay.style.display = 'none';
+    }
+
+    // Flex/Grid layout label
+    var display = computed.display;
+    clearGapLines();
+    if (display === 'flex' || display === 'inline-flex') {
+      var dir = computed.flexDirection;
+      var justify = computed.justifyContent;
+      var align = computed.alignItems;
+      var gap = computed.gap;
+      layoutLabel.textContent = 'flex ' + dir + ' | ' + justify + ' | ' + align + (gap !== 'normal' && gap !== '0px' ? ' | gap:' + gap : '');
+      layoutLabel.style.top = (rect.bottom + 2) + 'px';
+      layoutLabel.style.left = rect.left + 'px';
+      layoutLabel.style.display = 'block';
+
+      // Show gap lines between children
+      if (gap && gap !== 'normal' && gap !== '0px') {
+        var children = el.children;
+        for (var ci = 0; ci < children.length - 1; ci++) {
+          var childRect = children[ci].getBoundingClientRect();
+          var nextRect = children[ci + 1].getBoundingClientRect();
+          var line = document.createElement('div');
+          line.style.cssText = 'position:fixed;pointer-events:none;background:rgba(192,132,252,0.3);';
+          if (dir === 'row' || dir === 'row-reverse') {
+            line.style.top = rect.top + 'px';
+            line.style.left = childRect.right + 'px';
+            line.style.width = Math.max(0, nextRect.left - childRect.right) + 'px';
+            line.style.height = rect.height + 'px';
+          } else {
+            line.style.top = childRect.bottom + 'px';
+            line.style.left = rect.left + 'px';
+            line.style.width = rect.width + 'px';
+            line.style.height = Math.max(0, nextRect.top - childRect.bottom) + 'px';
+          }
+          container.appendChild(line);
+          gapLines.push(line);
+        }
+      }
+    } else if (display === 'grid' || display === 'inline-grid') {
+      var cols = computed.gridTemplateColumns;
+      var rows = computed.gridTemplateRows;
+      layoutLabel.textContent = 'grid | cols:' + (cols || 'auto') + ' | rows:' + (rows || 'auto');
+      layoutLabel.style.top = (rect.bottom + 2) + 'px';
+      layoutLabel.style.left = rect.left + 'px';
+      layoutLabel.style.display = 'block';
+    } else {
+      layoutLabel.style.display = 'none';
+    }
+  }
+
+  function hideLayoutOverlay() {
+    marginOverlay.style.display = 'none';
+    paddingOverlay.style.display = 'none';
+    layoutLabel.style.display = 'none';
+    clearGapLines();
+  }
+
   var tooltip = document.createElement('div');
   tooltip.style.cssText =
     'position:fixed;pointer-events:none;background:rgba(10,15,26,0.95);' +
@@ -274,6 +388,7 @@ const OVERLAY_JS = `(function() {
   function hideHighlight() {
     highlight.style.display = 'none';
     tooltip.style.display = 'none';
+    hideLayoutOverlay();
     currentElement = null;
     document.body.style.cursor = '';
   }
@@ -314,6 +429,9 @@ const OVERLAY_JS = `(function() {
     tooltip.style.display = 'block';
 
     document.body.style.cursor = 'crosshair';
+
+    // Show layout overlay (margin/padding/flex/grid)
+    showLayoutOverlay(el);
   }
 
   document.addEventListener('mousemove', function(e) {
@@ -345,6 +463,36 @@ const OVERLAY_JS = `(function() {
     var textContent = getTextContent(el);
     var a11y = getA11yInfo(el);
 
+    // Parent layout context
+    var parentLayout = {};
+    if (el.parentElement && el.parentElement !== document.body) {
+      var parentStyles = getComputedStyle(el.parentElement);
+      parentLayout.parentDisplay = parentStyles.display;
+      if (parentStyles.display === 'flex' || parentStyles.display === 'inline-flex') {
+        parentLayout.parentFlexDirection = parentStyles.flexDirection;
+        parentLayout.parentJustifyContent = parentStyles.justifyContent;
+        parentLayout.parentAlignItems = parentStyles.alignItems;
+      }
+      if (parentStyles.display === 'grid' || parentStyles.display === 'inline-grid') {
+        parentLayout.parentGridTemplateColumns = parentStyles.gridTemplateColumns;
+      }
+      var gapVal = parentStyles.gap;
+      if (gapVal && gapVal !== 'normal' && gapVal !== '0px') parentLayout.parentGap = gapVal;
+    }
+
+    // Sibling count
+    var siblingCount = el.parentElement ? el.parentElement.children.length : 0;
+
+    // Event handler names from React fiber
+    var eventHandlers = [];
+    var fiber = getFiberFromDOM(el);
+    if (fiber && fiber.memoizedProps) {
+      var eventKeys = Object.keys(fiber.memoizedProps).filter(function(k) {
+        return k.startsWith('on') && typeof fiber.memoizedProps[k] === 'function';
+      });
+      eventHandlers = eventKeys;
+    }
+
     // Add persistent highlight on the clicked element (multi-select: each click adds)
     var displayName = a11y.role && a11y.name
       ? a11y.role + ' "' + a11y.name.substring(0, 30) + '"'
@@ -365,6 +513,9 @@ const OVERLAY_JS = `(function() {
         textContent: textContent,
         styles: styles,
         a11y: a11y,
+        parentLayout: parentLayout,
+        siblingCount: siblingCount,
+        eventHandlers: eventHandlers,
         rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
         html: el.outerHTML.substring(0, 500)
       }
@@ -386,14 +537,80 @@ const OVERLAY_JS = `(function() {
     }
   });
 
-  // ── Error Capture ───────────────────────────────────────────
+  // ── Error Capture + Overlay ─────────────────────────────────
   var errorBuffer = [];
   var MAX_ERRORS = 20;
+  var overlayVisible = false;
+
+  // Create error overlay (hidden by default)
+  var errorOverlay = document.createElement('div');
+  errorOverlay.id = '__claude_error_overlay__';
+  errorOverlay.style.cssText =
+    'position:fixed;bottom:0;left:0;right:0;max-height:40%;overflow-y:auto;' +
+    'background:rgba(15,0,0,0.95);color:#ff6b6b;font-family:ui-monospace,monospace;' +
+    'font-size:12px;z-index:999998;display:none;border-top:2px solid #ff4444;' +
+    'backdrop-filter:blur(8px);';
+
+  var errorHeader = document.createElement('div');
+  errorHeader.style.cssText =
+    'display:flex;align-items:center;justify-content:space-between;padding:8px 12px;' +
+    'background:rgba(255,68,68,0.15);border-bottom:1px solid rgba(255,68,68,0.2);' +
+    'position:sticky;top:0;';
+
+  var headerLabel = document.createElement('span');
+  headerLabel.style.cssText = 'font-weight:600;color:#ff8888;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;';
+  headerLabel.textContent = 'Runtime Errors';
+  errorHeader.appendChild(headerLabel);
+
+  var dismissBtn = document.createElement('button');
+  dismissBtn.textContent = 'Dismiss';
+  dismissBtn.style.cssText =
+    'background:none;border:1px solid rgba(255,68,68,0.3);color:#ff8888;font-size:10px;' +
+    'padding:2px 8px;border-radius:3px;cursor:pointer;font-family:inherit;';
+  dismissBtn.onclick = function() { hideErrorOverlay(); };
+  errorHeader.appendChild(dismissBtn);
+  errorOverlay.appendChild(errorHeader);
+
+  var errorList = document.createElement('div');
+  errorList.style.cssText = 'padding:8px 0;';
+  errorOverlay.appendChild(errorList);
+  document.body.appendChild(errorOverlay);
+
+  function showErrorOverlay() {
+    overlayVisible = true;
+    errorOverlay.style.display = 'block';
+  }
+
+  function hideErrorOverlay() {
+    overlayVisible = false;
+    errorOverlay.style.display = 'none';
+  }
+
+  function renderErrorItem(err) {
+    var item = document.createElement('div');
+    item.style.cssText =
+      'padding:6px 12px;border-bottom:1px solid rgba(255,255,255,0.05);';
+    var msg = document.createElement('div');
+    msg.style.cssText = 'color:#ff6b6b;word-break:break-word;';
+    msg.textContent = err.message;
+    item.appendChild(msg);
+    if (err.file || err.line) {
+      var loc = document.createElement('div');
+      loc.style.cssText = 'color:#666;font-size:10px;margin-top:2px;';
+      loc.textContent = (err.file || '?') + (err.line ? ':' + err.line : '') + (err.column ? ':' + err.column : '');
+      item.appendChild(loc);
+    }
+    return item;
+  }
 
   function postError(err) {
     if (errorBuffer.length >= MAX_ERRORS) errorBuffer.shift();
     errorBuffer.push(err);
     window.parent.postMessage({ type: 'inspector:runtimeError', error: err }, '*');
+
+    // Update overlay
+    errorList.appendChild(renderErrorItem(err));
+    showErrorOverlay();
   }
 
   window.onerror = function(message, source, lineno, colno) {
@@ -420,6 +637,42 @@ const OVERLAY_JS = `(function() {
     }
     postError({ message: parts.join(' '), file: null, line: null, column: null });
   };
+
+  // Allow parent to clear/dismiss overlay
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'inspector:clearErrors') {
+      errorBuffer = [];
+      while (errorList.firstChild) errorList.removeChild(errorList.firstChild);
+      hideErrorOverlay();
+    }
+  });
+
+  // ── Console Log Interception ──────────────────────────────
+  var origLog = console.log;
+  var origWarn = console.warn;
+  var origInfo = console.info;
+
+  function formatArg(a) {
+    if (a === null) return 'null';
+    if (a === undefined) return 'undefined';
+    if (typeof a === 'string') return a;
+    if (typeof a === 'number' || typeof a === 'boolean') return String(a);
+    if (a instanceof Error) return a.message;
+    try { return JSON.stringify(a, null, 2).substring(0, 500); } catch(e) { return String(a); }
+  }
+
+  function postLog(level, args) {
+    var parts = [];
+    for (var i = 0; i < args.length; i++) parts.push(formatArg(args[i]));
+    window.parent.postMessage({
+      type: 'inspector:consoleLog',
+      log: { level: level, message: parts.join(' '), timestamp: Date.now() }
+    }, '*');
+  }
+
+  console.log = function() { origLog.apply(console, arguments); postLog('log', arguments); };
+  console.warn = function() { origWarn.apply(console, arguments); postLog('warn', arguments); };
+  console.info = function() { origInfo.apply(console, arguments); postLog('info', arguments); };
 })();`
 
 export function setupInspectorHandlers(getWindow: () => BrowserWindow | null): void {

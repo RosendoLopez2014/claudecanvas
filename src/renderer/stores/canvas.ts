@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type CanvasTab = 'preview' | 'gallery' | 'timeline' | 'diff'
+export type CanvasTab = 'preview' | 'gallery' | 'timeline' | 'diff' | 'deploy' | 'a11y'
 export type ViewportMode = 'desktop' | 'mobile'
 
 export interface A11yInfo {
@@ -11,6 +11,15 @@ export interface A11yInfo {
   expanded?: boolean
   selected?: boolean
   value?: string
+}
+
+export interface ParentLayoutInfo {
+  parentDisplay?: string
+  parentFlexDirection?: string
+  parentJustifyContent?: string
+  parentAlignItems?: string
+  parentGridTemplateColumns?: string
+  parentGap?: string
 }
 
 export interface ElementContext {
@@ -26,6 +35,9 @@ export interface ElementContext {
   rect?: { top: number; left: number; width: number; height: number }
   styles?: Record<string, string>
   a11y?: A11yInfo
+  parentLayout?: ParentLayoutInfo
+  siblingCount?: number
+  eventHandlers?: string[]
   html?: string
 }
 
@@ -34,6 +46,12 @@ export interface PreviewError {
   file: string | null
   line: number | null
   column: number | null
+}
+
+export interface ConsoleLogEntry {
+  level: 'log' | 'info' | 'warn' | 'error'
+  message: string
+  timestamp: number
 }
 
 interface CanvasStore {
@@ -50,6 +68,7 @@ interface CanvasStore {
   /** @deprecated Use `useTabsStore.getActiveTab().selectedElements` */
   selectedElements: ElementContext[]
   previewErrors: PreviewError[]
+  consoleLogs: ConsoleLogEntry[]
   /** @deprecated Use `useTabsStore.getActiveTab().diffBeforeHash` */
   diffBeforeHash: string | null
   /** @deprecated Use `useTabsStore.getActiveTab().diffAfterHash` */
@@ -68,6 +87,8 @@ interface CanvasStore {
   clearSelectedElements: () => void
   addPreviewError: (err: PreviewError) => void
   clearPreviewErrors: () => void
+  addConsoleLog: (entry: ConsoleLogEntry) => void
+  clearConsoleLogs: () => void
   /** @deprecated Use `useTabsStore.updateTab(id, { diffBeforeHash, diffAfterHash })` */
   setDiffHashes: (before: string | null, after: string | null) => void
 }
@@ -80,6 +101,7 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
   viewportMode: 'desktop' as ViewportMode,
   selectedElements: [],
   previewErrors: [],
+  consoleLogs: [],
   diffBeforeHash: null,
   diffAfterHash: null,
   setActiveTab: (activeTab) => set({ activeTab }),
@@ -91,5 +113,7 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
   clearSelectedElements: () => set({ selectedElements: [] }),
   addPreviewError: (err) => set((s) => ({ previewErrors: [...s.previewErrors.slice(-19), err] })),
   clearPreviewErrors: () => set({ previewErrors: [] }),
+  addConsoleLog: (entry) => set((s) => ({ consoleLogs: [...s.consoleLogs.slice(-49), entry] })),
+  clearConsoleLogs: () => set({ consoleLogs: [] }),
   setDiffHashes: (diffBeforeHash, diffAfterHash) => set({ diffBeforeHash, diffAfterHash })
 }))

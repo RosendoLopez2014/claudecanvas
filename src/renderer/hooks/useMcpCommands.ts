@@ -197,7 +197,7 @@ export function useMcpCommands() {
       })
     )
 
-    // canvas_checkpoint — commit + capture screenshot for visual diff
+    // canvas_checkpoint — commit + capture screenshot + auto-open diff
     cleanups.push(
       window.api.mcp.onCheckpoint(async ({ projectPath: eventPath, message }) => {
         if (shouldSkipEvent(eventPath)) return
@@ -206,6 +206,19 @@ export function useMcpCommands() {
         const result = await window.api.git.checkpoint(project.path, message)
         if (result?.hash) {
           await window.api.screenshot.captureCheckpoint(result.hash, project.path)
+
+          // Auto-open diff tab with this checkpoint's changes
+          const parentHash = result.hash + '~1'
+          useCanvasStore.getState().setDiffHashes(parentHash, result.hash)
+          updateTargetTab(eventPath, {
+            diffBeforeHash: parentHash,
+            diffAfterHash: result.hash,
+            activeCanvasTab: 'diff',
+          })
+          useCanvasStore.getState().setActiveTab('diff')
+          if (useWorkspaceStore.getState().mode !== 'terminal-canvas') {
+            useWorkspaceStore.getState().openCanvas()
+          }
         }
       })
     )
@@ -215,6 +228,19 @@ export function useMcpCommands() {
       window.api.mcp.onNotify(({ projectPath: eventPath, message, type }) => {
         if (shouldSkipEvent(eventPath)) return
         useToastStore.getState().addToast(message, type as 'info' | 'success' | 'error')
+      })
+    )
+
+    // Auto-close canvas when dev server exits
+    cleanups.push(
+      window.api.dev.onExit(({ cwd: _cwd }) => {
+        useCanvasStore.getState().setPreviewUrl(null)
+        const activeTab = useTabsStore.getState().getActiveTab()
+        if (activeTab) {
+          useTabsStore.getState().updateTab(activeTab.id, { isDevServerRunning: false, previewUrl: null })
+        }
+        useWorkspaceStore.getState().closeCanvas()
+        useToastStore.getState().addToast('Dev server stopped', 'info')
       })
     )
 

@@ -43,6 +43,9 @@ export function useInspector(iframeRef: RefObject<HTMLIFrameElement | null>) {
           rect: raw.rect,
           styles: raw.styles,
           a11y: raw.a11y,
+          parentLayout: raw.parentLayout,
+          siblingCount: raw.siblingCount,
+          eventHandlers: raw.eventHandlers,
           html: raw.html
         }
 

@@ -41,7 +41,44 @@ const api = {
     selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory')
   },
 
+  framework: {
+    detect: (projectPath: string) => ipcRenderer.invoke('framework:detect', projectPath),
+  },
+
+  component: {
+    scan: (projectPath: string) => ipcRenderer.invoke('component:scan', projectPath) as Promise<
+      Array<{ name: string; filePath: string; relativePath: string }>
+    >,
+    parse: (filePath: string) => ipcRenderer.invoke('component:parse', filePath) as Promise<{
+      name: string
+      filePath: string
+      renderHtml: string
+    } | null>,
+  },
+
+  template: {
+    list: () => ipcRenderer.invoke('template:list'),
+    scaffold: (opts: { templateId: string; projectName: string; parentDir: string }) =>
+      ipcRenderer.invoke('template:scaffold', opts),
+    onProgress: (cb: (data: { text: string }) => void) => {
+      const handler = (_: unknown, data: { text: string }) => cb(data)
+      ipcRenderer.on('template:progress', handler)
+      return () => ipcRenderer.removeListener('template:progress', handler)
+    }
+  },
+
+  search: {
+    project: (rootPath: string, query: string, caseSensitive?: boolean) =>
+      ipcRenderer.invoke('search:project', rootPath, query, caseSensitive) as Promise<
+        Array<{ filePath: string; relativePath: string; lineNumber: number; lineContent: string }>
+      >,
+  },
+
   fs: {
+    tree: (rootPath: string, depth?: number) =>
+      ipcRenderer.invoke('fs:tree', rootPath, depth) as Promise<
+        Array<{ name: string; path: string; type: 'file' | 'directory'; children?: unknown[] }>
+      >,
     watch: (path: string) => ipcRenderer.invoke('fs:watch', path),
     unwatch: (path?: string) => ipcRenderer.invoke('fs:unwatch', path),
     onChange: (cb: (data: { projectPath: string; path: string }) => void) => {
@@ -59,6 +96,11 @@ const api = {
       ipcRenderer.on('fs:unlink', handler)
       return () => ipcRenderer.removeListener('fs:unlink', handler)
     }
+  },
+
+  visualDiff: {
+    compare: (imageA: string, imageB: string) =>
+      ipcRenderer.invoke('visual-diff:compare', imageA, imageB) as Promise<{ diffPercent: number } | null>,
   },
 
   screenshot: {
@@ -110,7 +152,11 @@ const api = {
       ipcRenderer.invoke('git:createPr', projectPath, opts) as Promise<
         { url: string; number: number } | { error: string }
       >,
-    cleanup: (projectPath: string) => ipcRenderer.invoke('git:cleanup', projectPath)
+    cleanup: (projectPath: string) => ipcRenderer.invoke('git:cleanup', projectPath),
+    rollback: (projectPath: string, hash: string) =>
+      ipcRenderer.invoke('git:rollback', projectPath, hash) as Promise<{ success: boolean; error?: string }>,
+    revertFile: (projectPath: string, hash: string, filePath: string) =>
+      ipcRenderer.invoke('git:revertFile', projectPath, hash, filePath) as Promise<{ success: boolean; error?: string }>,
   },
 
   oauth: {

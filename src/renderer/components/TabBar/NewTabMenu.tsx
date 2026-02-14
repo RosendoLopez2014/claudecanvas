@@ -53,6 +53,11 @@ export function NewTabMenu({ onClose }: NewTabMenuProps) {
         worktreeBranch: result.branch,
         worktreePath: result.path,
       })
+      // Write CLAUDE.md, tool permissions, and trust settings to the worktree dir
+      // so Claude Code running there has canvas instructions and auto-approvals
+      window.api.mcp.projectOpened(result.path).then(({ port }) => {
+        useTabsStore.getState().updateTab(tabId, { mcpReady: true, mcpPort: port })
+      })
       useToastStore.getState().addToast(`Created worktree: ${name}`, 'success')
       onClose()
     } catch (err: any) {
@@ -91,6 +96,10 @@ export function NewTabMenu({ onClose }: NewTabMenuProps) {
       useTabsStore.getState().updateTab(tabId, {
         worktreeBranch: result.branch,
         worktreePath: result.path,
+      })
+      // Write CLAUDE.md, tool permissions, and trust settings to the worktree dir
+      window.api.mcp.projectOpened(result.path).then(({ port }) => {
+        useTabsStore.getState().updateTab(tabId, { mcpReady: true, mcpPort: port })
       })
       useToastStore.getState().addToast(`Opened worktree: ${branch}`, 'success')
       onClose()

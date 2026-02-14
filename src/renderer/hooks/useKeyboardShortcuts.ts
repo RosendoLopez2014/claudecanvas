@@ -7,9 +7,12 @@ import { destroyTerminal } from '@/services/terminalPool'
 
 interface ShortcutHandlers {
   onQuickActions: () => void
+  onShortcutSheet?: () => void
+  onSettings?: () => void
+  onSearch?: () => void
 }
 
-export function useKeyboardShortcuts({ onQuickActions }: ShortcutHandlers) {
+export function useKeyboardShortcuts({ onQuickActions, onShortcutSheet, onSettings, onSearch }: ShortcutHandlers) {
   const { inspectorActive, setInspectorActive, setActiveTab } = useCanvasStore()
   const { mode, openCanvas, closeCanvas } = useWorkspaceStore()
 
@@ -85,6 +88,34 @@ export function useKeyboardShortcuts({ onQuickActions }: ShortcutHandlers) {
         return
       }
 
+      // Cmd+Shift+F — Project search
+      if (meta && e.shiftKey && e.key === 'f') {
+        e.preventDefault()
+        onSearch?.()
+        return
+      }
+
+      // Cmd+? (Cmd+Shift+/) — Shortcut cheat sheet
+      if (meta && e.shiftKey && e.key === '/') {
+        e.preventDefault()
+        onShortcutSheet?.()
+        return
+      }
+
+      // Cmd+B — Toggle file explorer
+      if (meta && e.key === 'b') {
+        e.preventDefault()
+        useWorkspaceStore.getState().toggleFileExplorer()
+        return
+      }
+
+      // Cmd+, — Settings
+      if (meta && e.key === ',') {
+        e.preventDefault()
+        onSettings?.()
+        return
+      }
+
       // Cmd+\ — Toggle canvas
       if (meta && e.key === '\\') {
         e.preventDefault()
@@ -107,7 +138,10 @@ export function useKeyboardShortcuts({ onQuickActions }: ShortcutHandlers) {
       openCanvas,
       closeCanvas,
       setActiveTab,
-      onQuickActions
+      onQuickActions,
+      onShortcutSheet,
+      onSettings,
+      onSearch
     ]
   )
 

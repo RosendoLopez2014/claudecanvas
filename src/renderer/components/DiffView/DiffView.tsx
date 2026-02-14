@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useCanvasStore } from '@/stores/canvas'
 import { useProjectStore } from '@/stores/project'
-import { ArrowLeftRight } from 'lucide-react'
+import { useToastStore } from '@/stores/toast'
+import { ArrowLeftRight, Undo2 } from 'lucide-react'
 
 type DiffMode = 'visual' | 'text'
 
@@ -169,6 +170,8 @@ export function DiffView() {
             rawDiff={diffText}
             collapsedFiles={collapsedFiles}
             toggleFile={toggleFile}
+            beforeHash={diffBeforeHash}
+            projectPath={currentProject?.path || null}
           />
         ) : (
           <VisualDiff
@@ -188,12 +191,16 @@ function TextDiff({
   files,
   rawDiff,
   collapsedFiles,
-  toggleFile
+  toggleFile,
+  beforeHash,
+  projectPath
 }: {
   files: DiffFile[]
   rawDiff: string
   collapsedFiles: Set<number>
   toggleFile: (i: number) => void
+  beforeHash: string
+  projectPath: string | null
 }) {
   if (!rawDiff) {
     return (
@@ -217,19 +224,40 @@ function TextDiff({
       {files.map((file, fi) => (
         <div key={fi} className="border-b border-white/5">
           {/* File header */}
-          <button
-            onClick={() => toggleFile(fi)}
-            className="w-full flex items-center gap-2 px-4 py-2 bg-[var(--bg-tertiary)] hover:bg-white/5 transition text-left"
-          >
-            <span className="text-[10px] text-white/30">{collapsedFiles.has(fi) ? '▶' : '▼'}</span>
-            <span className="text-xs font-mono font-semibold text-blue-400">
-              {extractFilePath(file.header)}
-            </span>
-            <span className="text-[10px] text-white/30 ml-auto">
-              {file.hunks.reduce((sum, h) => sum + h.lines.filter((l) => l.type === 'add').length, 0)} added,{' '}
-              {file.hunks.reduce((sum, h) => sum + h.lines.filter((l) => l.type === 'remove').length, 0)} removed
-            </span>
-          </button>
+          <div className="flex items-center bg-[var(--bg-tertiary)] hover:bg-white/5 transition">
+            <button
+              onClick={() => toggleFile(fi)}
+              className="flex-1 flex items-center gap-2 px-4 py-2 text-left"
+            >
+              <span className="text-[10px] text-white/30">{collapsedFiles.has(fi) ? '▶' : '▼'}</span>
+              <span className="text-xs font-mono font-semibold text-blue-400">
+                {extractFilePath(file.header)}
+              </span>
+              <span className="text-[10px] text-white/30 ml-auto">
+                {file.hunks.reduce((sum, h) => sum + h.lines.filter((l) => l.type === 'add').length, 0)} added,{' '}
+                {file.hunks.reduce((sum, h) => sum + h.lines.filter((l) => l.type === 'remove').length, 0)} removed
+              </span>
+            </button>
+            {projectPath && (
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation()
+                  const fp = extractFilePath(file.header)
+                  if (!confirm(`Revert ${fp} to the "Before" version?`)) return
+                  const result = await window.api.git.revertFile(projectPath, beforeHash, fp)
+                  if (result.success) {
+                    useToastStore.getState().addToast(`Reverted ${fp}`, 'success')
+                  } else {
+                    useToastStore.getState().addToast(`Revert failed: ${result.error}`, 'error')
+                  }
+                }}
+                className="px-3 py-1 mr-2 flex items-center gap-1 text-[10px] text-white/30 hover:text-orange-400 transition-colors"
+                title="Revert this file"
+              >
+                <Undo2 size={10} /> Revert
+              </button>
+            )}
+          </div>
 
           {!collapsedFiles.has(fi) &&
             file.hunks.map((hunk, hi) => (

@@ -17,6 +17,7 @@ export interface TabState {
   activeCanvasTab: CanvasTab
   inspectorActive: boolean
   viewportMode: 'desktop' | 'mobile'
+  viewportWidth: number
   selectedElements: ElementContext[]
   screenshotMode: boolean
   // Gallery
@@ -33,6 +34,8 @@ export interface TabState {
   // Worktree info (null = main working tree)
   worktreeBranch: string | null
   worktreePath: string | null
+  // Token tracking
+  tokenUsage: { sessionTokens: number; lastUpdated: number } | null
   // Git sync
   gitAhead: number
   gitBehind: number
@@ -52,6 +55,7 @@ function createDefaultTabState(project: ProjectInfo): TabState {
     activeCanvasTab: 'preview',
     inspectorActive: false,
     viewportMode: 'desktop',
+    viewportWidth: 0,
     selectedElements: [],
     screenshotMode: false,
     galleryVariants: [],
@@ -63,6 +67,7 @@ function createDefaultTabState(project: ProjectInfo): TabState {
     mcpPort: null,
     worktreeBranch: null,
     worktreePath: null,
+    tokenUsage: null,
     gitAhead: 0,
     gitBehind: 0,
     gitSyncing: false,

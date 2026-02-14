@@ -394,4 +394,34 @@ export function setupGitHandlers(): void {
       }
     }
   )
+
+  // Rollback to a specific commit (hard reset)
+  ipcMain.handle(
+    'git:rollback',
+    async (_event, projectPath: string, hash: string): Promise<{ success: boolean; error?: string }> => {
+      if (!isValidPath(projectPath)) return { success: false, error: 'Invalid path' }
+      try {
+        const git = getGit(projectPath)
+        await git.reset(['--hard', hash])
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Rollback failed' }
+      }
+    }
+  )
+
+  // Revert a single file to a specific commit version
+  ipcMain.handle(
+    'git:revertFile',
+    async (_event, projectPath: string, hash: string, filePath: string): Promise<{ success: boolean; error?: string }> => {
+      if (!isValidPath(projectPath)) return { success: false, error: 'Invalid path' }
+      try {
+        const git = getGit(projectPath)
+        await git.checkout([hash, '--', filePath])
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Revert failed' }
+      }
+    }
+  )
 }

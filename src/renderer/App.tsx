@@ -13,20 +13,47 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useMcpCommands } from './hooks/useMcpCommands'
 import { useMcpStateExposer } from './hooks/useMcpStateExposer'
 import { useGitSync } from './hooks/useGitSync'
+import { useAutoGallery } from './hooks/useAutoGallery'
+import { useAutoCheckpoint } from './hooks/useAutoCheckpoint'
+import { ShortcutSheet } from './components/ShortcutSheet/ShortcutSheet'
+import { SettingsPanel } from './components/Settings/Settings'
+import { SearchPanel } from './components/Search/SearchPanel'
 import { useEffect, useState, useCallback, useRef } from 'react'
 
 export default function App() {
   const { screen, setScreen, currentProject } = useProjectStore()
   const [quickActionsOpen, setQuickActionsOpen] = useState(false)
+  const [shortcutSheetOpen, setShortcutSheetOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
 
   const toggleQuickActions = useCallback(() => {
     setQuickActionsOpen((prev) => !prev)
   }, [])
+  const toggleShortcutSheet = useCallback(() => {
+    setShortcutSheetOpen((prev) => !prev)
+  }, [])
+  const toggleSettings = useCallback(() => {
+    setSettingsOpen((prev) => !prev)
+  }, [])
+  const toggleSearch = useCallback(() => {
+    setSearchOpen((prev) => !prev)
+  }, [])
 
-  useKeyboardShortcuts({ onQuickActions: toggleQuickActions })
+  useKeyboardShortcuts({ onQuickActions: toggleQuickActions, onShortcutSheet: toggleShortcutSheet, onSettings: toggleSettings, onSearch: toggleSearch })
+
+  // Listen for StatusBar settings button
+  useEffect(() => {
+    const handler = () => setSettingsOpen(true)
+    window.addEventListener('open-settings', handler)
+    return () => window.removeEventListener('open-settings', handler)
+  }, [])
+
   useMcpCommands()
   useMcpStateExposer()
   useGitSync()
+  useAutoGallery()
+  useAutoCheckpoint()
 
   // Start MCP server once when entering workspace. The server stays alive
   // across tab switches — each MCP tool event carries projectPath so the
@@ -87,6 +114,9 @@ export default function App() {
       </div>
       {screen === 'workspace' && <StatusBar />}
       <QuickActions open={quickActionsOpen} onClose={() => setQuickActionsOpen(false)} />
+      <ShortcutSheet open={shortcutSheetOpen} onClose={() => setShortcutSheetOpen(false)} />
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SearchPanel open={searchOpen} onClose={() => setSearchOpen(false)} />
       <ToastContainer />
     </div>
   )

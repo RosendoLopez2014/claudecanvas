@@ -1,8 +1,10 @@
 import { Terminal } from '@xterm/xterm'
+import type { SearchAddon } from '@xterm/addon-search'
 
 interface PoolEntry {
   terminal: Terminal
   container: HTMLDivElement | null
+  searchAddon: SearchAddon | null
 }
 
 const pool = new Map<string, PoolEntry>()
@@ -13,7 +15,7 @@ export function getOrCreateTerminal(
 ): Terminal {
   if (pool.has(tabId)) return pool.get(tabId)!.terminal
   const terminal = new Terminal(options as ConstructorParameters<typeof Terminal>[0])
-  pool.set(tabId, { terminal, container: null })
+  pool.set(tabId, { terminal, container: null, searchAddon: null })
   return terminal
 }
 
@@ -40,6 +42,15 @@ export function destroyTerminal(tabId: string): void {
     }
     pool.delete(tabId)
   }
+}
+
+export function setSearchAddon(tabId: string, addon: SearchAddon): void {
+  const entry = pool.get(tabId)
+  if (entry) entry.searchAddon = addon
+}
+
+export function getSearchAddon(tabId: string): SearchAddon | null {
+  return pool.get(tabId)?.searchAddon || null
 }
 
 export function getTerminal(tabId: string): Terminal | null {

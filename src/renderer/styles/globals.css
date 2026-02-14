@@ -66,15 +66,6 @@ body {
   background: rgba(255, 255, 255, 0.2);
 }
 
-/* Smooth transitions for allotment panes */
-.sash-container .sash {
-  transition: background-color 0.15s ease;
-}
-
-.sash-container .sash:hover {
-  background-color: var(--accent-cyan) !important;
-}
-
 /* xterm inline render decoration transitions */
 .xterm-decoration-container {
   transition: opacity 0.3s ease;

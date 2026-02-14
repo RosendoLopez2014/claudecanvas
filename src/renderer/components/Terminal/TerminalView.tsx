@@ -1,4 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { Allotment } from 'allotment'
+import 'allotment/dist/style.css'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { FitAddon } from '@xterm/addon-fit'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
@@ -9,8 +11,13 @@ import { useTerminalStore } from '@/stores/terminal'
 import {
   getOrCreateTerminal,
   setTerminalContainer,
-  showTerminal
+  showTerminal,
+  setSearchAddon,
+  getSearchAddon,
+  destroyTerminal,
+  hasTerminal
 } from '@/services/terminalPool'
+import { X, Plus, ChevronDown, Terminal as TerminalIcon } from 'lucide-react'
 
 const TERMINAL_OPTIONS = {
   fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
@@ -53,71 +60,55 @@ interface TerminalViewProps {
   autoLaunchClaude?: boolean
 }
 
-export function TerminalView({ cwd, tabId, autoLaunchClaude = true }: TerminalViewProps) {
-  const wrapperRef = useRef<HTMLDivElement>(null)
-  const fitAddons = useRef(new Map<string, FitAddon>())
-  const initializedTabs = useRef(new Set<string>())
+/** A single terminal pane within a split layout */
+function SplitPane({
+  poolKey,
+  cwd,
+  autoLaunchClaude,
+  onClose,
+  showClose
+}: {
+  poolKey: string
+  cwd?: string
+  autoLaunchClaude: boolean
+  onClose?: () => void
+  showClose: boolean
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const fitAddonRef = useRef<FitAddon | null>(null)
+  const initializedRef = useRef(false)
   const { connect, resize } = usePty()
 
-  // Initialize terminal for current tabId
   useEffect(() => {
-    if (!wrapperRef.current || !tabId) return
+    if (!containerRef.current || initializedRef.current) return
+    initializedRef.current = true
 
-    if (!initializedTabs.current.has(tabId)) {
-      initializedTabs.current.add(tabId)
+    const container = containerRef.current
+    const terminal = getOrCreateTerminal(poolKey, TERMINAL_OPTIONS)
+    setTerminalContainer(poolKey, container)
 
-      // Create a dedicated container div for this tab's terminal
-      const container = document.createElement('div')
-      container.style.width = '100%'
-      container.style.height = '100%'
-      container.style.padding = '8px 0 0 8px'
-      wrapperRef.current.appendChild(container)
+    const fitAddon = new FitAddon()
+    fitAddonRef.current = fitAddon
 
-      const terminal = getOrCreateTerminal(tabId, TERMINAL_OPTIONS)
-      setTerminalContainer(tabId, container)
+    terminal.loadAddon(fitAddon)
+    terminal.loadAddon(new Unicode11Addon())
+    const searchAddon = new SearchAddon()
+    terminal.loadAddon(searchAddon)
+    setSearchAddon(poolKey, searchAddon)
 
-      const fitAddon = new FitAddon()
-      fitAddons.current.set(tabId, fitAddon)
+    terminal.open(container)
 
-      terminal.loadAddon(fitAddon)
-      terminal.loadAddon(new Unicode11Addon())
-      terminal.loadAddon(new SearchAddon())
-
-      terminal.open(container)
-
-      // Load WebGL addon after terminal is open
-      try {
-        terminal.loadAddon(new WebglAddon())
-      } catch {
-        console.warn('WebGL addon failed to load, using canvas renderer')
-      }
-
-      fitAddon.fit()
-
-      // Spawn PTY now that terminal is ready
-      connect(terminal, cwd, { autoLaunchClaude })
-
-      // Expose focus function for the active terminal
-      useTerminalStore.getState().setFocusFn(() => terminal.focus())
+    try {
+      terminal.loadAddon(new WebglAddon())
+    } catch {
+      console.warn('WebGL addon failed to load, using canvas renderer')
     }
 
-    // Show this tab's terminal, hide others
-    showTerminal(tabId)
+    fitAddon.fit()
+    connect(terminal, cwd, { autoLaunchClaude })
+    useTerminalStore.getState().setFocusFn(() => terminal.focus())
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Update focus function to point to the now-active terminal
-    const activeTerminal = getOrCreateTerminal(tabId, TERMINAL_OPTIONS)
-    useTerminalStore.getState().setFocusFn(() => activeTerminal.focus())
-
-    // Re-fit the active terminal after display change
-    const fitAddon = fitAddons.current.get(tabId)
-    if (fitAddon) {
-      setTimeout(() => fitAddon.fit(), 50)
-    }
-  }, [tabId]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Handle resize -- debounced so the terminal only re-fits AFTER
-  // the canvas animation completes, not on every intermediate frame.
-  // Uses 320ms debounce to match the 300ms CSS transition.
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
 
@@ -125,25 +116,313 @@ export function TerminalView({ cwd, tabId, autoLaunchClaude = true }: TerminalVi
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => {
         timer = null
-        if (!tabId) return
-        const fitAddon = fitAddons.current.get(tabId)
-        const terminal = getOrCreateTerminal(tabId, TERMINAL_OPTIONS)
-        if (fitAddon && terminal) {
-          fitAddon.fit()
-          resize(terminal.cols, terminal.rows)
-        }
+        if (!fitAddonRef.current) return
+        const terminal = getOrCreateTerminal(poolKey, TERMINAL_OPTIONS)
+        fitAddonRef.current.fit()
+        resize(terminal.cols, terminal.rows)
       }, 320)
     })
 
-    if (wrapperRef.current) {
-      observer.observe(wrapperRef.current)
+    if (containerRef.current) {
+      observer.observe(containerRef.current)
     }
 
     return () => {
       observer.disconnect()
       if (timer) clearTimeout(timer)
     }
-  }, [tabId, resize])
+  }, [poolKey, resize])
 
-  return <div ref={wrapperRef} className="w-full h-full relative" />
+  return (
+    <div className="w-full h-full relative group/split">
+      <div
+        ref={containerRef}
+        className="w-full h-full"
+        style={{ padding: '8px 0 0 8px' }}
+      />
+      {showClose && (
+        <button
+          onClick={onClose}
+          className="absolute top-1 right-1 p-0.5 rounded opacity-0 group-hover/split:opacity-100 hover:bg-white/10 transition-opacity z-10"
+          title="Close split"
+        >
+          <X size={12} className="text-white/40" />
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** Terminal content for a single instance (may contain splits) */
+function TerminalContent({
+  tabId,
+  instanceId,
+  cwd,
+  autoLaunchClaude,
+  visible
+}: {
+  tabId: string
+  instanceId: string
+  cwd?: string
+  autoLaunchClaude: boolean
+  visible: boolean
+}) {
+  const splits = useTerminalStore((s) => s.getSplits(tabId))
+  const addSplit = useTerminalStore((s) => s.addSplit)
+  const removeSplit = useTerminalStore((s) => s.removeSplit)
+
+  const mainKey = `${tabId}:${instanceId}`
+  const allPanes = [
+    { key: mainKey, isMain: true },
+    ...splits.map((s) => ({ key: `${tabId}:${instanceId}:${s.id}`, isMain: false }))
+  ]
+
+  const handleCloseSplit = useCallback((splitId: string) => {
+    const poolKey = `${tabId}:${instanceId}:${splitId}`
+    destroyTerminal(poolKey)
+    removeSplit(tabId, splitId)
+  }, [tabId, instanceId, removeSplit])
+
+  // Cmd+D to add split
+  useEffect(() => {
+    if (!visible) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.metaKey && e.key === 'd' && !e.shiftKey && !e.ctrlKey) {
+        e.preventDefault()
+        addSplit(tabId)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [visible, tabId, addSplit])
+
+  return (
+    <div className="w-full h-full" style={{ display: visible ? 'block' : 'none' }}>
+      {allPanes.length === 1 ? (
+        <SplitPane
+          key={allPanes[0].key}
+          poolKey={allPanes[0].key}
+          cwd={cwd}
+          autoLaunchClaude={autoLaunchClaude}
+          showClose={false}
+        />
+      ) : (
+        <Allotment>
+          {allPanes.map((pane) => (
+            <Allotment.Pane key={pane.key}>
+              <SplitPane
+                poolKey={pane.key}
+                cwd={cwd}
+                autoLaunchClaude={pane.isMain ? autoLaunchClaude : false}
+                onClose={pane.isMain ? undefined : () => {
+                  const splitId = pane.key.split(':').pop()
+                  if (splitId) handleCloseSplit(splitId)
+                }}
+                showClose={!pane.isMain}
+              />
+            </Allotment.Pane>
+          ))}
+        </Allotment>
+      )}
+    </div>
+  )
+}
+
+export function TerminalView({ cwd, tabId, autoLaunchClaude = true }: TerminalViewProps) {
+  const ensureDefaultInstance = useTerminalStore((s) => s.ensureDefaultInstance)
+  const addInstance = useTerminalStore((s) => s.addInstance)
+  const removeInstance = useTerminalStore((s) => s.removeInstance)
+  const setActiveInstance = useTerminalStore((s) => s.setActiveInstance)
+  const instances = useTerminalStore((s) => tabId ? s.getInstances(tabId) : [])
+  const activeInstanceId = useTerminalStore((s) => tabId ? s.getActiveInstance(tabId) : '')
+
+  const [selectorOpen, setSelectorOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  // Ensure at least one terminal instance exists for this tab
+  useEffect(() => {
+    if (!tabId) return
+    ensureDefaultInstance(tabId)
+  }, [tabId, ensureDefaultInstance])
+
+  const handleAddTerminal = useCallback(() => {
+    if (!tabId) return
+    addInstance(tabId)
+    setSelectorOpen(false)
+  }, [tabId, addInstance])
+
+  const handleRemoveTerminal = useCallback((instanceId: string) => {
+    if (!tabId) return
+    // Destroy all pool entries for this instance (main + splits)
+    destroyTerminal(`${tabId}:${instanceId}`)
+    removeInstance(tabId, instanceId)
+    setSelectorOpen(false)
+  }, [tabId, removeInstance])
+
+  const handleSelectTerminal = useCallback((instanceId: string) => {
+    if (!tabId) return
+    setActiveInstance(tabId, instanceId)
+    setSelectorOpen(false)
+  }, [tabId, setActiveInstance])
+
+  // Ctrl+F search
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f' && !e.shiftKey) {
+        e.preventDefault()
+        setSearchOpen(true)
+        setTimeout(() => searchInputRef.current?.focus(), 50)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
+  const currentPoolKey = tabId && activeInstanceId ? `${tabId}:${activeInstanceId}` : null
+
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value)
+    if (!currentPoolKey) return
+    const addon = getSearchAddon(currentPoolKey)
+    if (!addon) return
+    if (value) {
+      addon.findNext(value, { incremental: true })
+    } else {
+      addon.clearDecorations()
+    }
+  }, [currentPoolKey])
+
+  const findNext = useCallback(() => {
+    if (!currentPoolKey || !searchQuery) return
+    getSearchAddon(currentPoolKey)?.findNext(searchQuery)
+  }, [currentPoolKey, searchQuery])
+
+  const findPrevious = useCallback(() => {
+    if (!currentPoolKey || !searchQuery) return
+    getSearchAddon(currentPoolKey)?.findPrevious(searchQuery)
+  }, [currentPoolKey, searchQuery])
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false)
+    setSearchQuery('')
+    if (currentPoolKey) getSearchAddon(currentPoolKey)?.clearDecorations()
+  }, [currentPoolKey])
+
+  const showToolbar = instances.length > 1
+  const activeLabel = instances.find((i) => i.id === activeInstanceId)?.label || 'Terminal 1'
+
+  return (
+    <div className="w-full h-full flex flex-col relative">
+      {/* Terminal toolbar — only visible with multiple terminals */}
+      {showToolbar && (
+        <div className="h-7 flex-shrink-0 flex items-center justify-between px-2 bg-[#0A0F1A] border-b border-white/5">
+          <div className="relative">
+            <button
+              onClick={() => setSelectorOpen((v) => !v)}
+              className="flex items-center gap-1.5 px-2 py-0.5 text-xs text-white/50 hover:text-white/80 hover:bg-white/5 rounded transition-colors"
+            >
+              <TerminalIcon size={11} />
+              <span>{activeLabel}</span>
+              <ChevronDown size={10} />
+            </button>
+
+            {selectorOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setSelectorOpen(false)} />
+                <div className="absolute left-0 top-full mt-1 z-50 bg-[var(--bg-secondary)] border border-white/10 rounded-lg py-1 shadow-xl min-w-[160px]">
+                  {instances.map((inst) => (
+                    <div key={inst.id} className="flex items-center group">
+                      <button
+                        onClick={() => handleSelectTerminal(inst.id)}
+                        className={`flex-1 text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors ${
+                          inst.id === activeInstanceId ? 'text-[var(--accent-cyan)]' : 'text-white/60'
+                        }`}
+                      >
+                        {inst.label}
+                      </button>
+                      {instances.length > 1 && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleRemoveTerminal(inst.id)
+                          }}
+                          className="px-2 py-1 opacity-0 group-hover:opacity-100 hover:text-red-400 text-white/30 transition-opacity"
+                          title="Close terminal"
+                        >
+                          <X size={10} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <div className="border-t border-white/5 mt-1 pt-1">
+                    <button
+                      onClick={handleAddTerminal}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-white/40 hover:text-white/60 hover:bg-white/5 transition-colors"
+                    >
+                      <Plus size={10} />
+                      New Terminal
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          <button
+            onClick={handleAddTerminal}
+            className="p-1 hover:bg-white/10 rounded transition-colors"
+            title="New terminal"
+          >
+            <Plus size={12} className="text-white/40" />
+          </button>
+        </div>
+      )}
+
+      {/* Terminal content area */}
+      <div className="flex-1 min-h-0">
+        {instances.map((inst, idx) => (
+          <TerminalContent
+            key={inst.id}
+            tabId={tabId || 'default'}
+            instanceId={inst.id}
+            cwd={cwd}
+            autoLaunchClaude={idx === 0 ? autoLaunchClaude : false}
+            visible={inst.id === activeInstanceId}
+          />
+        ))}
+      </div>
+
+      {/* Terminal search bar */}
+      {searchOpen && (
+        <div className="absolute top-2 right-2 flex items-center gap-1.5 bg-[var(--bg-secondary)] border border-white/10 rounded-lg px-2 py-1.5 shadow-lg z-10">
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.shiftKey ? findPrevious() : findNext()
+              } else if (e.key === 'Escape') {
+                closeSearch()
+              }
+            }}
+            placeholder="Find in terminal..."
+            className="w-40 bg-transparent text-xs text-white placeholder-white/30 outline-none"
+          />
+          <button onClick={findPrevious} className="p-0.5 hover:bg-white/10 rounded text-white/40 hover:text-white/60 text-[10px]" title="Previous (Shift+Enter)">
+            ↑
+          </button>
+          <button onClick={findNext} className="p-0.5 hover:bg-white/10 rounded text-white/40 hover:text-white/60 text-[10px]" title="Next (Enter)">
+            ↓
+          </button>
+          <button onClick={closeSearch} className="p-0.5 hover:bg-white/10 rounded text-white/40 hover:text-white/60 text-[10px]" title="Close (Esc)">
+            ✕
+          </button>
+        </div>
+      )}
+    </div>
+  )
 }

@@ -24,7 +24,26 @@ const mockApi = {
   dialog: {
     selectDirectory: vi.fn().mockResolvedValue(null)
   },
+  framework: {
+    detect: vi.fn().mockResolvedValue(null),
+  },
+  component: {
+    scan: vi.fn().mockResolvedValue([]),
+    parse: vi.fn().mockResolvedValue(null),
+  },
+  search: {
+    project: vi.fn().mockResolvedValue([]),
+  },
+  visualDiff: {
+    compare: vi.fn().mockResolvedValue({ diffPercent: 0 }),
+  },
+  template: {
+    list: vi.fn().mockResolvedValue([]),
+    scaffold: vi.fn().mockResolvedValue({ success: true, path: '/tmp/test-project' }),
+    onProgress: vi.fn().mockReturnValue(vi.fn())
+  },
   fs: {
+    tree: vi.fn().mockResolvedValue([]),
     watch: vi.fn().mockResolvedValue(true),
     unwatch: vi.fn().mockResolvedValue(undefined),
     onChange: vi.fn().mockReturnValue(vi.fn()),
@@ -52,6 +71,8 @@ const mockApi = {
     generateCommitMessage: vi.fn().mockResolvedValue('Update components'),
     createPr: vi.fn().mockResolvedValue({ url: 'https://github.com/test/repo/pull/1', number: 1 }),
     cleanup: vi.fn().mockResolvedValue(undefined),
+    rollback: vi.fn().mockResolvedValue({ success: true }),
+    revertFile: vi.fn().mockResolvedValue({ success: true }),
   },
   oauth: {
     github: {

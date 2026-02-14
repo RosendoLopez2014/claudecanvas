@@ -15,6 +15,13 @@ import { writeMcpConfig, removeMcpConfig } from './mcp/config-writer'
 import { setupScreenshotHandlers } from './screenshot'
 import { setupInspectorHandlers } from './inspector'
 import { setupWorktreeHandlers } from './services/worktree'
+import { setupTemplateHandlers } from './services/templates'
+import { setupFrameworkDetectHandlers } from './services/framework-detect'
+import { setupComponentParserHandlers } from './services/component-parser'
+import { setupVisualDiffHandlers } from './services/visual-diff'
+import { setupFileTreeHandlers } from './services/file-tree'
+import { setupSearchHandlers } from './services/search'
+import { setupComponentScannerHandlers } from './services/component-scanner'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -71,6 +78,13 @@ app.whenReady().then(() => {
   setupScreenshotHandlers(() => mainWindow)
   setupInspectorHandlers(() => mainWindow)
   setupWorktreeHandlers()
+  setupTemplateHandlers(() => mainWindow)
+  setupFrameworkDetectHandlers()
+  setupComponentParserHandlers()
+  setupVisualDiffHandlers(() => mainWindow)
+  setupFileTreeHandlers()
+  setupSearchHandlers()
+  setupComponentScannerHandlers()
 
   // MCP Bridge — start server when a project opens
   ipcMain.handle('mcp:project-opened', async (_event, projectPath: string) => {

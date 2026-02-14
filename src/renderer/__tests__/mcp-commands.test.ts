@@ -6,7 +6,7 @@ import { useToastStore } from '@/stores/toast'
 
 describe('MCP Command Effects', () => {
   beforeEach(() => {
-    useCanvasStore.setState({ activeTab: 'preview', previewUrl: null, inspectorActive: false, selectedElement: null })
+    useCanvasStore.setState({ activeTab: 'preview', previewUrl: null, inspectorActive: false, selectedElements: [] })
     useWorkspaceStore.setState({ mode: 'terminal-only', canvasSplit: 50 })
     useGalleryStore.setState({ variants: [], selectedId: null })
     useToastStore.setState({ toasts: [] })

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useProjectStore } from '@/stores/project'
 import { useCanvasStore } from '@/stores/canvas'
 import { useToastStore } from '@/stores/toast'
-import { GitCommit, Plus } from 'lucide-react'
+import { GitCommit, Plus, RotateCcw } from 'lucide-react'
 import { motion } from 'framer-motion'
 
 interface Checkpoint {
@@ -12,9 +12,13 @@ interface Checkpoint {
   author: string
 }
 
+/** Visual diff percentage per checkpoint (compared to previous) */
+type DiffMap = Map<string, number | null>
+
 export function Timeline() {
   const { currentProject } = useProjectStore()
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
+  const [visualDiffs, setVisualDiffs] = useState<DiffMap>(new Map())
   const diffBeforeHash = useCanvasStore((s) => s.diffBeforeHash)
   const diffAfterHash = useCanvasStore((s) => s.diffAfterHash)
   const setDiffHashes = useCanvasStore((s) => s.setDiffHashes)
@@ -30,6 +34,37 @@ export function Timeline() {
   useEffect(() => {
     loadCheckpoints()
   }, [loadCheckpoints])
+
+  // Compute visual diffs between adjacent checkpoints
+  useEffect(() => {
+    if (!currentProject?.path || checkpoints.length < 2) return
+    let cancelled = false
+
+    async function computeDiffs() {
+      const diffs: DiffMap = new Map()
+      // Compare each checkpoint to the one before it (older)
+      for (let i = 0; i < checkpoints.length - 1; i++) {
+        const current = checkpoints[i]
+        const previous = checkpoints[i + 1]
+        const [imgA, imgB] = await Promise.all([
+          window.api.screenshot.loadCheckpoint(current.hash, currentProject!.path),
+          window.api.screenshot.loadCheckpoint(previous.hash, currentProject!.path),
+        ])
+        if (cancelled) return
+        if (imgA && imgB) {
+          const result = await window.api.visualDiff.compare(imgA, imgB)
+          if (cancelled) return
+          diffs.set(current.hash, result?.diffPercent ?? null)
+        } else {
+          diffs.set(current.hash, null)
+        }
+      }
+      if (!cancelled) setVisualDiffs(diffs)
+    }
+
+    computeDiffs()
+    return () => { cancelled = true }
+  }, [checkpoints, currentProject?.path])
 
   // Reload when switching to timeline tab
   const activeTab = useCanvasStore((s) => s.activeTab)
@@ -82,6 +117,21 @@ export function Timeline() {
     },
     [diffBeforeHash, diffAfterHash, setDiffHashes, setActiveTab]
   )
+
+  const [rollbackTarget, setRollbackTarget] = useState<string | null>(null)
+
+  const handleRollback = useCallback(async (hash: string, message: string) => {
+    if (!currentProject?.path) return
+    setRollbackTarget(hash)
+    const result = await window.api.git.rollback(currentProject.path, hash)
+    setRollbackTarget(null)
+    if (result.success) {
+      useToastStore.getState().addToast(`Rolled back to: ${message}`, 'success')
+      loadCheckpoints()
+    } else {
+      useToastStore.getState().addToast(`Rollback failed: ${result.error}`, 'error')
+    }
+  }, [currentProject?.path, loadCheckpoints])
 
   const getSelectionState = (hash: string): 'before' | 'after' | null => {
     if (hash === diffBeforeHash) return 'before'
@@ -168,7 +218,7 @@ export function Timeline() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.03 }}
                 onClick={() => handleClick(cp.hash)}
-                className={`relative flex flex-col items-center gap-2 p-3 rounded-lg border transition min-w-[120px] ${borderColor}`}
+                className={`group relative flex flex-col items-center gap-2 p-3 rounded-lg border transition min-w-[120px] ${borderColor}`}
               >
                 {sel && (
                   <span
@@ -188,6 +238,32 @@ export function Timeline() {
                 <span className="text-[9px] text-white/30">
                   {new Date(cp.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
+                {visualDiffs.has(cp.hash) && visualDiffs.get(cp.hash) !== null && (
+                  <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
+                    (visualDiffs.get(cp.hash)!) > 5
+                      ? 'bg-orange-400/10 text-orange-400'
+                      : 'bg-green-400/10 text-green-400'
+                  }`}>
+                    {visualDiffs.get(cp.hash)!.toFixed(1)}% diff
+                  </span>
+                )}
+                {/* Rollback button - confirm on click */}
+                {rollbackTarget === cp.hash ? (
+                  <span className="text-[9px] text-yellow-400 animate-pulse">Rolling back...</span>
+                ) : (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (confirm(`Rollback to "${cp.message.replace('[checkpoint] ', '')}"?\nThis will discard all changes after this point.`)) {
+                        handleRollback(cp.hash, cp.message)
+                      }
+                    }}
+                    className="opacity-0 group-hover:opacity-100 flex items-center gap-1 text-[9px] text-white/30 hover:text-orange-400 transition-all"
+                    title="Rollback to this checkpoint"
+                  >
+                    <RotateCcw size={9} /> Rollback
+                  </button>
+                )}
               </motion.button>
             )
           })}

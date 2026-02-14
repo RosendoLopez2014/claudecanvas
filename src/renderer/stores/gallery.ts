@@ -14,9 +14,11 @@ interface GalleryStore {
   setSelectedId: (id: string | null) => void
   addVariant: (variant: GalleryVariant) => void
   removeVariant: (id: string) => void
+  renameVariant: (id: string, label: string) => void
+  duplicateVariant: (id: string) => void
 }
 
-export const useGalleryStore = create<GalleryStore>((set) => ({
+export const useGalleryStore = create<GalleryStore>((set, get) => ({
   variants: [],
   selectedId: null,
   setVariants: (variants) => set({ variants }),
@@ -25,5 +27,19 @@ export const useGalleryStore = create<GalleryStore>((set) => ({
   removeVariant: (id) => set((s) => ({
     variants: s.variants.filter((v) => v.id !== id),
     selectedId: s.selectedId === id ? null : s.selectedId
-  }))
+  })),
+  renameVariant: (id, label) => set((s) => ({
+    variants: s.variants.map((v) => (v.id === id ? { ...v, label } : v))
+  })),
+  duplicateVariant: (id) => {
+    const original = get().variants.find((v) => v.id === id)
+    if (!original) return
+    const dup: GalleryVariant = {
+      id: `dup-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      label: `${original.label} (copy)`,
+      html: original.html,
+      css: original.css,
+    }
+    set((s) => ({ variants: [...s.variants, dup] }))
+  },
 }))

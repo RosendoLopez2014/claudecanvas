@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { TerminalView } from '../Terminal/TerminalView'
 import { CanvasPanel } from '../Canvas/CanvasPanel'
+import { FileExplorer } from '../FileExplorer/FileExplorer'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCanvasStore } from '@/stores/canvas'
 import { useProjectStore } from '@/stores/project'
@@ -16,7 +17,7 @@ const TERMINAL_MIN = 380
 const TRANSITION = 'width 300ms cubic-bezier(0.25, 0.1, 0.25, 1)'
 
 export function Workspace() {
-  const { mode } = useWorkspaceStore()
+  const { mode, fileExplorerOpen } = useWorkspaceStore()
   const { viewportMode } = useCanvasStore()
   const { currentProject } = useProjectStore()
   const activeTabId = useTabsStore((s) => s.activeTabId)
@@ -111,6 +112,9 @@ export function Workspace() {
 
   return (
     <div ref={containerRef} className="h-full flex overflow-hidden">
+      {/* File explorer sidebar */}
+      {fileExplorerOpen && <FileExplorer />}
+
       {/* Terminal pane — takes remaining space */}
       <div className="h-full flex-1 min-w-[300px]">
         <TerminalView

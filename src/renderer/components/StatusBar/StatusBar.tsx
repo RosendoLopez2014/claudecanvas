@@ -5,11 +5,12 @@ import { useToastStore } from '@/stores/toast'
 import { useTabsStore } from '@/stores/tabs'
 import {
   GitBranch, Play, Square, PanelRight, Eye, Loader2, FolderOpen,
-  ArrowDown, ArrowUp, Check
+  ArrowDown, ArrowUp, Check, Rocket, Settings
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { PushPopover } from './PushPopover'
+import { TokenGauge } from './TokenGauge'
 
 export function StatusBar() {
   const { currentProject, isDevServerRunning, setDevServerRunning } = useProjectStore()
@@ -24,6 +25,61 @@ export function StatusBar() {
   const gitRemoteConfigured = activeTab?.gitRemoteConfigured ?? false
   const [showPushPopover, setShowPushPopover] = useState(false)
   const [pulling, setPulling] = useState(false)
+  const [deploying, setDeploying] = useState(false)
+  const [vercelConnected, setVercelConnected] = useState(false)
+
+  // Check Vercel connection status
+  useEffect(() => {
+    window.api.oauth.vercel.status().then((s) => {
+      setVercelConnected(s.connected)
+    }).catch(() => {})
+  }, [currentProject])
+
+  const handleDeploy = useCallback(async () => {
+    const path = activeTab?.project.path
+    if (!path || deploying) return
+    setDeploying(true)
+    const { addToast } = useToastStore.getState()
+
+    // First push current branch
+    const branch = activeTab?.worktreeBranch || 'main'
+    const pushResult = await window.api.git.squashAndPush(path, `Deploy from Claude Canvas`)
+    if (!pushResult.success) {
+      addToast(`Push failed: ${(pushResult as any).error}`, 'error')
+      setDeploying(false)
+      return
+    }
+
+    // Check for linked Vercel project
+    const gitInfo = await window.api.git.getProjectInfo(path)
+    const repoName = gitInfo.remoteUrl?.replace(/.*github\.com[:/]/, '').replace(/\.git$/, '') || null
+    const linked = await window.api.oauth.vercel.linkedProject({
+      projectPath: path,
+      gitRepo: repoName || undefined,
+    })
+
+    if ('error' in linked) {
+      addToast(`Deploy failed: ${linked.error}`, 'error')
+      setDeploying(false)
+      return
+    }
+
+    if (linked.linked && linked.latestDeployment) {
+      // Trigger redeploy
+      const redeploy = await window.api.oauth.vercel.redeploy(linked.latestDeployment.id)
+      if ('error' in redeploy) {
+        addToast(`Deploy failed: ${redeploy.error}`, 'error')
+      } else {
+        addToast(`Deploying... Preview: https://${redeploy.url}`, 'success')
+        // Open deploy tab in canvas
+        openCanvas()
+        if (activeTab) useTabsStore.getState().updateTab(activeTab.id, { activeCanvasTab: 'deploy' })
+      }
+    } else {
+      addToast('No linked Vercel project found. Link via Settings first.', 'info')
+    }
+    setDeploying(false)
+  }, [activeTab, deploying])
 
   const handlePull = useCallback(async () => {
     const path = activeTab?.project.path
@@ -189,6 +245,24 @@ export function StatusBar() {
           </>
         )}
 
+        {/* Deploy button (visible when Vercel connected) */}
+        {vercelConnected && (
+          <button
+            onClick={handleDeploy}
+            disabled={deploying}
+            className={`flex items-center gap-1 transition-colors ${
+              deploying ? 'text-purple-400' : 'hover:text-purple-400'
+            }`}
+            title="Deploy to Vercel"
+          >
+            {deploying ? <Loader2 size={10} className="animate-spin" /> : <Rocket size={10} />}
+            <span>{deploying ? 'Deploying...' : 'Deploy'}</span>
+          </button>
+        )}
+
+        {/* Token usage gauge */}
+        <TokenGauge />
+
         {/* Dev server start/stop */}
         {isDevServerRunning ? (
           <button
@@ -237,6 +311,15 @@ export function StatusBar() {
         >
           <Eye size={11} />
           <span>Inspector</span>
+        </button>
+
+        {/* Settings */}
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent('open-settings'))}
+          className="flex items-center gap-1 hover:text-white/80 transition-colors"
+          title="Settings (⌘,)"
+        >
+          <Settings size={11} />
         </button>
       </div>
     </div>
