@@ -155,6 +155,57 @@ export function registerMcpTools(
   )
 
   server.tool(
+    'canvas_is_dev_running',
+    'Check if the dev server is running. Returns "yes" or "no".',
+    {},
+    async () => {
+      const win = getWindow()
+      if (!win) return { content: [{ type: 'text', text: 'no' }] }
+      const running = await win.webContents.executeJavaScript(`
+        (function() {
+          var cs = window.__canvasState;
+          return cs && cs.devServerRunning ? 'yes' : 'no';
+        })()
+      `)
+      return { content: [{ type: 'text', text: running }] }
+    }
+  )
+
+  server.tool(
+    'canvas_get_preview_url',
+    'Get the current preview URL. Returns the URL or "none".',
+    {},
+    async () => {
+      const win = getWindow()
+      if (!win) return { content: [{ type: 'text', text: 'none' }] }
+      const url = await win.webContents.executeJavaScript(`
+        (function() {
+          var cs = window.__canvasState;
+          return cs && cs.previewUrl ? cs.previewUrl : 'none';
+        })()
+      `)
+      return { content: [{ type: 'text', text: url }] }
+    }
+  )
+
+  server.tool(
+    'canvas_get_active_tab',
+    'Get the name of the currently active canvas tab. Returns "preview", "gallery", "timeline", or "diff".',
+    {},
+    async () => {
+      const win = getWindow()
+      if (!win) return { content: [{ type: 'text', text: 'preview' }] }
+      const tab = await win.webContents.executeJavaScript(`
+        (function() {
+          var cs = window.__canvasState;
+          return cs && cs.activeTab ? cs.activeTab : 'preview';
+        })()
+      `)
+      return { content: [{ type: 'text', text: tab }] }
+    }
+  )
+
+  server.tool(
     'canvas_get_context',
     'Get the elements the user selected in the inspector. Returns count and elements array — each element has filePath, lineNumber, componentName, props, textContent, styles, componentChain. First element also at root level. ALWAYS call this when you see [ComponentName] tags in the message.',
     {},
@@ -185,6 +236,85 @@ export function registerMcpTools(
           { type: 'image', data: screenshot.data, mimeType: screenshot.mimeType },
           { type: 'text', text: 'Screenshot from the canvas preview.' }
         ]
+      }
+    }
+  )
+
+  server.tool(
+    'canvas_get_errors',
+    'Get runtime errors from the canvas preview. Returns parsed errors with message, file, line, and column. Returns "no errors" if the preview is healthy.',
+    {},
+    async () => {
+      const win = getWindow()
+      if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
+      const errors = await win.webContents.executeJavaScript(`
+        (function() {
+          var cs = window.__canvasState;
+          if (!cs || !cs.errors || cs.errors.length === 0) return 'no errors';
+          return JSON.stringify(cs.errors);
+        })()
+      `)
+      return { content: [{ type: 'text', text: errors }] }
+    }
+  )
+
+  server.tool(
+    'canvas_get_context_minimal',
+    'Get a lightweight summary of the user\'s inspector selection: only filePath, lineNumber, and componentName per element. ~30 tokens instead of ~300. Call this first; use canvas_get_context only when you need props/styles.',
+    {},
+    async () => {
+      const win = getWindow()
+      if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
+      const context = await win.webContents.executeJavaScript(`
+        (function() {
+          var ctx = window.__inspectorContext;
+          if (!ctx || !ctx.elements || ctx.elements.length === 0) return JSON.stringify({ selected: false });
+          return JSON.stringify({
+            count: ctx.elements.length,
+            elements: ctx.elements.map(function(e) {
+              return { filePath: e.filePath, lineNumber: e.lineNumber, componentName: e.componentName };
+            })
+          });
+        })()
+      `)
+      return { content: [{ type: 'text', text: context }] }
+    }
+  )
+
+  server.tool(
+    'canvas_auto_screenshot',
+    'Capture a screenshot of the current canvas preview. Returns the image directly. Use this to see the current UI state without asking the user to describe it.',
+    {},
+    async () => {
+      const win = getWindow()
+      if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
+
+      try {
+        // Get the canvas iframe bounding rect from the renderer
+        const rect = await win.webContents.executeJavaScript(`
+          (function() {
+            var iframe = document.querySelector('[data-canvas-panel] iframe');
+            if (!iframe) return null;
+            var r = iframe.getBoundingClientRect();
+            return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
+          })()
+        `)
+
+        if (!rect || rect.width < 1 || rect.height < 1) {
+          return { content: [{ type: 'text', text: 'No canvas preview is currently visible. Start a dev server first.' }] }
+        }
+
+        const image = await win.webContents.capturePage(rect)
+        const base64 = image.toPNG().toString('base64')
+
+        return {
+          content: [
+            { type: 'image', data: base64, mimeType: 'image/png' },
+            { type: 'text', text: `Canvas screenshot captured (${rect.width}x${rect.height}px).` }
+          ]
+        }
+      } catch (err) {
+        return { content: [{ type: 'text', text: `Screenshot failed: ${err}` }] }
       }
     }
   )

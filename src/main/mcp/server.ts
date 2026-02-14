@@ -62,7 +62,7 @@ export async function startMcpServer(getWindow: () => BrowserWindow | null, proj
         if (sid) {
           delete sessions[sid]
         }
-        sessionServer.close().catch(() => {})
+        sessionServer.close().catch((e: Error) => console.warn('[mcp] session close:', e.message))
       }
       await sessionServer.connect(transport)
     } else {
@@ -111,7 +111,7 @@ export async function startMcpServer(getWindow: () => BrowserWindow | null, proj
 export async function stopMcpServer(): Promise<void> {
   for (const [id, session] of Object.entries(sessions)) {
     await session.transport.close()
-    await session.server.close().catch(() => {})
+    await session.server.close().catch((e: Error) => console.warn('[mcp] server close:', e.message))
     delete sessions[id]
   }
   if (httpServer) {

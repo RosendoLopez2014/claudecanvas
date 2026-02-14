@@ -5,6 +5,7 @@ import { useGalleryStore } from '@/stores/gallery'
 import { useProjectStore } from '@/stores/project'
 import { useToastStore } from '@/stores/toast'
 import { useTabsStore } from '@/stores/tabs'
+import { getTerminal } from '@/services/terminalPool'
 
 /**
  * Listens for MCP commands forwarded from the main process via IPC
@@ -45,7 +46,48 @@ export function useMcpCommands() {
       window.api.mcp.onCanvasRender(async ({ projectPath: eventPath, html, css }) => {
         if (shouldSkipEvent(eventPath)) return
         const result = await window.api.render.evaluate(html, css)
-        if (result.target === 'canvas') {
+
+        if (result.target === 'inline') {
+          // Render small components inline in the terminal using xterm decorations
+          const { activeTabId } = useTabsStore.getState()
+          const terminal = activeTabId ? getTerminal(activeTabId) : null
+          if (terminal) {
+            const charHeight = Math.ceil(
+              (terminal.options.fontSize || 14) * (terminal.options.lineHeight || 1.4)
+            )
+            const rows = Math.ceil(result.height / charHeight) + 1
+
+            // Write blank lines to make room
+            for (let i = 0; i < rows; i++) terminal.write('\r\n')
+
+            const marker = terminal.registerMarker(-(rows - 1))
+            if (marker) {
+              const decoration = terminal.registerDecoration({
+                marker,
+                width: Math.ceil(result.width / 8) + 2,
+                height: rows
+              })
+              if (decoration) {
+                decoration.onRender((element) => {
+                  if (element.querySelector('iframe')) return
+                  element.style.overflow = 'hidden'
+                  element.style.zIndex = '1'
+                  const iframe = document.createElement('iframe')
+                  iframe.style.width = `${result.width}px`
+                  iframe.style.height = `${result.height}px`
+                  iframe.style.border = '1px solid rgba(74, 234, 255, 0.2)'
+                  iframe.style.borderRadius = '4px'
+                  iframe.style.background = 'white'
+                  iframe.sandbox.add('allow-same-origin')
+                  iframe.srcdoc = `<!DOCTYPE html><html><head><style>body{margin:0;padding:8px;font-family:system-ui,sans-serif}${css || ''}</style></head><body>${html}</body></html>`
+                  element.appendChild(iframe)
+                })
+              }
+            }
+            useWorkspaceStore.getState().setMode('terminal-inline')
+          }
+        } else {
+          // Large component — render in canvas panel
           if (useWorkspaceStore.getState().mode !== 'terminal-canvas') {
             useWorkspaceStore.getState().openCanvas()
           }

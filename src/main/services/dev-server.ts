@@ -3,8 +3,10 @@ import { ipcMain, BrowserWindow } from 'electron'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import treeKill from 'tree-kill'
+import { DEV_SERVER_STARTUP_TIMEOUT_MS } from '../../shared/constants'
 
 const devProcesses = new Map<string, ChildProcess>()
+const startingCwds = new Set<string>()
 
 type StatusStage = 'starting' | 'installing' | 'retrying' | 'ready' | 'error' | 'killing-port'
 
@@ -188,89 +190,101 @@ function startServer(
       finish(null)
     })
 
-    // Timeout after 20s
-    setTimeout(() => finish(null), 20000)
+    setTimeout(() => finish(null), DEV_SERVER_STARTUP_TIMEOUT_MS)
   })
 }
 
 export function setupDevServerHandlers(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('dev:start', async (_event, cwd: string, command?: string): Promise<StartResult> => {
     if (devProcesses.has(cwd)) return { error: 'Dev server already running for this project' }
+    if (startingCwds.has(cwd)) return { error: 'Dev server is already starting for this project' }
+    startingCwds.add(cwd)
 
-    const cmd = command || 'npm run dev'
-    const MAX_RETRIES = 2
+    try {
+      const cmd = command || 'npm run dev'
+      const MAX_RETRIES = 2
 
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      if (attempt === 0) {
-        sendStatus(getWindow, 'starting', 'Starting dev server...', undefined, cwd)
-      } else {
-        sendStatus(getWindow, 'retrying', `Retrying... (attempt ${attempt + 1})`, undefined, cwd)
-      }
-
-      const result = await startServer(cwd, cmd, getWindow)
-
-      // Success — server is running and URL detected
-      if (result.url) {
-        if (result.process) {
-          devProcesses.set(cwd, result.process)
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (attempt === 0) {
+          sendStatus(getWindow, 'starting', 'Starting dev server...', undefined, cwd)
+        } else {
+          sendStatus(getWindow, 'retrying', `Retrying... (attempt ${attempt + 1})`, undefined, cwd)
         }
-        sendStatus(getWindow, 'ready', 'Dev server ready', result.url, cwd)
-        return { url: result.url, pid: result.process?.pid }
-      }
 
-      // Server exited early — try to self-heal
-      if (result.exitedEarly && attempt < MAX_RETRIES) {
-        const errorType = detectError(result.stderr)
+        const result = await startServer(cwd, cmd, getWindow)
 
-        if (errorType === 'missing-deps') {
-          sendStatus(getWindow, 'installing', 'Dependencies missing — installing...', undefined, cwd)
-          const installed = await installDeps(cwd, getWindow)
-          if (!installed) {
-            sendStatus(getWindow, 'error', 'Failed to install dependencies', undefined, cwd)
-            return { error: 'Dependency installation failed. Check the terminal for details.' }
+        // Success — server is running and URL detected
+        if (result.url) {
+          if (result.process) {
+            devProcesses.set(cwd, result.process)
           }
-          continue
+          sendStatus(getWindow, 'ready', 'Dev server ready', result.url, cwd)
+          return { url: result.url, pid: result.process?.pid }
         }
 
-        if (errorType === 'port-in-use') {
-          const port = extractPort(result.stderr)
-          if (port) {
-            sendStatus(getWindow, 'killing-port', `Port ${port} in use — freeing it...`, undefined, cwd)
-            killPort(port)
-            await new Promise((r) => setTimeout(r, 1000))
+        // Server exited early — try to self-heal
+        if (result.exitedEarly && attempt < MAX_RETRIES) {
+          const errorType = detectError(result.stderr)
+
+          if (errorType === 'missing-deps') {
+            sendStatus(getWindow, 'installing', 'Dependencies missing — installing...', undefined, cwd)
+            const installed = await installDeps(cwd, getWindow)
+            if (!installed) {
+              sendStatus(getWindow, 'error', 'Failed to install dependencies', undefined, cwd)
+              return { error: 'Dependency installation failed. Check the terminal for details.' }
+            }
             continue
           }
+
+          if (errorType === 'port-in-use') {
+            const port = extractPort(result.stderr)
+            if (port) {
+              sendStatus(getWindow, 'killing-port', `Port ${port} in use — freeing it...`, undefined, cwd)
+              killPort(port)
+              await new Promise((r) => setTimeout(r, 1000))
+              continue
+            }
+          }
+
+          // Unknown early exit
+          sendStatus(getWindow, 'error', 'Dev server crashed on startup', undefined, cwd)
+          return { error: `Dev server exited immediately. Check your project for errors.\n\nStderr:\n${result.stderr.slice(0, 500)}` }
         }
 
-        // Unknown early exit
-        sendStatus(getWindow, 'error', 'Dev server crashed on startup', undefined, cwd)
-        return { error: `Dev server exited immediately. Check your project for errors.\n\nStderr:\n${result.stderr.slice(0, 500)}` }
+        // URL not detected but server might still be running
+        if (!result.exitedEarly && !result.url) {
+          if (result.process) {
+            devProcesses.set(cwd, result.process)
+          }
+          sendStatus(getWindow, 'error', 'Server started but URL not detected', undefined, cwd)
+          return { error: 'Dev server started but no URL was detected. The server may be running — check the terminal.' }
+        }
       }
 
-      // URL not detected but server might still be running
-      if (!result.exitedEarly && !result.url) {
-        if (result.process) {
-          devProcesses.set(cwd, result.process)
-        }
-        sendStatus(getWindow, 'error', 'Server started but URL not detected', undefined, cwd)
-        return { error: 'Dev server started but no URL was detected. The server may be running — check the terminal.' }
-      }
+      sendStatus(getWindow, 'error', 'Failed after retries', undefined, cwd)
+      return { error: 'Could not start the dev server after multiple attempts.' }
+    } finally {
+      startingCwds.delete(cwd)
     }
-
-    sendStatus(getWindow, 'error', 'Failed after retries', undefined, cwd)
-    return { error: 'Could not start the dev server after multiple attempts.' }
   })
 
-  ipcMain.handle('dev:stop', (_event, cwd?: string) => {
+  ipcMain.handle('dev:stop', async (_event, cwd?: string) => {
     if (cwd && devProcesses.has(cwd)) {
       const proc = devProcesses.get(cwd)!
-      if (proc.pid) treeKill(proc.pid, 'SIGTERM')
+      if (proc.pid) {
+        await new Promise<void>((resolve) => {
+          treeKill(proc.pid!, 'SIGTERM', () => resolve())
+        })
+      }
       devProcesses.delete(cwd)
     } else if (!cwd) {
       // Stop all (app shutdown)
-      for (const [, proc] of devProcesses) {
-        if (proc.pid) treeKill(proc.pid, 'SIGTERM')
-      }
+      const kills = Array.from(devProcesses.values())
+        .filter((p) => p.pid)
+        .map((p) => new Promise<void>((resolve) => {
+          treeKill(p.pid!, 'SIGTERM', () => resolve())
+        }))
+      await Promise.allSettled(kills)
       devProcesses.clear()
     }
   })

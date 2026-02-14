@@ -81,8 +81,9 @@ export function TabBar() {
       window.api.pty.kill(tab.ptyId)
       await tick(300)
     }
-    // Cleanup file watcher + terminal pool
+    // Cleanup file watcher, git instance, + terminal pool
     window.api.fs.unwatch(tab.project.path)
+    window.api.git.cleanup(tab.project.path)
     destroyTerminal(tabId)
     await tick(300)
 

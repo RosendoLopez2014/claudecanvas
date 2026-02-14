@@ -1,5 +1,6 @@
 import { ipcMain, WebContentsView, BrowserWindow } from 'electron'
 import { settingsStore } from '../store'
+import { OAUTH_TIMEOUT_MS } from '../../shared/constants'
 import http from 'http'
 import crypto from 'crypto'
 
@@ -114,7 +115,7 @@ export function setupSupabaseOAuth(getWindow: () => BrowserWindow | null): void 
 
         const timeout = setTimeout(() => {
           finish({ error: 'Timed out — try again' })
-        }, 600000)
+        }, OAUTH_TIMEOUT_MS)
 
         // Local HTTP callback server
         const server = http.createServer(async (req, res) => {

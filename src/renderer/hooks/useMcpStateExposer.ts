@@ -12,7 +12,7 @@ import { useProjectStore } from '@/stores/project'
  * window.__inspectorContext — selected inspector elements (array)
  */
 export function useMcpStateExposer() {
-  const { activeTab, previewUrl, inspectorActive, selectedElements } = useCanvasStore()
+  const { activeTab, previewUrl, inspectorActive, selectedElements, previewErrors, addPreviewError } = useCanvasStore()
   const { mode } = useWorkspaceStore()
   const { isDevServerRunning, currentProject } = useProjectStore()
   const [supabaseConnected, setSupabaseConnected] = useState(false)
@@ -33,9 +33,21 @@ export function useMcpStateExposer() {
       devServerRunning: isDevServerRunning,
       projectName: currentProject?.name || null,
       projectPath: currentProject?.path || null,
-      supabaseConnected
+      supabaseConnected,
+      errors: previewErrors
     }
-  }, [activeTab, previewUrl, inspectorActive, mode, isDevServerRunning, currentProject, supabaseConnected])
+  }, [activeTab, previewUrl, inspectorActive, mode, isDevServerRunning, currentProject, supabaseConnected, previewErrors])
+
+  // Listen for runtime errors from the preview iframe
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === 'inspector:runtimeError' && e.data.error) {
+        addPreviewError(e.data.error)
+      }
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [addPreviewError])
 
   useEffect(() => {
     ;(window as any).__inspectorContext = selectedElements.length > 0

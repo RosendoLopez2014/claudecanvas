@@ -7,6 +7,10 @@ import { settingsStore } from '../store'
 
 const gitInstances = new Map<string, SimpleGit>()
 
+function isValidPath(p: unknown): p is string {
+  return typeof p === 'string' && p.length > 0 && path.isAbsolute(p)
+}
+
 function getGit(projectPath: string): SimpleGit {
   if (!gitInstances.has(projectPath)) {
     gitInstances.set(projectPath, simpleGit(projectPath))
@@ -86,25 +90,39 @@ function findGitRoot(cwd: string): string | null {
   return null
 }
 
+/** Remove a single git instance from the cache (called on tab close). */
+export function cleanupGitInstance(projectPath: string): void {
+  gitInstances.delete(projectPath)
+}
+
+/** Remove all cached git instances (called on app shutdown). */
+export function cleanupAllGitInstances(): void {
+  gitInstances.clear()
+}
+
 export function setupGitHandlers(): void {
+  ipcMain.handle('git:cleanup', (_event, projectPath: string) => {
+    cleanupGitInstance(projectPath)
+  })
+
   ipcMain.handle('git:init', (_event, cwd: string) => {
     getGit(cwd)
     return true
   })
 
   ipcMain.handle('git:status', async (_event, projectPath: string) => {
-    if (!projectPath) return null
+    if (!isValidPath(projectPath)) return null
     return getGit(projectPath).status()
   })
 
   ipcMain.handle('git:branch', async (_event, projectPath: string) => {
-    if (!projectPath) return null
+    if (!isValidPath(projectPath)) return null
     const summary = await getGit(projectPath).branchLocal()
     return { current: summary.current, branches: summary.all }
   })
 
   ipcMain.handle('git:log', async (_event, projectPath: string, maxCount?: number) => {
-    if (!projectPath) return []
+    if (!isValidPath(projectPath)) return []
     const log = await getGit(projectPath).log({ maxCount: maxCount || 20 })
     return log.all.map((entry) => ({
       hash: entry.hash,
@@ -115,7 +133,7 @@ export function setupGitHandlers(): void {
   })
 
   ipcMain.handle('git:checkpoint', async (_event, projectPath: string, message: string) => {
-    if (!projectPath) return null
+    if (!isValidPath(projectPath)) return null
     const g = getGit(projectPath)
     try {
       await g.add('.')
@@ -137,7 +155,7 @@ export function setupGitHandlers(): void {
   })
 
   ipcMain.handle('git:diff', async (_event, projectPath: string, hash?: string) => {
-    if (!projectPath) return ''
+    if (!isValidPath(projectPath)) return ''
     if (hash) {
       return getGit(projectPath).diff([`${hash}~1`, hash])
     }
@@ -145,17 +163,17 @@ export function setupGitHandlers(): void {
   })
 
   ipcMain.handle('git:diffBetween', async (_event, projectPath: string, fromHash: string, toHash: string) => {
-    if (!projectPath) return ''
+    if (!isValidPath(projectPath)) return ''
     return getGit(projectPath).diff([fromHash, toHash])
   })
 
   ipcMain.handle('git:show', async (_event, projectPath: string, hash: string, filePath: string) => {
-    if (!projectPath) return ''
+    if (!isValidPath(projectPath)) return ''
     return getGit(projectPath).show([`${hash}:${filePath}`])
   })
 
   ipcMain.handle('git:remoteUrl', async (_event, projectPath: string) => {
-    if (!projectPath) return null
+    if (!isValidPath(projectPath)) return null
     try {
       const remotes = await getGit(projectPath).getRemotes(true)
       const origin = remotes.find((r) => r.name === 'origin')
@@ -201,7 +219,7 @@ export function setupGitHandlers(): void {
   )
 
   ipcMain.handle('git:fetch', async (_event, projectPath: string) => {
-    if (!projectPath) return { ahead: 0, behind: 0 }
+    if (!isValidPath(projectPath)) return { ahead: 0, behind: 0 }
     const g = getGit(projectPath)
     try {
       await g.fetch('origin')
@@ -218,7 +236,7 @@ export function setupGitHandlers(): void {
   })
 
   ipcMain.handle('git:pull', async (_event, projectPath: string) => {
-    if (!projectPath) return { success: false, error: 'No project path' }
+    if (!isValidPath(projectPath)) return { success: false, error: 'Invalid project path' }
     const g = getGit(projectPath)
     try {
       const branch = (await g.branchLocal()).current
@@ -248,7 +266,7 @@ export function setupGitHandlers(): void {
   ipcMain.handle(
     'git:squashAndPush',
     async (_event, projectPath: string, message: string) => {
-      if (!projectPath) return { success: false, error: 'No project path' }
+      if (!isValidPath(projectPath)) return { success: false, error: 'Invalid project path' }
       const g = getGit(projectPath)
       try {
         const branch = (await g.branchLocal()).current
@@ -292,7 +310,7 @@ export function setupGitHandlers(): void {
   )
 
   ipcMain.handle('git:generateCommitMessage', async (_event, projectPath: string) => {
-    if (!projectPath) return ''
+    if (!isValidPath(projectPath)) return ''
     const g = getGit(projectPath)
     try {
       const branch = (await g.branchLocal()).current
@@ -331,7 +349,7 @@ export function setupGitHandlers(): void {
       projectPath: string,
       opts: { title: string; body: string; base: string }
     ) => {
-      if (!projectPath) return { error: 'No project path' }
+      if (!isValidPath(projectPath)) return { error: 'Invalid project path' }
       const token = settingsStore.get('oauthTokens.github') as string | undefined
       if (!token) return { error: 'Not authenticated with GitHub' }
 

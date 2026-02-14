@@ -7,7 +7,7 @@ import { ProjectPicker } from './components/Onboarding/ProjectPicker'
 import { QuickActions } from './components/QuickActions/QuickActions'
 import { ToastContainer } from './components/Toast/Toast'
 import { useProjectStore } from './stores/project'
-import { useTabsStore } from './stores/tabs'
+import { useTabsStore, restoreTabs } from './stores/tabs'
 import { useToastStore } from './stores/toast'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useMcpCommands } from './hooks/useMcpCommands'
@@ -59,8 +59,19 @@ export default function App() {
   useEffect(() => {
     window.api.settings.get('onboardingComplete').then(async (complete) => {
       if (complete) {
-        // Always show project picker on startup — user picks the project
-        setScreen('project-picker')
+        // Restore previously open tabs, then skip to workspace if any exist
+        await restoreTabs()
+        const restoredTabs = useTabsStore.getState().tabs
+        if (restoredTabs.length > 0) {
+          // Set current project to the active tab's project
+          const activeTab = useTabsStore.getState().getActiveTab()
+          if (activeTab) {
+            useProjectStore.getState().setCurrentProject(activeTab.project)
+          }
+          setScreen('workspace')
+        } else {
+          setScreen('project-picker')
+        }
       }
     })
   }, [setScreen])

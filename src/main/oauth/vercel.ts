@@ -1,5 +1,6 @@
 import { ipcMain, WebContentsView, BrowserWindow, app } from 'electron'
 import { settingsStore } from '../store'
+import { OAUTH_TIMEOUT_MS } from '../../shared/constants'
 import http from 'http'
 import crypto from 'crypto'
 import { promises as fsp } from 'fs'
@@ -114,7 +115,7 @@ export function setupVercelOAuth(getWindow: () => BrowserWindow | null): void {
 
         const timeout = setTimeout(() => {
           finish({ error: 'Timed out — try again' })
-        }, 600000)
+        }, OAUTH_TIMEOUT_MS)
 
         // Start local callback server on a random port
         const server = http.createServer(async (req, res) => {

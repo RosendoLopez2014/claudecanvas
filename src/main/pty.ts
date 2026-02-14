@@ -1,17 +1,38 @@
 import { spawn, IPty } from 'node-pty'
 import { ipcMain, BrowserWindow } from 'electron'
 import { platform } from 'os'
+import { existsSync } from 'fs'
 import { getMcpPort } from './mcp/server'
 import { settingsStore } from './store'
+import * as path from 'path'
+import { PTY_BUFFER_BATCH_MS } from '../shared/constants'
 
 const ptys = new Map<string, IPty>()
 let idCounter = 0
 
+const ALLOWED_SHELLS = new Set([
+  '/bin/bash', '/bin/zsh', '/bin/sh', '/bin/fish',
+  '/usr/bin/bash', '/usr/bin/zsh', '/usr/bin/fish',
+  '/usr/local/bin/bash', '/usr/local/bin/zsh', '/usr/local/bin/fish',
+  '/opt/homebrew/bin/bash', '/opt/homebrew/bin/zsh', '/opt/homebrew/bin/fish',
+  'powershell.exe', 'cmd.exe', 'pwsh.exe'
+])
+
 export function setupPtyHandlers(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('pty:spawn', (_event, shell?: string, cwd?: string) => {
-    const id = `pty-${++idCounter}`
+    // Validate cwd if provided
+    if (cwd && (!path.isAbsolute(cwd) || !existsSync(cwd))) {
+      return { error: `Invalid working directory: ${cwd}` }
+    }
+
+    // Validate shell against allow-list
     const defaultShell =
       shell || (platform() === 'win32' ? 'powershell.exe' : process.env.SHELL || '/bin/zsh')
+    if (shell && !ALLOWED_SHELLS.has(shell)) {
+      return { error: `Shell not allowed: ${shell}` }
+    }
+
+    const id = `pty-${++idCounter}`
 
     const ptyProcess = spawn(defaultShell, [], {
       name: 'xterm-256color',
@@ -50,11 +71,15 @@ export function setupPtyHandlers(getWindow: () => BrowserWindow | null): void {
         setTimeout(() => {
           const win = getWindow()
           if (win && !win.isDestroyed()) {
-            win.webContents.send(`pty:data:${id}`, buffer)
+            try {
+              win.webContents.send(`pty:data:${id}`, buffer)
+            } catch (err) {
+              console.error(`[pty] send failed for ${id} (${buffer.length} bytes):`, err)
+            }
           }
           buffer = ''
           sendScheduled = false
-        }, 8) // ~120fps batching
+        }, PTY_BUFFER_BATCH_MS)
       }
     })
 

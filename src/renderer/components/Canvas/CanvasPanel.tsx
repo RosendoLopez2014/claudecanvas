@@ -102,6 +102,7 @@ export function CanvasPanel() {
             <>
               <iframe
                 ref={iframeRef}
+                name="claude-canvas-preview"
                 src={previewUrl}
                 className="w-full h-full border-0 bg-white"
                 title="Canvas Preview"

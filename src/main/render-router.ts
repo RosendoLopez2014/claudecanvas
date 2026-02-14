@@ -1,7 +1,5 @@
 import { ipcMain, BrowserWindow } from 'electron'
-
-const INLINE_MAX_WIDTH = 400
-const INLINE_MAX_HEIGHT = 200
+import { INLINE_MAX_WIDTH, INLINE_MAX_HEIGHT } from '../shared/constants'
 
 export function setupRenderRouter(_getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('render:evaluate', async (_event, html: string, css?: string) => {

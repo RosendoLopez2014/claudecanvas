@@ -1,6 +1,7 @@
 import { ipcMain, WebContentsView, BrowserWindow } from 'electron'
 import { execFile } from 'child_process'
 import { settingsStore } from '../store'
+import { OAUTH_TIMEOUT_MS } from '../../shared/constants'
 
 // gh CLI's public OAuth client ID — designed for device flow, no secret needed
 const GITHUB_CLIENT_ID = '178c6fc778ccc68e1d6a'
@@ -224,10 +225,9 @@ export function setupGithubOAuth(getWindow: () => BrowserWindow | null): void {
           }
         })
 
-        // 10-minute timeout (device codes typically expire in 15 min)
         const timeout = setTimeout(() => {
           finish({ error: 'Timed out — try again' })
-        }, 600000)
+        }, OAUTH_TIMEOUT_MS)
 
         const finish = (result: { token: string } | { error: string }) => {
           clearTimeout(timeout)

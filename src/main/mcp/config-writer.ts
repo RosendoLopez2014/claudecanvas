@@ -86,7 +86,7 @@ export async function writeMcpConfig(projPath: string, port: number): Promise<vo
     try {
       const content = JSON.parse(await readFile(mcpJsonPath, 'utf-8'))
       if (content?.mcpServers?.['claude-canvas']) {
-        await unlink(mcpJsonPath).catch(() => {})
+        await unlink(mcpJsonPath).catch((e: Error) => console.warn('[mcp-config] cleanup:', e.message))
       }
     } catch {
       // Not JSON or unreadable — leave it alone
@@ -117,7 +117,7 @@ export async function removeMcpConfig(): Promise<void> {
     // Clean up legacy .mcp.json if it exists
     const mcpJsonPath = join(projPath, '.mcp.json')
     if (existsSync(mcpJsonPath)) {
-      await unlink(mcpJsonPath).catch(() => {})
+      await unlink(mcpJsonPath).catch((e: Error) => console.warn('[mcp-config] cleanup:', e.message))
     }
 
     // Clean up CLAUDE.md
@@ -126,7 +126,7 @@ export async function removeMcpConfig(): Promise<void> {
       try {
         const content = await readFile(claudeMdPath, 'utf-8')
         if (content.startsWith('# Claude Canvas Environment')) {
-          await unlink(claudeMdPath).catch(() => {})
+          await unlink(claudeMdPath).catch((e: Error) => console.warn('[mcp-config] cleanup:', e.message))
         } else if (content.includes('# Claude Canvas Environment')) {
           const cleaned = content.replace(/\n# Claude Canvas Environment[\s\S]*$/, '')
           await writeFile(claudeMdPath, cleaned, 'utf-8')
