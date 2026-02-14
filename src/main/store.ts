@@ -18,6 +18,10 @@ interface SettingsSchema {
     vercel?: string
     supabase?: string
   }
+  githubUser?: { login: string; avatar_url: string }
+  vercelUser?: { username: string; name: string | null; avatar: string | null }
+  supabaseUser?: { id: string; name: string; email: string; avatar_url: string | null }
+  supabaseAuth?: { orgId: string }
 }
 
 export const settingsStore = new Store<SettingsSchema>({
