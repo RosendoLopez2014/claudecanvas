@@ -6,7 +6,7 @@ import { setupSettingsHandlers } from './store'
 import { setupFileWatcher, closeWatcher } from './watcher'
 import { setupDevServerHandlers, killDevServer } from './services/dev-server'
 import { setupRenderRouter } from './render-router'
-import { setupGitHandlers } from './services/git'
+import { setupGitHandlers, cleanupAllGitInstances } from './services/git'
 import { setupGithubOAuth } from './oauth/github'
 import { setupVercelOAuth } from './oauth/vercel'
 import { setupSupabaseOAuth } from './oauth/supabase'
@@ -67,7 +67,7 @@ app.whenReady().then(() => {
   setupGitHandlers()
   setupGithubOAuth(() => mainWindow)
   setupVercelOAuth(() => mainWindow)
-  setupSupabaseOAuth()
+  setupSupabaseOAuth(() => mainWindow)
   setupScreenshotHandlers(() => mainWindow)
   setupInspectorHandlers(() => mainWindow)
   setupWorktreeHandlers()
@@ -142,6 +142,7 @@ app.on('window-all-closed', () => {
   killAllPtys()
   closeWatcher()
   killDevServer()
+  cleanupAllGitInstances()
   if (process.platform !== 'darwin') app.quit()
 })
 
