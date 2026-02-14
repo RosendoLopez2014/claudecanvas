@@ -1037,17 +1037,23 @@ export function ServiceIcons() {
                 {status.github ? (
                   <button
                     onClick={() => disconnectService('github')}
-                    className="w-full px-3 py-2 text-xs text-left text-white/40 hover:bg-white/5 hover:text-white/60 transition"
+                    className="w-full px-3 py-2 text-xs text-left text-white/30 hover:bg-white/5 hover:text-white/50 transition"
                   >
                     Disconnect
                   </button>
                 ) : (
-                  <button
-                    onClick={() => connectService('github')}
-                    className="w-full px-3 py-2 text-xs text-left text-[var(--accent-cyan)] hover:bg-white/5 transition"
-                  >
-                    Connect
-                  </button>
+                  <div className="p-4 text-center">
+                    <Github size={24} className="mx-auto mb-2.5 text-white/20" />
+                    <p className="text-xs text-white/40 mb-3 leading-relaxed">
+                      Push code, create PRs, and<br />collaborate with your team.
+                    </p>
+                    <button
+                      onClick={() => connectService('github')}
+                      className="w-full py-2 text-xs font-medium text-white bg-[#238636] hover:bg-[#2ea043] rounded-lg transition-colors"
+                    >
+                      Connect to GitHub
+                    </button>
+                  </div>
                 )}
               </motion.div>
             )}
