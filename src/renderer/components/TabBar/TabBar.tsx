@@ -1,10 +1,10 @@
 import { useTabsStore, TabState } from '@/stores/tabs'
-import { useProjectStore } from '@/stores/project'
 import { GitBranch, X, Plus, Check, Loader2 } from 'lucide-react'
 import { motion, AnimatePresence, Reorder } from 'framer-motion'
 import { useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { destroyTerminal } from '@/services/terminalPool'
+import { NewTabMenu } from './NewTabMenu'
 
 function Tab({ tab, isActive, onActivate, onClose }: {
   tab: TabState
@@ -92,7 +92,7 @@ export function TabBar() {
   }, [closeTab])
 
   const handleNewTab = useCallback(() => {
-    useProjectStore.getState().setScreen('project-picker')
+    setShowNewTabMenu((prev) => !prev)
   }, [])
 
   if (tabs.length === 0) return null
@@ -125,13 +125,18 @@ export function TabBar() {
           ))}
         </Reorder.Group>
 
-        <button
-          onClick={handleNewTab}
-          className="p-1.5 mx-1 rounded hover:bg-white/10 text-white/25 hover:text-white/50 transition-colors shrink-0"
-          title="New tab"
-        >
-          <Plus size={12} />
-        </button>
+        <div className="relative">
+          <button
+            onClick={handleNewTab}
+            className="p-1.5 mx-1 rounded hover:bg-white/10 text-white/25 hover:text-white/50 transition-colors shrink-0"
+            title="New tab (⌘T)"
+          >
+            <Plus size={12} />
+          </button>
+          <AnimatePresence>
+            {showNewTabMenu && <NewTabMenu onClose={() => setShowNewTabMenu(false)} />}
+          </AnimatePresence>
+        </div>
       </div>
 
       {createPortal(
