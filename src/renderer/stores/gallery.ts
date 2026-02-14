@@ -22,5 +22,8 @@ export const useGalleryStore = create<GalleryStore>((set) => ({
   setVariants: (variants) => set({ variants }),
   setSelectedId: (selectedId) => set({ selectedId }),
   addVariant: (variant) => set((s) => ({ variants: [...s.variants, variant] })),
-  removeVariant: (id) => set((s) => ({ variants: s.variants.filter((v) => v.id !== id) }))
+  removeVariant: (id) => set((s) => ({
+    variants: s.variants.filter((v) => v.id !== id),
+    selectedId: s.selectedId === id ? null : s.selectedId
+  }))
 }))
