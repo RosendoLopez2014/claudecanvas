@@ -68,6 +68,7 @@ interface TabsStore {
   setActiveTab: (id: string) => void
   updateTab: (id: string, partial: Omit<Partial<TabState>, 'id' | 'project'>) => void
   getActiveTab: () => TabState | null
+  reorderTabs: (newOrder: TabState[]) => void
   reset: () => void
 }
 
@@ -121,6 +122,11 @@ export const useTabsStore = create<TabsStore>((set, get) => ({
   getActiveTab: () => {
     const { tabs, activeTabId } = get()
     return tabs.find((t) => t.id === activeTabId) || null
+  },
+
+  reorderTabs: (newOrder) => {
+    set({ tabs: newOrder })
+    persistTabs()
   },
 
   reset: () => {

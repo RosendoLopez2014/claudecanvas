@@ -1,7 +1,7 @@
 import { useTabsStore, TabState } from '@/stores/tabs'
 import { useProjectStore } from '@/stores/project'
 import { GitBranch, X, Plus, Check, Loader2 } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, Reorder } from 'framer-motion'
 import { useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { destroyTerminal } from '@/services/terminalPool'
@@ -15,18 +15,13 @@ function Tab({ tab, isActive, onActivate, onClose }: {
   const branchLabel = tab.worktreeBranch || 'main'
 
   return (
-    <motion.button
-      layout
+    <button
       onClick={onActivate}
       className={`group relative flex items-center gap-1.5 px-3 py-1.5 text-xs border-r border-white/5 transition-colors shrink-0 max-w-[200px] ${
         isActive
           ? 'bg-[var(--bg-primary)] text-white/90'
           : 'bg-[var(--bg-secondary)] text-white/40 hover:text-white/60 hover:bg-white/5'
       }`}
-      initial={{ opacity: 0, width: 0 }}
-      animate={{ opacity: 1, width: 'auto' }}
-      exit={{ opacity: 0, width: 0 }}
-      transition={{ duration: 0.15 }}
     >
       {isActive && (
         <motion.div
@@ -46,12 +41,12 @@ function Tab({ tab, isActive, onActivate, onClose }: {
       >
         <X size={10} />
       </span>
-    </motion.button>
+    </button>
   )
 }
 
 export function TabBar() {
-  const { tabs, activeTabId, setActiveTab, closeTab } = useTabsStore()
+  const { tabs, activeTabId, setActiveTab, closeTab, reorderTabs } = useTabsStore()
   const [showNewTabMenu, setShowNewTabMenu] = useState(false)
   const [closingTabId, setClosingTabId] = useState<string | null>(null)
   const [exitSteps, setExitSteps] = useState<Array<{ label: string; done: boolean }> | null>(null)
@@ -105,17 +100,30 @@ export function TabBar() {
   return (
     <>
       <div className="flex items-center bg-[var(--bg-secondary)] border-b border-white/5 no-drag">
-        <AnimatePresence initial={false}>
+        <Reorder.Group
+          axis="x"
+          values={tabs}
+          onReorder={reorderTabs}
+          className="flex items-center"
+          as="div"
+        >
           {tabs.map((tab) => (
-            <Tab
+            <Reorder.Item
               key={tab.id}
-              tab={tab}
-              isActive={tab.id === activeTabId}
-              onActivate={() => setActiveTab(tab.id)}
-              onClose={(e) => handleCloseTab(e, tab.id)}
-            />
+              value={tab}
+              as="div"
+              className="shrink-0"
+              whileDrag={{ scale: 1.02, opacity: 0.8 }}
+            >
+              <Tab
+                tab={tab}
+                isActive={tab.id === activeTabId}
+                onActivate={() => setActiveTab(tab.id)}
+                onClose={(e) => handleCloseTab(e, tab.id)}
+              />
+            </Reorder.Item>
           ))}
-        </AnimatePresence>
+        </Reorder.Group>
 
         <button
           onClick={handleNewTab}
