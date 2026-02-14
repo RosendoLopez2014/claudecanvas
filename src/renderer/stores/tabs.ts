@@ -73,6 +73,7 @@ interface TabsStore {
 }
 
 function persistTabs(): void {
+  if (typeof window === 'undefined' || !window.api?.settings) return
   const { tabs } = useTabsStore.getState()
   const serialized = tabs.map((t) => ({
     project: t.project,
@@ -80,6 +81,22 @@ function persistTabs(): void {
     worktreePath: t.worktreePath,
   }))
   window.api.settings.set('tabs', serialized)
+}
+
+/**
+ * Full cleanup for a tab: stop dev server, kill PTY, destroy terminal, unwatch files.
+ * Shared by TabBar close button and Cmd+W keyboard shortcut.
+ * Returns once all resources are released (no UI animation — callers handle that).
+ */
+export async function cleanupTabResources(tab: TabState): Promise<void> {
+  if (tab.isDevServerRunning) {
+    await window.api.dev.stop(tab.project.path)
+  }
+  if (tab.ptyId) {
+    window.api.pty.kill(tab.ptyId)
+  }
+  // Stop file watcher for this project
+  window.api.fs.unwatch(tab.project.path)
 }
 
 export const useTabsStore = create<TabsStore>((set, get) => ({

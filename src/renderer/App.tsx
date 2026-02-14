@@ -12,7 +12,7 @@ import { useToastStore } from './stores/toast'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useMcpCommands } from './hooks/useMcpCommands'
 import { useMcpStateExposer } from './hooks/useMcpStateExposer'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 
 export default function App() {
   const { screen, setScreen, currentProject } = useProjectStore()
@@ -26,9 +26,14 @@ export default function App() {
   useMcpCommands()
   useMcpStateExposer()
 
-  // Start/stop MCP server when entering/leaving workspace
+  // Start MCP server once when entering workspace. The server stays alive
+  // across tab switches — each MCP tool event carries projectPath so the
+  // renderer can route commands to the correct tab. We only tear down when
+  // leaving the workspace entirely (all tabs closed).
+  const mcpStartedRef = useRef(false)
   useEffect(() => {
-    if (screen === 'workspace' && currentProject?.path) {
+    if (screen === 'workspace' && currentProject?.path && !mcpStartedRef.current) {
+      mcpStartedRef.current = true
       const { addToast } = useToastStore.getState()
       addToast('Initializing Claude Canvas...', 'info')
 
@@ -40,11 +45,12 @@ export default function App() {
           useTabsStore.getState().updateTab(activeTab.id, { mcpReady: true, mcpPort: port })
         }
       })
+    }
 
-      return () => {
-        window.api.mcp.projectClosed()
-        useProjectStore.getState().setMcpReady(false)
-      }
+    if (screen !== 'workspace' && mcpStartedRef.current) {
+      mcpStartedRef.current = false
+      window.api.mcp.projectClosed()
+      useProjectStore.getState().setMcpReady(false)
     }
   }, [screen, currentProject?.path])
 

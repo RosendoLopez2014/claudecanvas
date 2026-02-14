@@ -1,8 +1,9 @@
 import { useEffect, useCallback } from 'react'
 import { useCanvasStore } from '@/stores/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { useTabsStore } from '@/stores/tabs'
+import { useTabsStore, cleanupTabResources } from '@/stores/tabs'
 import { useProjectStore } from '@/stores/project'
+import { destroyTerminal } from '@/services/terminalPool'
 
 interface ShortcutHandlers {
   onQuickActions: () => void
@@ -27,11 +28,17 @@ export function useKeyboardShortcuts({ onQuickActions }: ShortcutHandlers) {
         return
       }
 
-      // Cmd+W — Close active tab
+      // Cmd+W — Close active tab (with full resource cleanup)
       if (meta && e.key === 'w') {
         e.preventDefault()
-        const { activeTabId, closeTab: closeActiveTab } = useTabsStore.getState()
-        if (activeTabId) closeActiveTab(activeTabId)
+        const { tabs, activeTabId, closeTab: closeActiveTab } = useTabsStore.getState()
+        if (!activeTabId) return
+        const tab = tabs.find((t) => t.id === activeTabId)
+        if (!tab) return
+        cleanupTabResources(tab).then(() => {
+          destroyTerminal(activeTabId)
+          closeActiveTab(activeTabId)
+        })
         return
       }
 

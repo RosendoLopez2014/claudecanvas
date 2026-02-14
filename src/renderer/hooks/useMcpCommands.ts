@@ -17,16 +17,27 @@ export function useMcpCommands() {
   useEffect(() => {
     const cleanups: (() => void)[] = []
 
-    const updateActiveTab = (partial: Record<string, unknown>) => {
-      const { activeTabId, updateTab } = useTabsStore.getState()
-      if (activeTabId) updateTab(activeTabId, partial)
+    /**
+     * Find the tab matching the event's projectPath. If no projectPath is
+     * provided, fall back to the active tab. Returns null if no match (event
+     * should be ignored).
+     */
+    const findTargetTab = (eventPath?: string) => {
+      const { tabs, activeTabId, getActiveTab } = useTabsStore.getState()
+      if (!eventPath) return getActiveTab()
+      const match = tabs.find((t) => t.project.path === eventPath)
+      return match || null
     }
 
-    // Returns true if the event should be ignored (projectPath mismatch)
+    /** Update the tab that owns this event (not necessarily the active tab). */
+    const updateTargetTab = (eventPath: string | undefined, partial: Record<string, unknown>) => {
+      const tab = findTargetTab(eventPath)
+      if (tab) useTabsStore.getState().updateTab(tab.id, partial)
+    }
+
+    /** Returns true if the event's project has no open tab. */
     const shouldSkipEvent = (eventPath?: string): boolean => {
-      if (!eventPath) return false
-      const activeTab = useTabsStore.getState().getActiveTab()
-      return !!activeTab && activeTab.project.path !== eventPath
+      return !findTargetTab(eventPath)
     }
 
     // canvas_render — evaluate size, then route to inline or canvas
@@ -44,7 +55,7 @@ export function useMcpCommands() {
             html: css ? `<style>${css}</style>${html}` : html
           })
           useCanvasStore.getState().setActiveTab('gallery')
-          updateActiveTab({ activeCanvasTab: 'gallery' })
+          updateTargetTab(eventPath, { activeCanvasTab: 'gallery' })
         }
       })
     )
@@ -68,7 +79,7 @@ export function useMcpCommands() {
               useWorkspaceStore.getState().openCanvas()
             }
             useCanvasStore.getState().setActiveTab('preview')
-            updateActiveTab({ previewUrl: url, isDevServerRunning: true, activeCanvasTab: 'preview' })
+            updateTargetTab(eventPath, { previewUrl: url, isDevServerRunning: true, activeCanvasTab: 'preview' })
             useToastStore.getState().addToast(`Preview loaded: ${url}`, 'success')
           }
         })
@@ -85,7 +96,7 @@ export function useMcpCommands() {
             useWorkspaceStore.getState().openCanvas()
           }
           useCanvasStore.getState().setActiveTab('preview')
-          updateActiveTab({ previewUrl: url, isDevServerRunning: true, activeCanvasTab: 'preview' })
+          updateTargetTab(eventPath, { previewUrl: url, isDevServerRunning: true, activeCanvasTab: 'preview' })
         }
       })
     )
@@ -97,7 +108,7 @@ export function useMcpCommands() {
         const projectCwd = useProjectStore.getState().currentProject?.path
         await window.api.dev.stop(projectCwd)
         useProjectStore.getState().setDevServerRunning(false)
-        updateActiveTab({ isDevServerRunning: false, previewUrl: null })
+        updateTargetTab(eventPath, { isDevServerRunning: false, previewUrl: null })
         useWorkspaceStore.getState().closeCanvas()
       })
     )
@@ -111,7 +122,7 @@ export function useMcpCommands() {
           useWorkspaceStore.getState().openCanvas()
         }
         useCanvasStore.getState().setActiveTab('preview')
-        updateActiveTab({ previewUrl: url, activeCanvasTab: 'preview' })
+        updateTargetTab(eventPath, { previewUrl: url, activeCanvasTab: 'preview' })
       })
     )
 
@@ -123,7 +134,7 @@ export function useMcpCommands() {
           useWorkspaceStore.getState().openCanvas()
         }
         useCanvasStore.getState().setActiveTab(tab as any)
-        updateActiveTab({ activeCanvasTab: tab })
+        updateTargetTab(eventPath, { activeCanvasTab: tab })
       })
     )
 
@@ -140,7 +151,7 @@ export function useMcpCommands() {
           useWorkspaceStore.getState().openCanvas()
         }
         useCanvasStore.getState().setActiveTab('gallery')
-        updateActiveTab({ activeCanvasTab: 'gallery' })
+        updateTargetTab(eventPath, { activeCanvasTab: 'gallery' })
       })
     )
 

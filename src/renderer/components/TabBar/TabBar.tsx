@@ -1,4 +1,4 @@
-import { useTabsStore, TabState } from '@/stores/tabs'
+import { useTabsStore, TabState, cleanupTabResources } from '@/stores/tabs'
 import { GitBranch, X, Plus, Check, Loader2 } from 'lucide-react'
 import { motion, AnimatePresence, Reorder } from 'framer-motion'
 import { useState, useCallback } from 'react'
@@ -81,7 +81,8 @@ export function TabBar() {
       window.api.pty.kill(tab.ptyId)
       await tick(300)
     }
-    // Cleanup resources
+    // Cleanup file watcher + terminal pool
+    window.api.fs.unwatch(tab.project.path)
     destroyTerminal(tabId)
     await tick(300)
 

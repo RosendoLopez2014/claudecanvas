@@ -79,6 +79,10 @@ export function usePty() {
   const connect = useCallback(async (terminal: Terminal, cwd?: string, options?: ConnectOptions) => {
     const gen = ++connectGenRef.current
 
+    // Capture the tab ID NOW, before any async work — if the user switches
+    // tabs while the shell is spawning, we still associate the PTY correctly.
+    const targetTabId = useTabsStore.getState().activeTabId
+
     if (options?.autoLaunchClaude) {
       writeWelcomeBanner(terminal)
       claudeLaunchedRef.current = false
@@ -94,10 +98,9 @@ export function usePty() {
     ptyIdRef.current = id
     setPtyId(id)
 
-    // Store ptyId in the active tab so each tab tracks its own PTY
-    const activeTabId = useTabsStore.getState().activeTabId
-    if (activeTabId) {
-      useTabsStore.getState().updateTab(activeTabId, { ptyId: id })
+    // Store ptyId in the tab that initiated the spawn (not necessarily active now)
+    if (targetTabId) {
+      useTabsStore.getState().updateTab(targetTabId, { ptyId: id })
     }
 
     setIsRunning(true)
