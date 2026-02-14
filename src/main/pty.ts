@@ -2,12 +2,13 @@ import { spawn, IPty } from 'node-pty'
 import { ipcMain, BrowserWindow } from 'electron'
 import { platform } from 'os'
 import { getMcpPort } from './mcp/server'
+import { settingsStore } from './store'
 
 const ptys = new Map<string, IPty>()
 let idCounter = 0
 
 export function setupPtyHandlers(getWindow: () => BrowserWindow | null): void {
-  ipcMain.handle('pty:spawn', (_event, shell?: string) => {
+  ipcMain.handle('pty:spawn', (_event, shell?: string, cwd?: string) => {
     const id = `pty-${++idCounter}`
     const defaultShell =
       shell || (platform() === 'win32' ? 'powershell.exe' : process.env.SHELL || '/bin/zsh')
@@ -16,7 +17,7 @@ export function setupPtyHandlers(getWindow: () => BrowserWindow | null): void {
       name: 'xterm-256color',
       cols: 80,
       rows: 24,
-      cwd: process.env.HOME || '/',
+      cwd: cwd || process.env.HOME || '/',
       env: (() => {
         const env = { ...process.env } as Record<string, string>
         // Remove Claude Code session markers so Claude CLI can run inside the embedded terminal
@@ -27,6 +28,11 @@ export function setupPtyHandlers(getWindow: () => BrowserWindow | null): void {
         env.CLAUDE_CANVAS = '1'
         const mcpPort = getMcpPort()
         if (mcpPort) env.CLAUDE_CANVAS_MCP_PORT = String(mcpPort)
+        // Inject service tokens so CLI tools use the Canvas-authenticated accounts
+        const tokens = settingsStore.get('oauthTokens') || {}
+        if (tokens.github) env.GH_TOKEN = tokens.github
+        if (tokens.vercel) env.VERCEL_TOKEN = tokens.vercel
+        if (tokens.supabase) env.SUPABASE_ACCESS_TOKEN = tokens.supabase
         return env
       })()
     })
