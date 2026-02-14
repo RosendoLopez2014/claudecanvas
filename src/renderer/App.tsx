@@ -1,4 +1,5 @@
 import { TitleBar } from './components/TitleBar/TitleBar'
+import { TabBar } from './components/TabBar/TabBar'
 import { Workspace } from './components/Workspace/Workspace'
 import { StatusBar } from './components/StatusBar/StatusBar'
 import { OnboardingWizard } from './components/Onboarding/Wizard'
@@ -32,13 +33,12 @@ export default function App() {
 
       window.api.mcp.projectOpened(currentProject.path).then(({ port }) => {
         addToast(`MCP bridge active on port ${port}`, 'success')
-        setTimeout(() => {
-          addToast('Claude Code launching — canvas tools ready', 'success')
-        }, 1200)
+        useProjectStore.getState().setMcpReady(true, port)
       })
 
       return () => {
         window.api.mcp.projectClosed()
+        useProjectStore.getState().setMcpReady(false)
       }
     }
   }, [screen, currentProject?.path])
@@ -54,6 +54,7 @@ export default function App() {
   return (
     <div className="h-screen w-screen flex flex-col bg-[var(--bg-primary)]">
       <TitleBar />
+      {screen === 'workspace' && <TabBar />}
       <div className="flex-1 overflow-hidden">
         {screen === 'onboarding' && <OnboardingWizard />}
         {screen === 'project-picker' && <ProjectPicker />}
