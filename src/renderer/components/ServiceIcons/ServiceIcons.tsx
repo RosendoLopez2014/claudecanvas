@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Github, Triangle, Database, Circle, Loader2, Copy, Check, ArrowRight, ArrowUp, ArrowDown, X, Plus, GitBranch, Link, ExternalLink, ChevronDown, ChevronRight, Rocket, Clock, FileText, Globe } from 'lucide-react'
+import { Github, Triangle, Database, Circle, Loader2, Copy, Check, ArrowRight, ArrowUp, ArrowDown, X, Plus, GitBranch, GitPullRequest, Link, ExternalLink, ChevronDown, ChevronRight, Rocket, Clock, FileText, Globe } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useProjectStore } from '@/stores/project'
@@ -1022,6 +1022,67 @@ export function ServiceIcons() {
                         )}
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* Quick actions */}
+                {repoName && (
+                  <div className="border-b border-white/10">
+                    {/* PR action — contextual */}
+                    {prInfo ? (
+                      <button
+                        onClick={() => window.open(prInfo.url, '_blank')}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/60 hover:bg-white/5 hover:text-white/80 transition"
+                      >
+                        <GitPullRequest size={11} className="shrink-0 text-green-400" />
+                        <span className="truncate flex-1">PR #{prInfo.number}</span>
+                        <ExternalLink size={9} className="shrink-0 text-white/20" />
+                      </button>
+                    ) : gitAhead > 0 && currentBranch && currentBranch !== 'main' && currentBranch !== 'master' ? (
+                      <button
+                        onClick={async () => {
+                          if (!currentProject?.path) return
+                          setDropdownOpen(null)
+                          const { addToast } = useToastStore.getState()
+                          const msg = await window.api.git.generateCommitMessage(currentProject.path).catch(() => '')
+                          const result = await window.api.git.createPr(currentProject.path, {
+                            title: msg || `${currentBranch}`,
+                            body: '',
+                            base: 'main'
+                          })
+                          if ('url' in result) {
+                            addToast(`PR #${result.number} created`, 'success', {
+                              action: { label: 'Open', onClick: () => window.open(result.url, '_blank') }
+                            })
+                          } else {
+                            addToast(`PR failed: ${result.error}`, 'error')
+                          }
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-[var(--accent-cyan)] hover:bg-white/5 transition"
+                      >
+                        <Plus size={11} className="shrink-0" />
+                        Create Pull Request
+                      </button>
+                    ) : null}
+
+                    {/* Open on GitHub */}
+                    <button
+                      onClick={() => window.open(`https://github.com/${repoName}`, '_blank')}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/60 hover:bg-white/5 hover:text-white/80 transition"
+                    >
+                      <ExternalLink size={11} className="shrink-0" />
+                      <span className="flex-1">Open on GitHub</span>
+                      <kbd className="text-[9px] text-white/15 font-mono">⌘⇧G</kbd>
+                    </button>
+
+                    {/* View Issues */}
+                    <button
+                      onClick={() => window.open(`https://github.com/${repoName}/issues`, '_blank')}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/60 hover:bg-white/5 hover:text-white/80 transition"
+                    >
+                      <Circle size={11} className="shrink-0" />
+                      View Issues
+                    </button>
                   </div>
                 )}
 
