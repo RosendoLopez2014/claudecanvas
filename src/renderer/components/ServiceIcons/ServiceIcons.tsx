@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Github, Triangle, Database, Circle, Loader2, Copy, Check, ArrowRight, X, Plus, GitBranch, Link, ExternalLink, ChevronDown, ChevronRight, Rocket, Clock, FileText, Globe } from 'lucide-react'
+import { Github, Triangle, Database, Circle, Loader2, Copy, Check, ArrowRight, ArrowUp, ArrowDown, X, Plus, GitBranch, Link, ExternalLink, ChevronDown, ChevronRight, Rocket, Clock, FileText, Globe } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useProjectStore } from '@/stores/project'
 import { useToastStore } from '@/stores/toast'
+import { useTabsStore } from '@/stores/tabs'
 
 interface ServiceStatus {
   github: boolean
@@ -240,6 +241,22 @@ export function ServiceIcons() {
   const [codeData, setCodeData] = useState<DeviceCodeData | null>(null)
   const codeDataRef = useRef<DeviceCodeData | null>(null)
 
+  // Git sync state from active tab
+  const [prInfo, setPrInfo] = useState<{ number: number; url: string; title: string } | null>(null)
+  const [loadingPr, setLoadingPr] = useState(false)
+  const [localBranches, setLocalBranches] = useState<string[]>([])
+  const [currentBranch, setCurrentBranch] = useState<string | null>(null)
+
+  const activeTab = useTabsStore((s) => {
+    const id = s.activeTabId
+    return id ? s.tabs.find((t) => t.id === id) ?? null : null
+  })
+  const gitAhead = activeTab?.gitAhead ?? 0
+  const gitBehind = activeTab?.gitBehind ?? 0
+  const gitRemoteConfigured = activeTab?.gitRemoteConfigured ?? false
+  const lastPushTime = activeTab?.lastPushTime ?? null
+  const lastFetchTime = activeTab?.lastFetchTime ?? null
+
   // Vercel-specific state
   const [vercelProjects, setVercelProjects] = useState<VercelProject[]>([])
   const [showVercelProjects, setShowVercelProjects] = useState(false)
@@ -354,6 +371,38 @@ export function ServiceIcons() {
       setRepoName(remoteUrl ? parseRepoName(remoteUrl) : null)
     })
   }, [status.github, currentProject?.path])
+
+  // Fetch branches and check PR when GitHub dropdown opens
+  useEffect(() => {
+    if (dropdownOpen !== 'github' || !status.github) return
+
+    // Fetch branches
+    if (currentProject?.path) {
+      window.api.worktree.branches(currentProject.path).then((result) => {
+        setCurrentBranch(result.current)
+        setLocalBranches(result.branches.filter((b: string) => b !== result.current))
+      }).catch(() => {})
+    }
+
+    // Check PR status
+    if (repoName && currentProject?.path) {
+      window.api.git.getProjectInfo(currentProject.path).then(({ branch }) => {
+        if (!branch || branch === 'main' || branch === 'master') {
+          setPrInfo(null)
+          return
+        }
+        setLoadingPr(true)
+        window.api.oauth.github.prStatus(repoName, branch).then((result) => {
+          if ('hasPR' in result && result.hasPR) {
+            setPrInfo({ number: result.number, url: result.url, title: result.title })
+          } else {
+            setPrInfo(null)
+          }
+          setLoadingPr(false)
+        })
+      })
+    }
+  }, [dropdownOpen, status.github, repoName, currentProject?.path])
 
   // Send updated bounds during resize while auth view is active
   useEffect(() => {
@@ -924,6 +973,55 @@ export function ServiceIcons() {
                 ) : (
                   <div className="px-3 py-2 border-b border-white/10">
                     <span className="text-xs text-white/60">GitHub</span>
+                  </div>
+                )}
+
+                {/* Contextual primary action */}
+                {status.github && repoName && (
+                  <div className="px-3 py-2.5 border-b border-white/10">
+                    {gitAhead > 0 ? (
+                      <button
+                        onClick={() => {
+                          setDropdownOpen(null)
+                          document.querySelector<HTMLButtonElement>('[data-push-button]')?.click()
+                        }}
+                        className="w-full flex flex-col items-center gap-1 py-2.5 bg-[var(--accent-cyan)]/10 hover:bg-[var(--accent-cyan)]/15 border border-[var(--accent-cyan)]/20 rounded-lg transition-colors"
+                      >
+                        <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--accent-cyan)]">
+                          <ArrowUp size={12} />
+                          Push {gitAhead} commit{gitAhead !== 1 ? 's' : ''}
+                        </span>
+                        {lastPushTime && (
+                          <span className="text-[10px] text-white/25">Last pushed {timeAgo(lastPushTime)}</span>
+                        )}
+                      </button>
+                    ) : gitBehind > 0 ? (
+                      <button
+                        onClick={() => {
+                          setDropdownOpen(null)
+                          document.querySelector<HTMLButtonElement>('[data-pull-button]')?.click()
+                        }}
+                        className="w-full flex flex-col items-center gap-1 py-2.5 bg-yellow-500/10 hover:bg-yellow-500/15 border border-yellow-500/20 rounded-lg transition-colors"
+                      >
+                        <span className="flex items-center gap-1.5 text-xs font-medium text-yellow-400">
+                          <ArrowDown size={12} />
+                          Pull {gitBehind} commit{gitBehind !== 1 ? 's' : ''}
+                        </span>
+                        {lastFetchTime && (
+                          <span className="text-[10px] text-white/25">Last fetched {timeAgo(lastFetchTime)}</span>
+                        )}
+                      </button>
+                    ) : (
+                      <div className="w-full flex flex-col items-center gap-1 py-2.5 bg-white/[0.03] border border-white/5 rounded-lg">
+                        <span className="flex items-center gap-1.5 text-xs text-white/30">
+                          <Check size={12} />
+                          Up to date
+                        </span>
+                        {lastPushTime && (
+                          <span className="text-[10px] text-white/20">Last pushed {timeAgo(lastPushTime)}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 

@@ -154,6 +154,7 @@ export function StatusBar() {
           <>
             {gitBehind > 0 && (
               <button
+                data-pull-button
                 onClick={handlePull}
                 disabled={pulling}
                 className="flex items-center gap-1 text-yellow-400 hover:text-yellow-300 transition-colors"
@@ -166,6 +167,7 @@ export function StatusBar() {
             <div className="relative">
               {gitAhead > 0 ? (
                 <button
+                  data-push-button
                   onClick={() => setShowPushPopover((p) => !p)}
                   className="flex items-center gap-1 text-[var(--accent-cyan)] hover:text-white transition-colors"
                   title="Push to remote"
