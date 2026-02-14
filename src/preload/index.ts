@@ -95,7 +95,21 @@ const api = {
     getProjectInfo: (cwd: string) =>
       ipcRenderer.invoke('git:getProjectInfo', cwd) as Promise<{ remoteUrl: string | null; branch: string | null }>,
     setRemote: (cwd: string, remoteUrl: string) =>
-      ipcRenderer.invoke('git:setRemote', cwd, remoteUrl) as Promise<{ ok: true } | { error: string }>
+      ipcRenderer.invoke('git:setRemote', cwd, remoteUrl) as Promise<{ ok: true } | { error: string }>,
+    fetch: (projectPath: string) =>
+      ipcRenderer.invoke('git:fetch', projectPath) as Promise<{ ahead: number; behind: number; error?: string }>,
+    pull: (projectPath: string) =>
+      ipcRenderer.invoke('git:pull', projectPath) as Promise<{ success: boolean; conflicts?: boolean; error?: string }>,
+    squashAndPush: (projectPath: string, message: string) =>
+      ipcRenderer.invoke('git:squashAndPush', projectPath, message) as Promise<
+        { success: true; branch: string } | { success: false; error: string; needsPull?: boolean }
+      >,
+    generateCommitMessage: (projectPath: string) =>
+      ipcRenderer.invoke('git:generateCommitMessage', projectPath) as Promise<string>,
+    createPr: (projectPath: string, opts: { title: string; body: string; base: string }) =>
+      ipcRenderer.invoke('git:createPr', projectPath, opts) as Promise<
+        { url: string; number: number } | { error: string }
+      >
   },
 
   oauth: {

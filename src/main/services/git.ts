@@ -1,7 +1,9 @@
-import { ipcMain } from 'electron'
+import { ipcMain, net } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
+import { execFile } from 'child_process'
 import simpleGit, { SimpleGit } from 'simple-git'
+import { settingsStore } from '../store'
 
 const gitInstances = new Map<string, SimpleGit>()
 
@@ -194,6 +196,183 @@ export function setupGitHandlers(): void {
         return { ok: true }
       } catch (err: any) {
         return { error: err?.message || String(err) }
+      }
+    }
+  )
+
+  ipcMain.handle('git:fetch', async (_event, projectPath: string) => {
+    if (!projectPath) return { ahead: 0, behind: 0 }
+    const g = getGit(projectPath)
+    try {
+      await g.fetch('origin')
+      const branch = (await g.branchLocal()).current
+      // Count commits ahead and behind
+      const status = await g.raw(['rev-list', '--left-right', '--count', `origin/${branch}...HEAD`])
+      const [behind, ahead] = status.trim().split(/\s+/).map(Number)
+      return { ahead: ahead || 0, behind: behind || 0 }
+    } catch (err: any) {
+      // No remote, no tracking branch, or network error
+      console.error('git:fetch error:', err?.message)
+      return { ahead: 0, behind: 0, error: err?.message }
+    }
+  })
+
+  ipcMain.handle('git:pull', async (_event, projectPath: string) => {
+    if (!projectPath) return { success: false, error: 'No project path' }
+    const g = getGit(projectPath)
+    try {
+      const branch = (await g.branchLocal()).current
+      // Stash uncommitted changes
+      const status = await g.status()
+      const hadChanges = status.files.length > 0
+      if (hadChanges) {
+        await g.stash(['push', '-m', 'claude-canvas-auto-stash'])
+      }
+      // Pull with rebase
+      await g.pull('origin', branch, { '--rebase': null })
+      // Pop stash if we stashed
+      if (hadChanges) {
+        try {
+          await g.stash(['pop'])
+          return { success: true, conflicts: false }
+        } catch {
+          return { success: true, conflicts: true }
+        }
+      }
+      return { success: true, conflicts: false }
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Pull failed' }
+    }
+  })
+
+  ipcMain.handle(
+    'git:squashAndPush',
+    async (_event, projectPath: string, message: string) => {
+      if (!projectPath) return { success: false, error: 'No project path' }
+      const g = getGit(projectPath)
+      try {
+        const branch = (await g.branchLocal()).current
+
+        // Find the fork point from the remote tracking branch
+        let forkPoint: string
+        try {
+          forkPoint = (await g.raw(['merge-base', `origin/${branch}`, 'HEAD'])).trim()
+        } catch {
+          // No remote tracking — just push the current commit
+          await g.push('origin', branch, { '--set-upstream': null })
+          return { success: true, branch }
+        }
+
+        // Check if there are commits to squash
+        const logOutput = await g.raw(['rev-list', '--count', `${forkPoint}..HEAD`])
+        const commitCount = parseInt(logOutput.trim(), 10)
+
+        if (commitCount <= 1) {
+          // 0 or 1 commit — just amend message if needed, then push
+          if (commitCount === 1) {
+            await g.raw(['commit', '--amend', '-m', message])
+          }
+          await g.push('origin', branch, { '--set-upstream': null, '--force-with-lease': null })
+          return { success: true, branch }
+        }
+
+        // Soft reset to fork point, re-commit as one
+        await g.raw(['reset', '--soft', forkPoint])
+        await g.commit(message)
+        await g.push('origin', branch, { '--set-upstream': null, '--force-with-lease': null })
+        return { success: true, branch }
+      } catch (err: any) {
+        // If push rejected, signal caller to pull first
+        if (err?.message?.includes('rejected') || err?.message?.includes('non-fast-forward')) {
+          return { success: false, error: 'rejected', needsPull: true }
+        }
+        return { success: false, error: err?.message || 'Push failed' }
+      }
+    }
+  )
+
+  ipcMain.handle('git:generateCommitMessage', async (_event, projectPath: string) => {
+    if (!projectPath) return ''
+    const g = getGit(projectPath)
+    try {
+      const branch = (await g.branchLocal()).current
+      // Get a compact diff summary
+      let diffStat: string
+      try {
+        diffStat = await g.raw(['diff', '--stat', `origin/${branch}...HEAD`])
+      } catch {
+        diffStat = await g.raw(['diff', '--stat', 'HEAD~1'])
+      }
+      if (!diffStat.trim()) return ''
+
+      // Use claude CLI to generate the message
+      return new Promise<string>((resolve) => {
+        const prompt = `Generate a concise one-line git commit message (max 72 chars) for these changes. Reply with ONLY the message, no quotes, no prefix:\n\n${diffStat}`
+        execFile('claude', ['--print', prompt], {
+          timeout: 15000,
+          env: { ...process.env }
+        }, (err, stdout) => {
+          if (err || !stdout.trim()) {
+            resolve('')
+          } else {
+            resolve(stdout.trim().replace(/^["']|["']$/g, ''))
+          }
+        })
+      })
+    } catch {
+      return ''
+    }
+  })
+
+  ipcMain.handle(
+    'git:createPr',
+    async (
+      _event,
+      projectPath: string,
+      opts: { title: string; body: string; base: string }
+    ) => {
+      if (!projectPath) return { error: 'No project path' }
+      const token = settingsStore.get('oauthTokens.github') as string | undefined
+      if (!token) return { error: 'Not authenticated with GitHub' }
+
+      const g = getGit(projectPath)
+      try {
+        const branch = (await g.branchLocal()).current
+        const remotes = await g.getRemotes(true)
+        const origin = remotes.find((r) => r.name === 'origin')
+        const remoteUrl = origin?.refs?.push || origin?.refs?.fetch || ''
+
+        // Parse owner/repo from remote URL
+        const match = remoteUrl.match(/github\.com[:/]([^/]+)\/([^/.]+)/)
+        if (!match) return { error: 'Could not parse GitHub repo from remote URL' }
+        const [, owner, repo] = match
+
+        // Create PR via GitHub API
+        const response = await net.fetch(
+          `https://api.github.com/repos/${owner}/${repo}/pulls`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/vnd.github+json',
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              title: opts.title,
+              body: opts.body,
+              head: branch,
+              base: opts.base || 'main'
+            })
+          }
+        )
+
+        const data = await response.json() as any
+        if (!response.ok) {
+          return { error: data.message || `GitHub API error ${response.status}` }
+        }
+        return { url: data.html_url, number: data.number }
+      } catch (err: any) {
+        return { error: err?.message || 'Failed to create PR' }
       }
     }
   )

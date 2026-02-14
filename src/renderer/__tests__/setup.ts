@@ -45,7 +45,12 @@ const mockApi = {
     show: vi.fn().mockResolvedValue(''),
     remoteUrl: vi.fn().mockResolvedValue(null),
     getProjectInfo: vi.fn().mockResolvedValue({ remoteUrl: null, branch: null }),
-    setRemote: vi.fn().mockResolvedValue({ ok: true })
+    setRemote: vi.fn().mockResolvedValue({ ok: true }),
+    fetch: vi.fn().mockResolvedValue({ ahead: 0, behind: 0 }),
+    pull: vi.fn().mockResolvedValue({ success: true, conflicts: false }),
+    squashAndPush: vi.fn().mockResolvedValue({ success: true, branch: 'main' }),
+    generateCommitMessage: vi.fn().mockResolvedValue('Update components'),
+    createPr: vi.fn().mockResolvedValue({ url: 'https://github.com/test/repo/pull/1', number: 1 }),
   },
   oauth: {
     github: {

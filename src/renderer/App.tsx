@@ -12,6 +12,7 @@ import { useToastStore } from './stores/toast'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useMcpCommands } from './hooks/useMcpCommands'
 import { useMcpStateExposer } from './hooks/useMcpStateExposer'
+import { useGitSync } from './hooks/useGitSync'
 import { useEffect, useState, useCallback, useRef } from 'react'
 
 export default function App() {
@@ -25,6 +26,7 @@ export default function App() {
   useKeyboardShortcuts({ onQuickActions: toggleQuickActions })
   useMcpCommands()
   useMcpStateExposer()
+  useGitSync()
 
   // Start MCP server once when entering workspace. The server stays alive
   // across tab switches — each MCP tool event carries projectPath so the
@@ -57,28 +59,7 @@ export default function App() {
   useEffect(() => {
     window.api.settings.get('onboardingComplete').then(async (complete) => {
       if (complete) {
-        // Restore saved tabs
-        const savedTabs = await window.api.settings.get('tabs')
-        if (Array.isArray(savedTabs) && savedTabs.length > 0) {
-          for (const t of savedTabs) {
-            if (t.project?.name && t.project?.path) {
-              const tabId = useTabsStore.getState().addTab(t.project)
-              if (t.worktreeBranch || t.worktreePath) {
-                useTabsStore.getState().updateTab(tabId, {
-                  worktreeBranch: t.worktreeBranch || null,
-                  worktreePath: t.worktreePath || null,
-                })
-              }
-            }
-          }
-          // Set the first tab's project as current and go to workspace
-          const firstTab = useTabsStore.getState().tabs[0]
-          if (firstTab) {
-            useProjectStore.getState().setCurrentProject(firstTab.project)
-            setScreen('workspace')
-            return
-          }
-        }
+        // Always show project picker on startup — user picks the project
         setScreen('project-picker')
       }
     })

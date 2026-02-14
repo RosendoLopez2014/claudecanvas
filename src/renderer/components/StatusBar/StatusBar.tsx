@@ -3,8 +3,13 @@ import { useCanvasStore } from '@/stores/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useToastStore } from '@/stores/toast'
 import { useTabsStore } from '@/stores/tabs'
-import { GitBranch, Play, Square, PanelRight, Eye, Loader2, FolderOpen } from 'lucide-react'
+import {
+  GitBranch, Play, Square, PanelRight, Eye, Loader2, FolderOpen,
+  ArrowDown, ArrowUp, Check
+} from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import { AnimatePresence } from 'framer-motion'
+import { PushPopover } from './PushPopover'
 
 export function StatusBar() {
   const { currentProject, isDevServerRunning, setDevServerRunning } = useProjectStore()
@@ -13,6 +18,38 @@ export function StatusBar() {
   const showCanvas = mode === 'terminal-canvas'
   const [startingStatus, setStartingStatus] = useState<string | null>(null)
   const activeTab = useTabsStore((s) => s.getActiveTab())
+
+  const gitAhead = activeTab?.gitAhead ?? 0
+  const gitBehind = activeTab?.gitBehind ?? 0
+  const gitRemoteConfigured = activeTab?.gitRemoteConfigured ?? false
+  const [showPushPopover, setShowPushPopover] = useState(false)
+  const [pulling, setPulling] = useState(false)
+
+  const handlePull = useCallback(async () => {
+    const path = activeTab?.project.path
+    if (!path || pulling) return
+    setPulling(true)
+    const { addToast } = useToastStore.getState()
+    const result = await window.api.git.pull(path)
+    if (result.success) {
+      if (result.conflicts) {
+        addToast('Pulled with conflicts — resolve in terminal', 'error')
+      } else {
+        addToast('Pulled latest changes', 'success')
+      }
+      // Refresh counts
+      const counts = await window.api.git.fetch(path)
+      if (activeTab) {
+        useTabsStore.getState().updateTab(activeTab.id, {
+          gitAhead: counts.ahead || 0,
+          gitBehind: counts.behind || 0,
+        })
+      }
+    } else {
+      addToast(`Pull failed: ${result.error}`, 'error')
+    }
+    setPulling(false)
+  }, [activeTab, pulling])
 
   // Listen for dev server exit (crash, manual kill, etc.)
   useEffect(() => {
@@ -95,10 +132,14 @@ export function StatusBar() {
       <div className="flex items-center gap-3">
         {(activeTab || currentProject) && (
           <>
-            <span className="flex items-center gap-1 text-white/70">
+            <button
+              onClick={() => useProjectStore.getState().setScreen('project-picker')}
+              className="flex items-center gap-1 text-white/70 hover:text-white transition-colors"
+              title="Open project picker"
+            >
               <FolderOpen size={11} />
               <span>{activeTab?.project.name || currentProject?.name}</span>
-            </span>
+            </button>
             <div className="flex items-center gap-1">
               <GitBranch size={11} />
               <span>{activeTab?.worktreeBranch || 'main'}</span>
@@ -107,6 +148,44 @@ export function StatusBar() {
         )}
       </div>
       <div className="flex items-center gap-3">
+        {/* Git sync indicators */}
+        {gitRemoteConfigured && (
+          <>
+            {gitBehind > 0 && (
+              <button
+                onClick={handlePull}
+                disabled={pulling}
+                className="flex items-center gap-1 text-yellow-400 hover:text-yellow-300 transition-colors"
+                title="Pull from remote"
+              >
+                {pulling ? <Loader2 size={10} className="animate-spin" /> : <ArrowDown size={10} />}
+                <span>{gitBehind} Pull</span>
+              </button>
+            )}
+            <div className="relative">
+              {gitAhead > 0 ? (
+                <button
+                  onClick={() => setShowPushPopover((p) => !p)}
+                  className="flex items-center gap-1 text-[var(--accent-cyan)] hover:text-white transition-colors"
+                  title="Push to remote"
+                >
+                  <ArrowUp size={10} />
+                  <span>{gitAhead} Push</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-cyan)] animate-pulse" />
+                </button>
+              ) : gitBehind === 0 ? (
+                <span className="flex items-center gap-1 text-white/20">
+                  <Check size={10} />
+                  <span>Synced</span>
+                </span>
+              ) : null}
+              <AnimatePresence>
+                {showPushPopover && <PushPopover onClose={() => setShowPushPopover(false)} />}
+              </AnimatePresence>
+            </div>
+          </>
+        )}
+
         {/* Dev server start/stop */}
         {isDevServerRunning ? (
           <button

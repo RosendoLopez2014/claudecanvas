@@ -33,6 +33,11 @@ export interface TabState {
   // Worktree info (null = main working tree)
   worktreeBranch: string | null
   worktreePath: string | null
+  // Git sync
+  gitAhead: number
+  gitBehind: number
+  gitSyncing: boolean
+  gitRemoteConfigured: boolean
 }
 
 function createDefaultTabState(project: ProjectInfo): TabState {
@@ -56,6 +61,10 @@ function createDefaultTabState(project: ProjectInfo): TabState {
     mcpPort: null,
     worktreeBranch: null,
     worktreePath: null,
+    gitAhead: 0,
+    gitBehind: 0,
+    gitSyncing: false,
+    gitRemoteConfigured: false,
   }
 }
 

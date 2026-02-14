@@ -32,6 +32,17 @@ export function ToastContainer() {
             >
               <Icon size={14} />
               <span className="text-sm text-white/80">{toast.message}</span>
+              {toast.action && (
+                <button
+                  onClick={() => {
+                    toast.action!.onClick()
+                    removeToast(toast.id)
+                  }}
+                  className="ml-1 px-2 py-0.5 text-xs rounded bg-white/10 hover:bg-white/20 text-white/80 transition-colors"
+                >
+                  {toast.action.label}
+                </button>
+              )}
               <button onClick={() => removeToast(toast.id)} className="ml-2 text-white/30 hover:text-white/60">
                 <X size={12} />
               </button>
