@@ -14,6 +14,7 @@ import { startMcpServer, stopMcpServer } from './mcp/server'
 import { writeMcpConfig, removeMcpConfig } from './mcp/config-writer'
 import { setupScreenshotHandlers } from './screenshot'
 import { setupInspectorHandlers } from './inspector'
+import { setupWorktreeHandlers } from './services/worktree'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -69,6 +70,7 @@ app.whenReady().then(() => {
   setupSupabaseOAuth()
   setupScreenshotHandlers(() => mainWindow)
   setupInspectorHandlers(() => mainWindow)
+  setupWorktreeHandlers()
 
   // MCP Bridge — start server when a project opens
   ipcMain.handle('mcp:project-opened', async (_event, projectPath: string) => {

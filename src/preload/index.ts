@@ -247,6 +247,24 @@ const api = {
       ipcRenderer.on('mcp:notify', handler)
       return () => ipcRenderer.removeListener('mcp:notify', handler)
     }
+  },
+
+  worktree: {
+    list: (projectPath: string) =>
+      ipcRenderer.invoke('worktree:list', projectPath) as Promise<
+        Array<{ path: string; branch: string; head: string }>
+      >,
+    create: (opts: { projectPath: string; branchName: string; targetDir: string }) =>
+      ipcRenderer.invoke('worktree:create', opts) as Promise<{ path: string; branch: string }>,
+    checkout: (opts: { projectPath: string; branchName: string; targetDir: string }) =>
+      ipcRenderer.invoke('worktree:checkout', opts) as Promise<{ path: string; branch: string }>,
+    remove: (opts: { projectPath: string; worktreePath: string }) =>
+      ipcRenderer.invoke('worktree:remove', opts) as Promise<{ ok: true }>,
+    branches: (projectPath: string) =>
+      ipcRenderer.invoke('worktree:branches', projectPath) as Promise<{
+        current: string
+        branches: string[]
+      }>
   }
 }
 
