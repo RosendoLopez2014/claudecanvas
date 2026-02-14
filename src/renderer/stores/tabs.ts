@@ -66,9 +66,19 @@ interface TabsStore {
   addTab: (project: ProjectInfo) => string
   closeTab: (id: string) => void
   setActiveTab: (id: string) => void
-  updateTab: (id: string, partial: Partial<TabState>) => void
+  updateTab: (id: string, partial: Omit<Partial<TabState>, 'id' | 'project'>) => void
   getActiveTab: () => TabState | null
   reset: () => void
+}
+
+function persistTabs(): void {
+  const { tabs } = useTabsStore.getState()
+  const serialized = tabs.map((t) => ({
+    project: t.project,
+    worktreeBranch: t.worktreeBranch,
+    worktreePath: t.worktreePath,
+  }))
+  window.api.settings.set('tabs', serialized)
 }
 
 export const useTabsStore = create<TabsStore>((set, get) => ({
@@ -81,6 +91,7 @@ export const useTabsStore = create<TabsStore>((set, get) => ({
       tabs: [...s.tabs, tab],
       activeTabId: tab.id,
     }))
+    persistTabs()
     return tab.id
   },
 
@@ -96,6 +107,7 @@ export const useTabsStore = create<TabsStore>((set, get) => ({
       }
       return { tabs: newTabs, activeTabId: newActive }
     })
+    persistTabs()
   },
 
   setActiveTab: (id) => set({ activeTabId: id }),
@@ -111,5 +123,8 @@ export const useTabsStore = create<TabsStore>((set, get) => ({
     return tabs.find((t) => t.id === activeTabId) || null
   },
 
-  reset: () => set({ tabs: [], activeTabId: null }),
+  reset: () => {
+    set({ tabs: [], activeTabId: null })
+    persistTabs()
+  },
 }))

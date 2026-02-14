@@ -49,8 +49,30 @@ export default function App() {
   }, [screen, currentProject?.path])
 
   useEffect(() => {
-    window.api.settings.get('onboardingComplete').then((complete) => {
+    window.api.settings.get('onboardingComplete').then(async (complete) => {
       if (complete) {
+        // Restore saved tabs
+        const savedTabs = await window.api.settings.get('tabs')
+        if (Array.isArray(savedTabs) && savedTabs.length > 0) {
+          for (const t of savedTabs) {
+            if (t.project?.name && t.project?.path) {
+              const tabId = useTabsStore.getState().addTab(t.project)
+              if (t.worktreeBranch || t.worktreePath) {
+                useTabsStore.getState().updateTab(tabId, {
+                  worktreeBranch: t.worktreeBranch || null,
+                  worktreePath: t.worktreePath || null,
+                })
+              }
+            }
+          }
+          // Set the first tab's project as current and go to workspace
+          const firstTab = useTabsStore.getState().tabs[0]
+          if (firstTab) {
+            useProjectStore.getState().setCurrentProject(firstTab.project)
+            setScreen('workspace')
+            return
+          }
+        }
         setScreen('project-picker')
       }
     })
