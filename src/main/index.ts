@@ -12,15 +12,17 @@ import { setupVercelOAuth } from './oauth/vercel'
 import { setupSupabaseOAuth } from './oauth/supabase'
 import { startMcpServer, stopMcpServer } from './mcp/server'
 import { writeMcpConfig, removeMcpConfig } from './mcp/config-writer'
+import { setupScreenshotHandlers } from './screenshot'
+import { setupInspectorHandlers } from './inspector'
 
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 800,
-    minHeight: 600,
+    width: 960,
+    height: 700,
+    minWidth: 700,
+    minHeight: 500,
     frame: false,
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 15, y: 15 },
@@ -62,13 +64,15 @@ app.whenReady().then(() => {
   setupDevServerHandlers(() => mainWindow)
   setupRenderRouter(() => mainWindow)
   setupGitHandlers()
-  setupGithubOAuth()
-  setupVercelOAuth()
+  setupGithubOAuth(() => mainWindow)
+  setupVercelOAuth(() => mainWindow)
   setupSupabaseOAuth()
+  setupScreenshotHandlers(() => mainWindow)
+  setupInspectorHandlers(() => mainWindow)
 
   // MCP Bridge — start server when a project opens
   ipcMain.handle('mcp:project-opened', async (_event, projectPath: string) => {
-    const port = await startMcpServer(() => mainWindow)
+    const port = await startMcpServer(() => mainWindow, projectPath)
     await writeMcpConfig(projectPath, port)
     return { port }
   })
@@ -98,6 +102,32 @@ app.whenReady().then(() => {
   })
   ipcMain.on('window:close', () => mainWindow?.close())
   ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() ?? false)
+  ipcMain.handle('window:getBounds', () => mainWindow?.getBounds())
+  ipcMain.handle(
+    'window:setSize',
+    (_event, width: number, height: number, animate: boolean) => {
+      if (!mainWindow || mainWindow.isFullScreen()) return
+      if (mainWindow.isMaximized()) {
+        mainWindow.unmaximize()
+      }
+      // Wait a tick for unmaximize to settle, then set bounds
+      setTimeout(() => {
+        if (!mainWindow) return
+        const bounds = mainWindow.getBounds()
+        const cx = bounds.x + bounds.width / 2
+        const cy = bounds.y + bounds.height / 2
+        mainWindow.setBounds(
+          {
+            x: Math.round(cx - width / 2),
+            y: Math.round(cy - height / 2),
+            width,
+            height
+          },
+          animate
+        )
+      }, mainWindow.isMaximized() ? 100 : 0)
+    }
+  )
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

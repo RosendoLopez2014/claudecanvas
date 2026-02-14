@@ -1,10 +1,12 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { BrowserWindow } from 'electron'
+import { getLatestScreenshotBase64 } from '../screenshot'
 
 export function registerMcpTools(
   server: McpServer,
-  getWindow: () => BrowserWindow | null
+  getWindow: () => BrowserWindow | null,
+  projectPath: string
 ): void {
   server.tool(
     'canvas_render',
@@ -16,7 +18,7 @@ export function registerMcpTools(
     async ({ html, css }) => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
-      win.webContents.send('mcp:canvas-render', { html, css })
+      win.webContents.send('mcp:canvas-render', { projectPath, html, css })
       return { content: [{ type: 'text', text: 'Rendered successfully. The component is now visible in the canvas.' }] }
     }
   )
@@ -31,7 +33,7 @@ export function registerMcpTools(
     async ({ command, cwd }) => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
-      win.webContents.send('mcp:start-preview', { command, cwd })
+      win.webContents.send('mcp:start-preview', { projectPath, command, cwd })
       return { content: [{ type: 'text', text: 'Dev server starting. The canvas panel will open with a live preview.' }] }
     }
   )
@@ -43,7 +45,7 @@ export function registerMcpTools(
     async () => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
-      win.webContents.send('mcp:stop-preview')
+      win.webContents.send('mcp:stop-preview', { projectPath })
       return { content: [{ type: 'text', text: 'Dev server stopped and preview closed.' }] }
     }
   )
@@ -57,7 +59,7 @@ export function registerMcpTools(
     async ({ url }) => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
-      win.webContents.send('mcp:set-preview-url', { url })
+      win.webContents.send('mcp:set-preview-url', { projectPath, url })
       return { content: [{ type: 'text', text: `Preview URL set to ${url}. Canvas is now showing the live preview.` }] }
     }
   )
@@ -71,7 +73,7 @@ export function registerMcpTools(
     async ({ tab }) => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
-      win.webContents.send('mcp:open-tab', { tab })
+      win.webContents.send('mcp:open-tab', { projectPath, tab })
       return { content: [{ type: 'text', text: `Switched to ${tab} tab.` }] }
     }
   )
@@ -87,7 +89,7 @@ export function registerMcpTools(
     async ({ label, html, css }) => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
-      win.webContents.send('mcp:add-to-gallery', { label, html, css })
+      win.webContents.send('mcp:add-to-gallery', { projectPath, label, html, css })
       return { content: [{ type: 'text', text: `Added "${label}" to the gallery.` }] }
     }
   )
@@ -101,7 +103,7 @@ export function registerMcpTools(
     async ({ message }) => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
-      win.webContents.send('mcp:checkpoint', { message })
+      win.webContents.send('mcp:checkpoint', { projectPath, message })
       return { content: [{ type: 'text', text: `Checkpoint created: "${message}"` }] }
     }
   )
@@ -116,7 +118,7 @@ export function registerMcpTools(
     async ({ message, type }) => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
-      win.webContents.send('mcp:notify', { message, type: type || 'info' })
+      win.webContents.send('mcp:notify', { projectPath, message, type: type || 'info' })
       return { content: [{ type: 'text', text: 'Notification shown.' }] }
     }
   )
@@ -140,7 +142,7 @@ export function registerMcpTools(
 
   server.tool(
     'canvas_get_context',
-    'Get the currently selected element from the inspector, if any. Returns component name, source file, line number, and key styles.',
+    'Get the elements the user selected in the inspector. Returns count and elements array — each element has filePath, lineNumber, componentName, props, textContent, styles, componentChain. First element also at root level. ALWAYS call this when you see [ComponentName] tags in the message.',
     {},
     async () => {
       const win = getWindow()
@@ -152,6 +154,24 @@ export function registerMcpTools(
         })()
       `)
       return { content: [{ type: 'text', text: context }] }
+    }
+  )
+
+  server.tool(
+    'canvas_get_screenshot',
+    'Get the latest screenshot captured by the user from the canvas preview. Returns the image directly. The user captures screenshots by clicking the camera icon and dragging to select a region.',
+    {},
+    async () => {
+      const screenshot = await getLatestScreenshotBase64()
+      if (!screenshot) {
+        return { content: [{ type: 'text', text: 'No screenshot available. The user has not captured one yet.' }] }
+      }
+      return {
+        content: [
+          { type: 'image', data: screenshot.data, mimeType: screenshot.mimeType },
+          { type: 'text', text: 'Screenshot from the canvas preview.' }
+        ]
+      }
     }
   )
 }

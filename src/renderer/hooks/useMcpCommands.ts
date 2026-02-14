@@ -22,9 +22,17 @@ export function useMcpCommands() {
       if (activeTabId) updateTab(activeTabId, partial)
     }
 
+    // Returns true if the event should be ignored (projectPath mismatch)
+    const shouldSkipEvent = (eventPath?: string): boolean => {
+      if (!eventPath) return false
+      const activeTab = useTabsStore.getState().getActiveTab()
+      return !!activeTab && activeTab.project.path !== eventPath
+    }
+
     // canvas_render — evaluate size, then route to inline or canvas
     cleanups.push(
-      window.api.mcp.onCanvasRender(async ({ html, css }) => {
+      window.api.mcp.onCanvasRender(async ({ projectPath: eventPath, html, css }) => {
+        if (shouldSkipEvent(eventPath)) return
         const result = await window.api.render.evaluate(html, css)
         if (result.target === 'canvas') {
           if (useWorkspaceStore.getState().mode !== 'terminal-canvas') {
@@ -43,7 +51,8 @@ export function useMcpCommands() {
 
     // canvas_start_preview
     cleanups.push(
-      window.api.mcp.onStartPreview(async ({ command, cwd }) => {
+      window.api.mcp.onStartPreview(async ({ projectPath: eventPath, command, cwd }) => {
+        if (shouldSkipEvent(eventPath)) return
         const projectCwd = cwd || useProjectStore.getState().currentProject?.path
         if (!projectCwd) return
 
@@ -83,7 +92,8 @@ export function useMcpCommands() {
 
     // canvas_stop_preview
     cleanups.push(
-      window.api.mcp.onStopPreview(async () => {
+      window.api.mcp.onStopPreview(async ({ projectPath: eventPath }) => {
+        if (shouldSkipEvent(eventPath)) return
         const projectCwd = useProjectStore.getState().currentProject?.path
         await window.api.dev.stop(projectCwd)
         useProjectStore.getState().setDevServerRunning(false)
@@ -94,7 +104,8 @@ export function useMcpCommands() {
 
     // canvas_set_preview_url
     cleanups.push(
-      window.api.mcp.onSetPreviewUrl(({ url }) => {
+      window.api.mcp.onSetPreviewUrl(({ projectPath: eventPath, url }) => {
+        if (shouldSkipEvent(eventPath)) return
         useCanvasStore.getState().setPreviewUrl(url)
         if (useWorkspaceStore.getState().mode !== 'terminal-canvas') {
           useWorkspaceStore.getState().openCanvas()
@@ -106,7 +117,8 @@ export function useMcpCommands() {
 
     // canvas_open_tab
     cleanups.push(
-      window.api.mcp.onOpenTab(({ tab }) => {
+      window.api.mcp.onOpenTab(({ projectPath: eventPath, tab }) => {
+        if (shouldSkipEvent(eventPath)) return
         if (useWorkspaceStore.getState().mode !== 'terminal-canvas') {
           useWorkspaceStore.getState().openCanvas()
         }
@@ -117,7 +129,8 @@ export function useMcpCommands() {
 
     // canvas_add_to_gallery
     cleanups.push(
-      window.api.mcp.onAddToGallery(({ label, html, css }) => {
+      window.api.mcp.onAddToGallery(({ projectPath: eventPath, label, html, css }) => {
+        if (shouldSkipEvent(eventPath)) return
         useGalleryStore.getState().addVariant({
           id: `gallery-${Date.now()}`,
           label,
@@ -133,7 +146,8 @@ export function useMcpCommands() {
 
     // canvas_checkpoint — commit + capture screenshot for visual diff
     cleanups.push(
-      window.api.mcp.onCheckpoint(async ({ message }) => {
+      window.api.mcp.onCheckpoint(async ({ projectPath: eventPath, message }) => {
+        if (shouldSkipEvent(eventPath)) return
         const project = useProjectStore.getState().currentProject
         if (!project?.path) return
         const result = await window.api.git.checkpoint(project.path, message)
@@ -145,7 +159,8 @@ export function useMcpCommands() {
 
     // canvas_notify — show toast notification
     cleanups.push(
-      window.api.mcp.onNotify(({ message, type }) => {
+      window.api.mcp.onNotify(({ projectPath: eventPath, message, type }) => {
+        if (shouldSkipEvent(eventPath)) return
         useToastStore.getState().addToast(message, type as 'info' | 'success' | 'error')
       })
     )
