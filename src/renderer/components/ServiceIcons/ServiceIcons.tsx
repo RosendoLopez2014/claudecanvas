@@ -264,11 +264,7 @@ export function ServiceIcons() {
   const [loadingVercelProjects, setLoadingVercelProjects] = useState(false)
   const [linkedProject, setLinkedProject] = useState<LinkedProjectData | null>(null)
   const [loadingLinkedProject, setLoadingLinkedProject] = useState(false)
-  const [buildLogs, setBuildLogs] = useState<Array<{ text: string; created: number; type: string }>>([])
-  const [showBuildLogs, setShowBuildLogs] = useState(false)
-  const [loadingBuildLogs, setLoadingBuildLogs] = useState(false)
   const [importingProject, setImportingProject] = useState(false)
-  const [showImportOptions, setShowImportOptions] = useState(false)
   const [recentDeploys, setRecentDeploys] = useState<Array<{
     id: string; url: string; state: string; created: number; source: string | null
   }>>([])
@@ -303,9 +299,6 @@ export function ServiceIcons() {
       setCreatingRepo(false)
       setShowVercelProjects(false)
       setVercelProjectSearch('')
-      setShowBuildLogs(false)
-      setBuildLogs([])
-      setShowImportOptions(false)
       setShowSupabaseTables(false)
       setShowSupabaseFunctions(false)
       setShowSupabaseBuckets(false)
@@ -682,24 +675,6 @@ export function ServiceIcons() {
     }).catch(() => {})
   }, [linkedProject, dropdownOpen])
 
-  // Fetch build logs for a deployment
-  const fetchBuildLogs = useCallback(async (deploymentId: string) => {
-    setShowBuildLogs(true)
-    setLoadingBuildLogs(true)
-    try {
-      const result = await window.api.oauth.vercel.buildLogs(deploymentId)
-      if (Array.isArray(result)) {
-        setBuildLogs(result)
-      } else {
-        useToastStore.getState().addToast(`Failed: ${result.error}`, 'error')
-      }
-    } catch {
-      useToastStore.getState().addToast('Failed to fetch build logs', 'error')
-    } finally {
-      setLoadingBuildLogs(false)
-    }
-  }, [])
-
   // Import current project to Vercel
   const importToVercel = useCallback(async () => {
     if (!currentProject?.path || !repoName) return
@@ -714,7 +689,6 @@ export function ServiceIcons() {
         useToastStore.getState().addToast(`Import failed: ${result.error}`, 'error')
       } else {
         useToastStore.getState().addToast(`Imported to Vercel! Deploying...`, 'success')
-        setShowImportOptions(false)
         // Refresh linked project data
         setTimeout(fetchLinkedProject, 2000)
       }
