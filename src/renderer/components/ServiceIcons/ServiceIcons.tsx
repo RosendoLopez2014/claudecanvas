@@ -1192,6 +1192,68 @@ export function ServiceIcons() {
                   </>
                 )}
 
+                {/* Branches */}
+                {repoName && currentBranch && (
+                  <div className="border-b border-white/10">
+                    <div className="px-3 pt-2 pb-1">
+                      <div className="text-[10px] uppercase tracking-wider text-white/30">Branches</div>
+                    </div>
+                    <div className="px-1 pb-1.5">
+                      {/* Current branch */}
+                      <div className="flex items-center gap-2 px-2 py-1 text-xs text-white/60">
+                        <GitBranch size={10} className="shrink-0 text-[var(--accent-cyan)]" />
+                        <span className="truncate flex-1">{currentBranch}</span>
+                        <span className="text-[9px] text-white/20">current</span>
+                      </div>
+                      {/* Other branches (max 5) */}
+                      {localBranches.slice(0, 5).map((branch) => (
+                        <button
+                          key={branch}
+                          onClick={async () => {
+                            if (!currentProject?.path) return
+                            setDropdownOpen(null)
+                            const targetDir = `${currentProject.path}/../${currentProject.name}-${branch}`
+                            try {
+                              const result = await window.api.worktree.checkout({
+                                projectPath: currentProject.path,
+                                branchName: branch,
+                                targetDir
+                              })
+                              const tabId = useTabsStore.getState().addTab({
+                                name: currentProject.name,
+                                path: result.path
+                              })
+                              useTabsStore.getState().updateTab(tabId, {
+                                worktreeBranch: result.branch,
+                                worktreePath: result.path
+                              })
+                              useToastStore.getState().addToast(`Switched to ${branch}`, 'success')
+                            } catch (err: any) {
+                              useToastStore.getState().addToast(`Failed: ${err?.message}`, 'error')
+                            }
+                          }}
+                          className="w-full flex items-center gap-2 px-2 py-1 text-xs text-left text-white/45 hover:bg-white/5 hover:text-white/70 rounded transition"
+                        >
+                          <GitBranch size={10} className="shrink-0" />
+                          <span className="truncate flex-1">{branch}</span>
+                        </button>
+                      ))}
+                      {localBranches.length > 5 && (
+                        <div className="px-2 py-1 text-[10px] text-white/20">
+                          +{localBranches.length - 5} more
+                        </div>
+                      )}
+                    </div>
+                    {/* Change repo link */}
+                    <button
+                      onClick={() => openLinkRepo()}
+                      className="w-full px-3 py-1.5 text-[10px] text-white/25 hover:text-white/45 transition border-t border-white/5"
+                    >
+                      Change repo...
+                    </button>
+                  </div>
+                )}
+
                 {/* Connect / Disconnect */}
                 {status.github ? (
                   <button
