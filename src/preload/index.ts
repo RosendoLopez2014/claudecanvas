@@ -138,6 +138,12 @@ const api = {
       createRepo: (opts: { name: string; private?: boolean }) =>
         ipcRenderer.invoke('oauth:github:createRepo', opts) as Promise<
           { url: string; owner: string } | { error: string }
+        >,
+      prStatus: (repoFullName: string, branch: string) =>
+        ipcRenderer.invoke('oauth:github:prStatus', repoFullName, branch) as Promise<
+          { hasPR: true; number: number; url: string; title: string } |
+          { hasPR: false } |
+          { error: string }
         >
     },
     vercel: {
@@ -189,6 +195,10 @@ const api = {
       importProject: (opts: { name: string; framework?: string; gitRepo: string }) =>
         ipcRenderer.invoke('oauth:vercel:importProject', opts) as Promise<
           { id: string; name: string; productionUrl: string } | { error: string }
+        >,
+      redeploy: (deploymentId: string) =>
+        ipcRenderer.invoke('oauth:vercel:redeploy', deploymentId) as Promise<
+          { id: string; url: string; state: string } | { error: string }
         >
     },
     supabase: {
