@@ -4,6 +4,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useGalleryStore } from '@/stores/gallery'
 import { useProjectStore } from '@/stores/project'
 import { useToastStore } from '@/stores/toast'
+import { useTabsStore } from '@/stores/tabs'
 
 /**
  * Listens for MCP commands forwarded from the main process via IPC
@@ -15,6 +16,11 @@ import { useToastStore } from '@/stores/toast'
 export function useMcpCommands() {
   useEffect(() => {
     const cleanups: (() => void)[] = []
+
+    const updateActiveTab = (partial: Record<string, unknown>) => {
+      const { activeTabId, updateTab } = useTabsStore.getState()
+      if (activeTabId) updateTab(activeTabId, partial)
+    }
 
     // canvas_render — evaluate size, then route to inline or canvas
     cleanups.push(
@@ -30,6 +36,7 @@ export function useMcpCommands() {
             html: css ? `<style>${css}</style>${html}` : html
           })
           useCanvasStore.getState().setActiveTab('gallery')
+          updateActiveTab({ activeCanvasTab: 'gallery' })
         }
       })
     )
@@ -52,6 +59,7 @@ export function useMcpCommands() {
               useWorkspaceStore.getState().openCanvas()
             }
             useCanvasStore.getState().setActiveTab('preview')
+            updateActiveTab({ previewUrl: url, isDevServerRunning: true, activeCanvasTab: 'preview' })
             useToastStore.getState().addToast(`Preview loaded: ${url}`, 'success')
           }
         })
@@ -68,6 +76,7 @@ export function useMcpCommands() {
             useWorkspaceStore.getState().openCanvas()
           }
           useCanvasStore.getState().setActiveTab('preview')
+          updateActiveTab({ previewUrl: url, isDevServerRunning: true, activeCanvasTab: 'preview' })
         }
       })
     )
@@ -77,6 +86,7 @@ export function useMcpCommands() {
       window.api.mcp.onStopPreview(async () => {
         await window.api.dev.stop()
         useProjectStore.getState().setDevServerRunning(false)
+        updateActiveTab({ isDevServerRunning: false, previewUrl: null })
         useWorkspaceStore.getState().closeCanvas()
       })
     )
@@ -89,6 +99,7 @@ export function useMcpCommands() {
           useWorkspaceStore.getState().openCanvas()
         }
         useCanvasStore.getState().setActiveTab('preview')
+        updateActiveTab({ previewUrl: url, activeCanvasTab: 'preview' })
       })
     )
 
@@ -99,6 +110,7 @@ export function useMcpCommands() {
           useWorkspaceStore.getState().openCanvas()
         }
         useCanvasStore.getState().setActiveTab(tab as any)
+        updateActiveTab({ activeCanvasTab: tab })
       })
     )
 
@@ -114,13 +126,18 @@ export function useMcpCommands() {
           useWorkspaceStore.getState().openCanvas()
         }
         useCanvasStore.getState().setActiveTab('gallery')
+        updateActiveTab({ activeCanvasTab: 'gallery' })
       })
     )
 
-    // canvas_checkpoint
+    // canvas_checkpoint — commit + capture screenshot for visual diff
     cleanups.push(
       window.api.mcp.onCheckpoint(async ({ message }) => {
-        await window.api.git.checkpoint(message)
+        const result = await window.api.git.checkpoint(message)
+        const project = useProjectStore.getState().currentProject
+        if (result?.hash && project?.path) {
+          await window.api.screenshot.captureCheckpoint(result.hash, project.path)
+        }
       })
     )
 
