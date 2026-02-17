@@ -141,8 +141,25 @@ export function setupPtyHandlers(getWindow: () => BrowserWindow | null): void {
       markPtyChurn()
       console.log(`[pty] KILL ${id} (pid=${pty.pid}, total=${ptys.size}, closing=${closingPtys.size})`)
       pty.kill()
-      // Don't delete from ptys map here — let onExit handle cleanup
-      // to avoid FD race between kill signal and process teardown
+
+      // Escalate to SIGKILL if process doesn't exit within 5s
+      const killTimer = setTimeout(() => {
+        if (ptys.has(id)) {
+          console.warn(`[pty] SIGKILL escalation for ${id} (pid=${pty.pid}) — process ignored SIGTERM`)
+          try { pty.kill('SIGKILL') } catch {}
+          // Final failsafe: forcibly remove from map after 2s more
+          setTimeout(() => {
+            if (ptys.has(id)) {
+              console.warn(`[pty] Force-removing stale PTY ${id} from map`)
+              ptys.delete(id)
+              closingPtys.delete(id)
+            }
+          }, 2000)
+        }
+      }, 5000)
+
+      // Clear timer if process exits normally
+      pty.onExit(() => clearTimeout(killTimer))
     }
   })
 
@@ -154,9 +171,14 @@ export function setupPtyHandlers(getWindow: () => BrowserWindow | null): void {
 export function killAllPtys(): void {
   for (const [id, pty] of ptys) {
     closingPtys.add(id)
-    pty.kill()
+    try { pty.kill() } catch {}
   }
-  // On app shutdown, force-clear since onExit callbacks may not fire
-  ptys.clear()
-  closingPtys.clear()
+  // Force SIGKILL after brief delay for any stragglers during app shutdown
+  setTimeout(() => {
+    for (const [, pty] of ptys) {
+      try { pty.kill('SIGKILL') } catch {}
+    }
+    ptys.clear()
+    closingPtys.clear()
+  }, 1000)
 }

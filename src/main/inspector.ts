@@ -168,6 +168,24 @@ const OVERLAY_JS = `(function() {
     return styles;
   }
 
+  // ── Clean up old mouse/keyboard listeners from previous injection ──
+  if (window.__ciMouseMoveHandler) {
+    document.removeEventListener('mousemove', window.__ciMouseMoveHandler, true);
+  }
+  if (window.__ciClickHandler) {
+    document.removeEventListener('click', window.__ciClickHandler, true);
+  }
+  if (window.__ciMouseLeaveHandler) {
+    document.removeEventListener('mouseleave', window.__ciMouseLeaveHandler);
+  }
+  if (window.__ciMutationObserver) {
+    window.__ciMutationObserver.disconnect();
+  }
+  if (window.__ciScrollHandler) {
+    window.removeEventListener('scroll', window.__ciScrollHandler, true);
+    window.removeEventListener('resize', window.__ciScrollHandler);
+  }
+
   // ── Inspector Overlay UI ───────────────────────────────────────
   var active = false;
   var currentElement = null;
@@ -400,11 +418,13 @@ const OVERLAY_JS = `(function() {
     rafPending = true;
     requestAnimationFrame(function() { rafPending = false; updateAllPersistPositions(); });
   }
+  window.__ciScrollHandler = scheduleUpdate;
   window.addEventListener('scroll', scheduleUpdate, true);
   window.addEventListener('resize', scheduleUpdate);
 
   // MutationObserver: reposition only (fadeout is triggered by renderer via postMessage)
-  new MutationObserver(scheduleUpdate).observe(document.body, { childList: true, subtree: true, attributes: true });
+  window.__ciMutationObserver = new MutationObserver(scheduleUpdate);
+  window.__ciMutationObserver.observe(document.body, { childList: true, subtree: true, attributes: true });
 
   function showHighlight(el) {
     var rect = el.getBoundingClientRect();
@@ -434,22 +454,24 @@ const OVERLAY_JS = `(function() {
     showLayoutOverlay(el);
   }
 
-  document.addEventListener('mousemove', function(e) {
+  window.__ciMouseMoveHandler = function(e) {
     if (!active) return;
     var el = document.elementFromPoint(e.clientX, e.clientY);
     if (!el || el.id === '__claude_inspector__' || container.contains(el)) return;
     if (el === currentElement) return;
     currentElement = el;
     showHighlight(el);
-  }, true);
+  };
+  document.addEventListener('mousemove', window.__ciMouseMoveHandler, true);
 
   // Hide hover highlight when cursor leaves the iframe
-  document.addEventListener('mouseleave', function() {
+  window.__ciMouseLeaveHandler = function() {
     if (!active) return;
     hideHighlight();
-  });
+  };
+  document.addEventListener('mouseleave', window.__ciMouseLeaveHandler);
 
-  document.addEventListener('click', function(e) {
+  window.__ciClickHandler = function(e) {
     if (!active) return;
     e.preventDefault();
     e.stopPropagation();
@@ -520,7 +542,8 @@ const OVERLAY_JS = `(function() {
         html: el.outerHTML.substring(0, 500)
       }
     }, window.location.origin);
-  }, true);
+  };
+  document.addEventListener('click', window.__ciClickHandler, true);
 
   // Store message handler reference for cleanup on re-injection
   if (window.__ciMessageHandler) {
@@ -706,6 +729,12 @@ export function setupInspectorHandlers(getWindow: () => BrowserWindow | null): v
 
     if (!iframeFrame) {
       return { success: false, error: 'No iframe frame found' }
+    }
+
+    // Validate frame URL — only inject into localhost dev server frames
+    const frameUrl = iframeFrame.url
+    if (!frameUrl.startsWith('http://localhost') && !frameUrl.startsWith('http://127.0.0.1')) {
+      return { success: false, error: `Refusing to inject into non-localhost frame: ${frameUrl}` }
     }
 
     try {

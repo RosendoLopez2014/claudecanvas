@@ -13,8 +13,14 @@ import { registerMcpTools } from './tools'
 let httpServer: Server | null = null
 let serverPort: number | null = null
 
+/** MCP session TTL: 30 minutes of inactivity. */
+const SESSION_TTL_MS = 30 * 60 * 1000
+
+/** Interval for scanning stale sessions. */
+let ttlInterval: ReturnType<typeof setInterval> | null = null
+
 // Track per-session server + transport pairs for proper cleanup
-const sessions: Record<string, { server: McpServer; transport: StreamableHTTPServerTransport; projectPath: string }> = {}
+const sessions: Record<string, { server: McpServer; transport: StreamableHTTPServerTransport; projectPath: string; lastActivity: number }> = {}
 
 // The projectPath of the most recently opened project
 let currentProjectPath: string | null = null
@@ -41,6 +47,7 @@ export async function startMcpServer(getWindow: () => BrowserWindow | null, proj
     let transport: StreamableHTTPServerTransport
 
     if (sessionId && sessions[sessionId]) {
+      sessions[sessionId].lastActivity = Date.now()
       transport = sessions[sessionId].transport
     } else if (!sessionId && isInitializeRequest(req.body)) {
       // Create a fresh McpServer per session — the SDK requires
@@ -54,15 +61,16 @@ export async function startMcpServer(getWindow: () => BrowserWindow | null, proj
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {
-          sessions[id] = { server: sessionServer, transport, projectPath: currentProjectPath || '' }
+          sessions[id] = { server: sessionServer, transport, projectPath: currentProjectPath || '', lastActivity: Date.now() }
         }
       })
       transport.onclose = () => {
         const sid = transport.sessionId
-        if (sid) {
+        if (sid && sessions[sid]) {
           delete sessions[sid]
+          // Don't call sessionServer.close() here — it triggers
+          // transport.close() which re-fires onclose (infinite loop)
         }
-        sessionServer.close().catch((e: Error) => console.warn('[mcp] session close:', e.message))
       }
       await sessionServer.connect(transport)
     } else {
@@ -83,6 +91,7 @@ export async function startMcpServer(getWindow: () => BrowserWindow | null, proj
       res.status(400).send('Invalid or missing session ID')
       return
     }
+    sessions[sessionId].lastActivity = Date.now()
     await sessions[sessionId].transport.handleRequest(req, res)
   })
 
@@ -99,6 +108,18 @@ export async function startMcpServer(getWindow: () => BrowserWindow | null, proj
   const port = await detectPort(9315)
   serverPort = port
 
+  // Start TTL reaper — clean up stale sessions every 5 minutes
+  ttlInterval = setInterval(() => {
+    const now = Date.now()
+    for (const [id, session] of Object.entries(sessions)) {
+      if (now - session.lastActivity > SESSION_TTL_MS) {
+        console.log(`[MCP] Reaping stale session ${id} (idle ${Math.round((now - session.lastActivity) / 1000)}s)`)
+        delete sessions[id]
+        session.server.close().catch((e: Error) => console.warn('[mcp] stale session close:', e.message))
+      }
+    }
+  }, 5 * 60 * 1000)
+
   return new Promise((resolve) => {
     httpServer = createServer(app)
     httpServer.listen(port, '127.0.0.1', () => {
@@ -109,10 +130,15 @@ export async function startMcpServer(getWindow: () => BrowserWindow | null, proj
 }
 
 export async function stopMcpServer(): Promise<void> {
+  if (ttlInterval) {
+    clearInterval(ttlInterval)
+    ttlInterval = null
+  }
   for (const [id, session] of Object.entries(sessions)) {
-    await session.transport.close()
-    await session.server.close().catch((e: Error) => console.warn('[mcp] server close:', e.message))
     delete sessions[id]
+    // Close server first (which closes transport internally), then
+    // the onclose handler is a no-op since we already deleted the session
+    await session.server.close().catch((e: Error) => console.warn('[mcp] server close:', e.message))
   }
   if (httpServer) {
     await new Promise<void>((resolve) => httpServer!.close(() => resolve()))
