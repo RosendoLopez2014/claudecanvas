@@ -11,17 +11,17 @@ import { setupGithubOAuth } from './oauth/github'
 import { setupVercelOAuth } from './oauth/vercel'
 import { setupSupabaseOAuth } from './oauth/supabase'
 import { startMcpServer, stopMcpServer } from './mcp/server'
+import { setupGalleryIpc } from './mcp/gallery-state'
 import { writeMcpConfig, removeMcpConfig } from './mcp/config-writer'
 import { setupScreenshotHandlers } from './screenshot'
 import { setupInspectorHandlers } from './inspector'
 import { setupWorktreeHandlers } from './services/worktree'
 import { setupTemplateHandlers } from './services/templates'
 import { setupFrameworkDetectHandlers } from './services/framework-detect'
-import { setupComponentParserHandlers } from './services/component-parser'
 import { setupVisualDiffHandlers } from './services/visual-diff'
 import { setupFileTreeHandlers } from './services/file-tree'
 import { setupSearchHandlers } from './services/search'
-import { setupComponentScannerHandlers } from './services/component-scanner'
+import { initSecureStorage } from './services/secure-storage'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -50,6 +50,25 @@ function createWindow(): void {
     mainWindow?.show()
   })
 
+  // Forward renderer console messages with [TAB-DEBUG] to main process stdout
+  // so we can see them in the terminal without DevTools
+  mainWindow.webContents.on('console-message', (_event, _level, message) => {
+    if (message.includes('[TAB-DEBUG]')) {
+      console.log(message)
+    }
+  })
+
+
+  // Ctrl+Shift+I / Cmd+Option+I to open DevTools
+  mainWindow.webContents.on('before-input-event', (_event, input) => {
+    if (
+      (input.control && input.shift && input.key === 'I') ||
+      (input.meta && input.alt && input.key === 'i')
+    ) {
+      mainWindow?.webContents.toggleDevTools()
+    }
+  })
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
@@ -63,6 +82,29 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  // Log startup FD count (before any watchers, PTYs, or git ops)
+  try {
+    const startupFds = require('fs').readdirSync('/dev/fd').length
+    console.log(`[startup] FD baseline: ${startupFds} open FDs (pid=${process.pid})`)
+  } catch {}
+
+  // Instrument IPC handlers to log any that take > 50ms
+  const origHandle = ipcMain.handle.bind(ipcMain)
+  ;(ipcMain as any).handle = (channel: string, listener: (...args: any[]) => any) => {
+    return origHandle(channel, async (...args: any[]) => {
+      const t0 = performance.now()
+      const result = await listener(...args)
+      const elapsed = performance.now() - t0
+      if (elapsed > 50) {
+        console.log(`[TAB-DEBUG] SLOW IPC: ${channel} took ${elapsed.toFixed(0)}ms`)
+      }
+      return result
+    })
+  }
+
+  // Migrate plaintext tokens to encrypted storage (must run before OAuth setup)
+  initSecureStorage()
+
   createWindow()
 
   // Core services
@@ -80,12 +122,10 @@ app.whenReady().then(() => {
   setupWorktreeHandlers()
   setupTemplateHandlers(() => mainWindow)
   setupFrameworkDetectHandlers()
-  setupComponentParserHandlers()
   setupVisualDiffHandlers(() => mainWindow)
   setupFileTreeHandlers()
   setupSearchHandlers()
-  setupComponentScannerHandlers()
-
+  setupGalleryIpc()
   // MCP Bridge — start server when a project opens
   ipcMain.handle('mcp:project-opened', async (_event, projectPath: string) => {
     const port = await startMcpServer(() => mainWindow, projectPath)
@@ -161,5 +201,9 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  // Project-local cleanup (CLAUDE.md, .mcp.json) — no ~/.claude.json writes.
+  // Note: removeMcpConfig() is already called in window-all-closed, but
+  // on macOS Cmd+Q fires before-quit first, and the window may not close
+  // if the user cancels. Calling it here ensures cleanup runs on quit too.
   removeMcpConfig()
 })

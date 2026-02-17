@@ -3,12 +3,25 @@ import { ipcMain, BrowserWindow } from 'electron'
 import { platform } from 'os'
 import { existsSync } from 'fs'
 import { getMcpPort } from './mcp/server'
-import { settingsStore } from './store'
+import { getSecureToken } from './services/secure-storage'
 import * as path from 'path'
 import { PTY_BUFFER_BATCH_MS } from '../shared/constants'
 
 const ptys = new Map<string, IPty>()
+const closingPtys = new Set<string>()
 let idCounter = 0
+
+// Expose PTY count for EBADF diagnostics (read by git.ts via globalThis)
+;(globalThis as any).__ptyCount = () => ptys.size
+;(globalThis as any).__ptyClosingCount = () => closingPtys.size
+
+// Expose PTY churn timestamp for git spawn gate (read by git.ts via globalThis)
+// Updated on every PTY spawn, kill, and exit so git can delay spawns during FD churn.
+;(globalThis as any).__lastPtyChurnTime = 0
+
+function markPtyChurn(): void {
+  ;(globalThis as any).__lastPtyChurnTime = Date.now()
+}
 
 const ALLOWED_SHELLS = new Set([
   '/bin/bash', '/bin/zsh', '/bin/sh', '/bin/fish',
@@ -50,15 +63,22 @@ export function setupPtyHandlers(getWindow: () => BrowserWindow | null): void {
         const mcpPort = getMcpPort()
         if (mcpPort) env.CLAUDE_CANVAS_MCP_PORT = String(mcpPort)
         // Inject service tokens so CLI tools use the Canvas-authenticated accounts
-        const tokens = settingsStore.get('oauthTokens') || {}
-        if (tokens.github) env.GH_TOKEN = tokens.github
-        if (tokens.vercel) env.VERCEL_TOKEN = tokens.vercel
-        if (tokens.supabase) env.SUPABASE_ACCESS_TOKEN = tokens.supabase
+        const ghToken = getSecureToken('github')
+        const vercelToken = getSecureToken('vercel')
+        const supabaseRaw = getSecureToken('supabase')
+        if (ghToken) env.GH_TOKEN = ghToken
+        if (vercelToken) env.VERCEL_TOKEN = vercelToken
+        if (supabaseRaw) {
+          // Parse access token from compound format
+          try { const p = JSON.parse(supabaseRaw) as { accessToken?: string }; env.SUPABASE_ACCESS_TOKEN = p.accessToken || supabaseRaw } catch { env.SUPABASE_ACCESS_TOKEN = supabaseRaw }
+        }
         return env
       })()
     })
 
     ptys.set(id, ptyProcess)
+    markPtyChurn()
+    console.log(`[pty] SPAWN ${id} (pid=${ptyProcess.pid}, total=${ptys.size})`)
 
     // Buffer PTY output and send in batches
     let buffer = ''
@@ -84,6 +104,9 @@ export function setupPtyHandlers(getWindow: () => BrowserWindow | null): void {
     })
 
     ptyProcess.onExit(({ exitCode }) => {
+      const wasClosing = closingPtys.delete(id)
+      markPtyChurn()
+      console.log(`[pty] EXIT ${id} (code=${exitCode}, wasClosing=${wasClosing}, remaining=${ptys.size - 1})`)
       const win = getWindow()
       if (win && !win.isDestroyed()) {
         win.webContents.send(`pty:exit:${id}`, exitCode)
@@ -95,16 +118,32 @@ export function setupPtyHandlers(getWindow: () => BrowserWindow | null): void {
   })
 
   ipcMain.on('pty:write', (_event, id: string, data: string) => {
-    ptys.get(id)?.write(data)
+    if (closingPtys.has(id)) return
+    try {
+      ptys.get(id)?.write(data)
+    } catch (err) {
+      // PTY may have been killed between lookup and write (race with exit)
+      if ((err as NodeJS.ErrnoException).code !== 'EBADF') {
+        console.error('Unhandled pty write error', err)
+      }
+    }
   })
 
   ipcMain.on('pty:resize', (_event, id: string, cols: number, rows: number) => {
+    if (closingPtys.has(id)) return
     ptys.get(id)?.resize(cols, rows)
   })
 
   ipcMain.on('pty:kill', (_event, id: string) => {
-    ptys.get(id)?.kill()
-    ptys.delete(id)
+    const pty = ptys.get(id)
+    if (pty && !closingPtys.has(id)) {
+      closingPtys.add(id)
+      markPtyChurn()
+      console.log(`[pty] KILL ${id} (pid=${pty.pid}, total=${ptys.size}, closing=${closingPtys.size})`)
+      pty.kill()
+      // Don't delete from ptys map here — let onExit handle cleanup
+      // to avoid FD race between kill signal and process teardown
+    }
   })
 
   ipcMain.on('pty:setCwd', (_event, id: string, cwd: string) => {
@@ -114,7 +153,10 @@ export function setupPtyHandlers(getWindow: () => BrowserWindow | null): void {
 
 export function killAllPtys(): void {
   for (const [id, pty] of ptys) {
+    closingPtys.add(id)
     pty.kill()
-    ptys.delete(id)
   }
+  // On app shutdown, force-clear since onExit callbacks may not fire
+  ptys.clear()
+  closingPtys.clear()
 }

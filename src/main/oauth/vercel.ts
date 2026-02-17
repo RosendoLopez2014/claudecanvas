@@ -1,9 +1,11 @@
 import { ipcMain, WebContentsView, BrowserWindow } from 'electron'
 import { settingsStore } from '../store'
 import { OAUTH_TIMEOUT_MS } from '../../shared/constants'
+import { getSecureToken, setSecureToken, deleteSecureToken } from '../services/secure-storage'
 import http from 'http'
 import crypto from 'crypto'
 import pathMod from 'path'
+import fsp from 'fs/promises'
 
 /**
  * OAuth credentials — loaded from environment variables.
@@ -40,6 +42,11 @@ function cleanupServer(): void {
     try { callbackServer.close() } catch {}
     callbackServer = null
   }
+}
+
+/** Get the stored Vercel token from encrypted storage. */
+function getVercelToken(): string | null {
+  return getSecureToken('vercel')
 }
 
 /** Build a Vercel API URL with optional teamId query parameter. */
@@ -171,9 +178,8 @@ export function setupVercelOAuth(getWindow: () => BrowserWindow | null): void {
               const accessToken = data.access_token as string
               const teamId = (data.team_id as string) || null
 
-              // Store token and auth context
-              const tokens = settingsStore.get('oauthTokens') || {}
-              settingsStore.set('oauthTokens', { ...tokens, vercel: accessToken })
+              // Store token in encrypted storage
+              setSecureToken('vercel', accessToken)
               settingsStore.set('vercelAuth', {
                 teamId,
                 userId: (data.user_id as string) || null,
@@ -292,15 +298,15 @@ export function setupVercelOAuth(getWindow: () => BrowserWindow | null): void {
 
   // Status with user info (auto-fetches profile if missing)
   ipcMain.handle('oauth:vercel:status', async () => {
-    const tokens = settingsStore.get('oauthTokens') || {}
+    const token = getVercelToken()
 
     let user = settingsStore.get('vercelUser') as
       | { username: string; name: string | null; avatar: string | null }
       | undefined
 
     // Auto-fetch user profile if we have a token but no stored user
-    if (tokens.vercel && !user) {
-      const fetched = await fetchVercelUser(tokens.vercel)
+    if (token && !user) {
+      const fetched = await fetchVercelUser(token)
       if (fetched) {
         settingsStore.set('vercelUser', fetched)
         user = fetched
@@ -308,7 +314,7 @@ export function setupVercelOAuth(getWindow: () => BrowserWindow | null): void {
     }
 
     return {
-      connected: !!tokens.vercel,
+      connected: !!token,
       username: user?.username,
       name: user?.name,
       avatar: user?.avatar
@@ -321,8 +327,7 @@ export function setupVercelOAuth(getWindow: () => BrowserWindow | null): void {
     async (): Promise<
       Array<{ id: string; name: string; framework: string | null; url: string | null }> | { error: string }
     > => {
-      const tokens = settingsStore.get('oauthTokens') || {}
-      const token = tokens.vercel
+      const token = getVercelToken()
       if (!token) return { error: 'Not connected to Vercel' }
 
       try {
@@ -375,8 +380,7 @@ export function setupVercelOAuth(getWindow: () => BrowserWindow | null): void {
         }>
       | { error: string }
     > => {
-      const tokens = settingsStore.get('oauthTokens') || {}
-      const token = tokens.vercel
+      const token = getVercelToken()
       if (!token) return { error: 'Not connected to Vercel' }
 
       try {
@@ -414,8 +418,7 @@ export function setupVercelOAuth(getWindow: () => BrowserWindow | null): void {
       _event,
       deploymentId: string
     ): Promise<Array<{ text: string; created: number; type: string }> | { error: string }> => {
-      const tokens = settingsStore.get('oauthTokens') || {}
-      const token = tokens.vercel
+      const token = getVercelToken()
       if (!token) return { error: 'Not connected to Vercel' }
 
       try {
@@ -468,8 +471,7 @@ export function setupVercelOAuth(getWindow: () => BrowserWindow | null): void {
       | { linked: false }
       | { error: string }
     > => {
-      const tokens = settingsStore.get('oauthTokens') || {}
-      const token = tokens.vercel
+      const token = getVercelToken()
       if (!token) return { error: 'Not connected to Vercel' }
 
       let projectId: string | null = null
@@ -601,8 +603,7 @@ export function setupVercelOAuth(getWindow: () => BrowserWindow | null): void {
     ): Promise<
       { id: string; name: string; productionUrl: string } | { error: string }
     > => {
-      const tokens = settingsStore.get('oauthTokens') || {}
-      const token = tokens.vercel
+      const token = getVercelToken()
       if (!token) return { error: 'Not connected to Vercel' }
 
       try {
@@ -650,8 +651,7 @@ export function setupVercelOAuth(getWindow: () => BrowserWindow | null): void {
       _event,
       deploymentId: string
     ): Promise<{ id: string; url: string; state: string } | { error: string }> => {
-      const tokens = settingsStore.get('oauthTokens') || {}
-      const token = tokens.vercel
+      const token = getVercelToken()
       if (!token) return { error: 'Not connected to Vercel' }
 
       try {
@@ -689,9 +689,7 @@ export function setupVercelOAuth(getWindow: () => BrowserWindow | null): void {
 
   // Logout
   ipcMain.handle('oauth:vercel:logout', () => {
-    const tokens = settingsStore.get('oauthTokens') || {}
-    delete tokens.vercel
-    settingsStore.set('oauthTokens', tokens)
+    deleteSecureToken('vercel')
     settingsStore.delete('vercelUser')
     settingsStore.delete('vercelAuth')
     const win = getWindow()

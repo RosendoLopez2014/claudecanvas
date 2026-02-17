@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { BrowserWindow } from 'electron'
 import { getLatestScreenshotBase64 } from '../screenshot'
+import { getSecureToken } from '../services/secure-storage'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -15,6 +16,37 @@ async function detectProjectRef(projectPath: string): Promise<string | null> {
   } catch {
     return null
   }
+}
+
+type McpTextResult = { content: [{ type: 'text'; text: string }] }
+type SupabaseAuth = { token: string; ref: string }
+
+/** Validate Supabase token + resolve project ref, returning an error result on failure. */
+async function requireSupabaseAuth(
+  projectPath: string,
+  projectRef?: string
+): Promise<SupabaseAuth | McpTextResult> {
+  const token = getSecureToken('supabase')
+  if (!token) {
+    return { content: [{ type: 'text', text: 'Not connected to Supabase. Ask the user to connect via the Supabase icon in the top-right.' }] }
+  }
+  const ref = projectRef || await detectProjectRef(projectPath)
+  if (!ref) {
+    return { content: [{ type: 'text', text: 'No project ref found. Pass projectRef or ensure supabase/config.toml exists.' }] }
+  }
+  // Parse access token from encrypted compound token (JSON: { accessToken, refreshToken })
+  let accessToken: string
+  try {
+    const parsed = JSON.parse(token) as { accessToken?: string }
+    accessToken = parsed.accessToken || token
+  } catch {
+    accessToken = token
+  }
+  return { token: accessToken, ref }
+}
+
+function isAuthError(result: SupabaseAuth | McpTextResult): result is McpTextResult {
+  return 'content' in result
 }
 
 export function registerMcpTools(
@@ -94,17 +126,124 @@ export function registerMcpTools(
 
   server.tool(
     'canvas_add_to_gallery',
-    'Add a component variant to the gallery. Auto-opens the gallery tab.',
+    'Add a component variant to the gallery with optional design metadata. Auto-opens the gallery tab.',
     {
-      label: z.string().describe('Name for this variant (e.g., "Primary Button", "Dark Mode Card")'),
+      label: z.string().describe('Name for this variant (e.g., "Option A — Sticky Top Nav")'),
       html: z.string().describe('HTML content of the variant'),
-      css: z.string().optional().describe('Optional CSS styles')
+      css: z.string().optional().describe('Optional CSS styles'),
+      description: z.string().optional().describe('1-3 sentence explanation of this design option'),
+      category: z.string().optional().describe('Design category (e.g., "navigation", "auth", "landing")'),
+      pros: z.array(z.string()).optional().describe('List of advantages/pros for this design'),
+      cons: z.array(z.string()).optional().describe('List of disadvantages/cons for this design'),
+      annotations: z.array(z.object({
+        label: z.string(),
+        x: z.number().describe('% from left (0-100)'),
+        y: z.number().describe('% from top (0-100)')
+      })).optional().describe('Callout annotations pinned to regions of the design'),
+      sessionId: z.string().optional().describe('Design session ID to group this variant with'),
+      order: z.number().optional().describe('Display order within the session'),
     },
-    async ({ label, html, css }) => {
+    async ({ label, html, css, description, category, pros, cons, annotations, sessionId, order }) => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
-      win.webContents.send('mcp:add-to-gallery', { projectPath, label, html, css })
+      win.webContents.send('mcp:add-to-gallery', {
+        projectPath, label, html, css,
+        description, category, pros, cons, annotations, sessionId, order
+      })
       return { content: [{ type: 'text', text: `Added "${label}" to the gallery.` }] }
+    }
+  )
+
+  server.tool(
+    'canvas_design_session',
+    'Start, end, select a variant in, or get status of a design session. Sessions group related design variants for comparison.',
+    {
+      action: z.enum(['start', 'end', 'select', 'get_status']).describe('Action to perform'),
+      title: z.string().optional().describe('Session title (for "start" action)'),
+      prompt: z.string().optional().describe('The original user request (for "start" action)'),
+      variantId: z.string().optional().describe('Variant ID to select (for "select" action)'),
+    },
+    async ({ action, title, prompt, variantId }) => {
+      const win = getWindow()
+      if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
+
+      if (action === 'start') {
+        const sessionId = `ds-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+        win.webContents.send('mcp:design-session', {
+          projectPath, action: 'start', sessionId, title: title || 'Design Session', prompt
+        })
+        return { content: [{ type: 'text', text: JSON.stringify({ sessionId, title }) }] }
+      }
+
+      if (action === 'end') {
+        win.webContents.send('mcp:design-session', { projectPath, action: 'end' })
+        return { content: [{ type: 'text', text: 'Design session ended.' }] }
+      }
+
+      if (action === 'select' && variantId) {
+        win.webContents.send('mcp:design-session', { projectPath, action: 'select', variantId })
+        return { content: [{ type: 'text', text: `Variant ${variantId} selected.` }] }
+      }
+
+      if (action === 'get_status') {
+        const status = await win.webContents.executeJavaScript(`
+          (function() {
+            var store = window.__galleryState;
+            if (!store) return JSON.stringify({ error: 'Gallery state not available' });
+            return JSON.stringify(store);
+          })()
+        `)
+        return { content: [{ type: 'text', text: status }] }
+      }
+
+      return { content: [{ type: 'text', text: 'Invalid action or missing parameters.' }] }
+    }
+  )
+
+  server.tool(
+    'canvas_get_selection',
+    'Get which variant the user selected in the gallery. Returns the variant ID and label, or null if nothing selected.',
+    {},
+    async () => {
+      const win = getWindow()
+      if (!win) return { content: [{ type: 'text', text: JSON.stringify({ variantId: null }) }] }
+      const selection = await win.webContents.executeJavaScript(`
+        (function() {
+          var store = window.__galleryState;
+          if (!store || !store.selectedId) return JSON.stringify({ variantId: null });
+          var variant = store.variants.find(function(v) { return v.id === store.selectedId; });
+          return variant
+            ? JSON.stringify({ variantId: variant.id, label: variant.label })
+            : JSON.stringify({ variantId: null });
+        })()
+      `)
+      return { content: [{ type: 'text', text: selection }] }
+    }
+  )
+
+  server.tool(
+    'canvas_update_variant',
+    'Update an existing gallery variant\'s metadata or content.',
+    {
+      variantId: z.string().describe('ID of the variant to update'),
+      label: z.string().optional().describe('New label'),
+      html: z.string().optional().describe('New HTML content'),
+      css: z.string().optional().describe('New CSS styles'),
+      description: z.string().optional().describe('New description'),
+      pros: z.array(z.string()).optional().describe('Updated pros list'),
+      cons: z.array(z.string()).optional().describe('Updated cons list'),
+      status: z.enum(['proposal', 'selected', 'rejected', 'applied']).optional().describe('New status'),
+      annotations: z.array(z.object({
+        label: z.string(),
+        x: z.number(),
+        y: z.number()
+      })).optional().describe('Updated annotations'),
+    },
+    async ({ variantId, ...updates }) => {
+      const win = getWindow()
+      if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
+      win.webContents.send('mcp:update-variant', { projectPath, variantId, ...updates })
+      return { content: [{ type: 'text', text: `Updated variant ${variantId}.` }] }
     }
   )
 
@@ -326,15 +465,17 @@ export function registerMcpTools(
     'List all Supabase projects in the connected organization. Returns project names, refs, regions, and statuses.',
     {},
     async () => {
-      const { settingsStore } = await import('../store')
-      const tokens = settingsStore.get('oauthTokens') || {}
-      if (!tokens.supabase) {
+      const rawToken = getSecureToken('supabase')
+      if (!rawToken) {
         return { content: [{ type: 'text', text: 'Not connected to Supabase. Ask the user to connect via the Supabase icon in the top-right.' }] }
       }
+      // Parse access token from encrypted compound token
+      let sbToken: string
+      try { const p = JSON.parse(rawToken) as { accessToken?: string }; sbToken = p.accessToken || rawToken } catch { sbToken = rawToken }
 
       try {
         const res = await fetch('https://api.supabase.com/v1/projects', {
-          headers: { Authorization: `Bearer ${tokens.supabase}` }
+          headers: { Authorization: `Bearer ${sbToken}` }
         })
         if (!res.ok) return { content: [{ type: 'text', text: `Supabase API error (${res.status})` }] }
         const projects = await res.json()
@@ -352,14 +493,8 @@ export function registerMcpTools(
       projectRef: z.string().optional().describe('Supabase project ref (e.g., "abcdefghijkl"). Auto-detected from supabase/config.toml if omitted.')
     },
     async ({ projectRef }) => {
-      const { settingsStore } = await import('../store')
-      const tokens = settingsStore.get('oauthTokens') || {}
-      if (!tokens.supabase) {
-        return { content: [{ type: 'text', text: 'Not connected to Supabase.' }] }
-      }
-
-      const ref = projectRef || await detectProjectRef(projectPath)
-      if (!ref) return { content: [{ type: 'text', text: 'No project ref found. Pass projectRef or ensure supabase/config.toml exists.' }] }
+      const auth = await requireSupabaseAuth(projectPath, projectRef)
+      if (isAuthError(auth)) return auth
 
       const sql = `
         SELECT t.table_schema as schema, t.table_name as name,
@@ -370,9 +505,9 @@ export function registerMcpTools(
         GROUP BY t.table_schema, t.table_name ORDER BY t.table_schema, t.table_name
       `
       try {
-        const res = await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`, {
+        const res = await fetch(`https://api.supabase.com/v1/projects/${auth.ref}/database/query`, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${tokens.supabase}`, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ query: sql })
         })
         if (!res.ok) return { content: [{ type: 'text', text: `SQL error (${res.status}): ${await res.text()}` }] }
@@ -392,19 +527,13 @@ export function registerMcpTools(
       projectRef: z.string().optional().describe('Supabase project ref. Auto-detected if omitted.')
     },
     async ({ sql, projectRef }) => {
-      const { settingsStore } = await import('../store')
-      const tokens = settingsStore.get('oauthTokens') || {}
-      if (!tokens.supabase) {
-        return { content: [{ type: 'text', text: 'Not connected to Supabase.' }] }
-      }
-
-      const ref = projectRef || await detectProjectRef(projectPath)
-      if (!ref) return { content: [{ type: 'text', text: 'No project ref found.' }] }
+      const auth = await requireSupabaseAuth(projectPath, projectRef)
+      if (isAuthError(auth)) return auth
 
       try {
-        const res = await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`, {
+        const res = await fetch(`https://api.supabase.com/v1/projects/${auth.ref}/database/query`, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${tokens.supabase}`, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ query: sql })
         })
         if (!res.ok) return { content: [{ type: 'text', text: `SQL error (${res.status}): ${await res.text()}` }] }
@@ -423,14 +552,8 @@ export function registerMcpTools(
       projectRef: z.string().optional().describe('Supabase project ref. Auto-detected if omitted.')
     },
     async ({ projectRef }) => {
-      const { settingsStore } = await import('../store')
-      const tokens = settingsStore.get('oauthTokens') || {}
-      if (!tokens.supabase) {
-        return { content: [{ type: 'text', text: 'Not connected to Supabase.' }] }
-      }
-
-      const ref = projectRef || await detectProjectRef(projectPath)
-      if (!ref) return { content: [{ type: 'text', text: 'No project ref found.' }] }
+      const auth = await requireSupabaseAuth(projectPath, projectRef)
+      if (isAuthError(auth)) return auth
 
       const sql = `
         SELECT
@@ -448,9 +571,9 @@ export function registerMcpTools(
         ORDER BY schemaname, tablename
       `
       try {
-        const res = await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`, {
+        const res = await fetch(`https://api.supabase.com/v1/projects/${auth.ref}/database/query`, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${tokens.supabase}`, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ query: sql })
         })
         if (!res.ok) return { content: [{ type: 'text', text: `SQL error: ${await res.text()}` }] }
@@ -469,18 +592,12 @@ export function registerMcpTools(
       projectRef: z.string().optional().describe('Supabase project ref. Auto-detected if omitted.')
     },
     async ({ projectRef }) => {
-      const { settingsStore } = await import('../store')
-      const tokens = settingsStore.get('oauthTokens') || {}
-      if (!tokens.supabase) {
-        return { content: [{ type: 'text', text: 'Not connected to Supabase.' }] }
-      }
-
-      const ref = projectRef || await detectProjectRef(projectPath)
-      if (!ref) return { content: [{ type: 'text', text: 'No project ref found.' }] }
+      const auth = await requireSupabaseAuth(projectPath, projectRef)
+      if (isAuthError(auth)) return auth
 
       try {
-        const res = await fetch(`https://api.supabase.com/v1/projects/${ref}/functions`, {
-          headers: { Authorization: `Bearer ${tokens.supabase}` }
+        const res = await fetch(`https://api.supabase.com/v1/projects/${auth.ref}/functions`, {
+          headers: { Authorization: `Bearer ${auth.token}` }
         })
         if (!res.ok) return { content: [{ type: 'text', text: `API error (${res.status})` }] }
         const fns = await res.json()
@@ -498,18 +615,12 @@ export function registerMcpTools(
       projectRef: z.string().optional().describe('Supabase project ref. Auto-detected if omitted.')
     },
     async ({ projectRef }) => {
-      const { settingsStore } = await import('../store')
-      const tokens = settingsStore.get('oauthTokens') || {}
-      if (!tokens.supabase) {
-        return { content: [{ type: 'text', text: 'Not connected to Supabase.' }] }
-      }
-
-      const ref = projectRef || await detectProjectRef(projectPath)
-      if (!ref) return { content: [{ type: 'text', text: 'No project ref found.' }] }
+      const auth = await requireSupabaseAuth(projectPath, projectRef)
+      if (isAuthError(auth)) return auth
 
       try {
-        const res = await fetch(`https://api.supabase.com/v1/projects/${ref}/storage/buckets`, {
-          headers: { Authorization: `Bearer ${tokens.supabase}` }
+        const res = await fetch(`https://api.supabase.com/v1/projects/${auth.ref}/storage/buckets`, {
+          headers: { Authorization: `Bearer ${auth.token}` }
         })
         if (!res.ok) return { content: [{ type: 'text', text: `API error (${res.status})` }] }
         const buckets = await res.json()
@@ -527,26 +638,20 @@ export function registerMcpTools(
       projectRef: z.string().optional().describe('Supabase project ref. Auto-detected if omitted.')
     },
     async ({ projectRef }) => {
-      const { settingsStore } = await import('../store')
-      const tokens = settingsStore.get('oauthTokens') || {}
-      if (!tokens.supabase) {
-        return { content: [{ type: 'text', text: 'Not connected to Supabase.' }] }
-      }
-
-      const ref = projectRef || await detectProjectRef(projectPath)
-      if (!ref) return { content: [{ type: 'text', text: 'No project ref found.' }] }
+      const auth = await requireSupabaseAuth(projectPath, projectRef)
+      if (isAuthError(auth)) return auth
 
       try {
-        const res = await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys`, {
-          headers: { Authorization: `Bearer ${tokens.supabase}` }
+        const res = await fetch(`https://api.supabase.com/v1/projects/${auth.ref}/api-keys`, {
+          headers: { Authorization: `Bearer ${auth.token}` }
         })
         if (!res.ok) return { content: [{ type: 'text', text: `API error (${res.status})` }] }
         const keys = await res.json() as Array<{ name: string; api_key: string }>
         const info = {
-          url: `https://${ref}.supabase.co`,
+          url: `https://${auth.ref}.supabase.co`,
           anonKey: keys.find((k) => k.name === 'anon')?.api_key || '',
           serviceKey: keys.find((k) => k.name === 'service_role')?.api_key || '',
-          dbUrl: `postgresql://postgres:[YOUR-PASSWORD]@db.${ref}.supabase.co:5432/postgres`
+          dbUrl: `postgresql://postgres:[YOUR-PASSWORD]@db.${auth.ref}.supabase.co:5432/postgres`
         }
         return { content: [{ type: 'text', text: JSON.stringify(info, null, 2) }] }
       } catch (err) {
@@ -562,14 +667,8 @@ export function registerMcpTools(
       projectRef: z.string().optional().describe('Supabase project ref. Auto-detected if omitted.')
     },
     async ({ projectRef }) => {
-      const { settingsStore } = await import('../store')
-      const tokens = settingsStore.get('oauthTokens') || {}
-      if (!tokens.supabase) {
-        return { content: [{ type: 'text', text: 'Not connected to Supabase.' }] }
-      }
-
-      const ref = projectRef || await detectProjectRef(projectPath)
-      if (!ref) return { content: [{ type: 'text', text: 'No project ref found.' }] }
+      const auth = await requireSupabaseAuth(projectPath, projectRef)
+      if (isAuthError(auth)) return auth
 
       const sql = `
         SELECT schemaname || '.' || tablename as table, policyname as name, cmd as command, qual as definition
@@ -577,9 +676,9 @@ export function registerMcpTools(
         ORDER BY schemaname, tablename, policyname
       `
       try {
-        const res = await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`, {
+        const res = await fetch(`https://api.supabase.com/v1/projects/${auth.ref}/database/query`, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${tokens.supabase}`, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ query: sql })
         })
         if (!res.ok) return { content: [{ type: 'text', text: `SQL error: ${await res.text()}` }] }

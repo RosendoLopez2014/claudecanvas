@@ -1,6 +1,7 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { settingsStore } from '../store'
 import { OAUTH_TIMEOUT_MS } from '../../shared/constants'
+import { getSecureToken, setSecureToken, deleteSecureToken } from '../services/secure-storage'
 import http from 'http'
 import crypto from 'crypto'
 
@@ -50,32 +51,39 @@ function supabaseApi(path: string): string {
   return `https://api.supabase.com/v1${path}`
 }
 
+/** Parse the encrypted Supabase token blob (JSON: { accessToken, refreshToken }). */
+function parseSupabaseTokens(): { accessToken: string; refreshToken: string | null } | null {
+  const raw = getSecureToken('supabase')
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as { accessToken?: string; refreshToken?: string }
+    if (parsed.accessToken) return { accessToken: parsed.accessToken, refreshToken: parsed.refreshToken || null }
+  } catch {
+    // Legacy format: raw might be a plain token string (shouldn't happen after migration)
+    if (raw.length > 0) return { accessToken: raw, refreshToken: null }
+  }
+  return null
+}
+
 /** Get the stored Supabase access token, or null if not connected. */
 function getSupabaseToken(): string | null {
-  const tokens = settingsStore.get('oauthTokens') || {}
-  const val = tokens.supabase
-  if (!val) return null
-  // New format: { accessToken, refreshToken }
-  if (typeof val === 'object' && val.accessToken) return val.accessToken
-  // Legacy format: plain string
-  if (typeof val === 'string') return val
-  return null
+  return parseSupabaseTokens()?.accessToken || null
 }
 
 /** Get the stored refresh token, or null. */
 function getSupabaseRefreshToken(): string | null {
-  const tokens = settingsStore.get('oauthTokens') || {}
-  const val = tokens.supabase
-  if (typeof val === 'object' && val.refreshToken) return val.refreshToken
-  return null
+  return parseSupabaseTokens()?.refreshToken || null
+}
+
+/** Store both access and refresh tokens in encrypted storage. */
+function storeSupabaseTokens(accessToken: string, refreshToken: string | null): void {
+  setSecureToken('supabase', JSON.stringify({ accessToken, refreshToken }))
 }
 
 /** Wipe Supabase tokens and notify the renderer that the session is dead.
  *  Called when refresh definitively fails (revoked token, invalid grant, etc.). */
 function clearSupabaseAuth(): void {
-  const tokens = settingsStore.get('oauthTokens') || {}
-  delete tokens.supabase
-  settingsStore.set('oauthTokens', tokens)
+  deleteSecureToken('supabase')
   settingsStore.delete('supabaseUser')
   settingsStore.delete('supabaseAuth')
   console.warn('[Supabase] Tokens cleared — session expired')
@@ -140,10 +148,8 @@ async function doRefresh(): Promise<string | null> {
     const newAccessToken = data.access_token
     const newRefreshToken = (typeof data.refresh_token === 'string' && data.refresh_token) ? data.refresh_token : refreshToken
 
-    // Update stored tokens
-    const tokens = settingsStore.get('oauthTokens') || {}
-    tokens.supabase = { accessToken: newAccessToken, refreshToken: newRefreshToken }
-    settingsStore.set('oauthTokens', tokens)
+    // Update encrypted storage
+    storeSupabaseTokens(newAccessToken, newRefreshToken)
     console.log('[Supabase] Token refreshed successfully')
     return newAccessToken
   } catch (err) {
@@ -339,12 +345,8 @@ export function setupSupabaseOAuth(getWindow: () => BrowserWindow | null): void 
             const accessToken = data.access_token as string
             const refreshToken = (data.refresh_token as string) || null
 
-            // Store both access and refresh tokens
-            const tokens = settingsStore.get('oauthTokens') || {}
-            tokens.supabase = refreshToken
-              ? { accessToken, refreshToken }
-              : accessToken  // fallback to legacy format if no refresh token
-            settingsStore.set('oauthTokens', tokens)
+            // Store tokens in encrypted storage
+            storeSupabaseTokens(accessToken, refreshToken)
 
             // Fetch and store user profile (always returns a user, with fallbacks)
             const user = await fetchSupabaseUser(accessToken)
@@ -479,9 +481,7 @@ export function setupSupabaseOAuth(getWindow: () => BrowserWindow | null): void 
 
   // ── Logout ────────────────────────────────────────────────────────────
   ipcMain.handle('oauth:supabase:logout', () => {
-    const tokens = settingsStore.get('oauthTokens') || {}
-    delete tokens.supabase
-    settingsStore.set('oauthTokens', tokens)
+    deleteSecureToken('supabase')
     settingsStore.delete('supabaseUser')
     settingsStore.delete('supabaseAuth')
   })

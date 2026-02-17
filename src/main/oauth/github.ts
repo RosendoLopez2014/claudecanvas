@@ -2,6 +2,7 @@ import { ipcMain, WebContentsView, BrowserWindow } from 'electron'
 import { execFile } from 'child_process'
 import { settingsStore } from '../store'
 import { OAUTH_TIMEOUT_MS } from '../../shared/constants'
+import { getSecureToken, setSecureToken, deleteSecureToken } from '../services/secure-storage'
 
 // gh CLI's public OAuth client ID — designed for device flow, no secret needed
 const GITHUB_CLIENT_ID = '178c6fc778ccc68e1d6a'
@@ -34,6 +35,13 @@ function configureGhCli(token: string): void {
     })
     child.stdin?.write(token)
     child.stdin?.end()
+    child.on('close', () => {
+      // Also configure git to use gh as credential helper
+      execFile('gh', ['auth', 'setup-git'], {
+        env: process.env,
+        timeout: 10000
+      }, () => {})
+    })
     child.on('error', (e) => console.warn('[github] gh CLI config error:', e.message))
   } catch {
     // gh CLI may not be installed
@@ -48,6 +56,11 @@ function revokeGhCli(): void {
       timeout: 10000
     })
   } catch {}
+}
+
+/** Get the stored GitHub token, or null if not connected. */
+function getGithubToken(): string | null {
+  return getSecureToken('github')
 }
 
 interface DeviceCodeResponse {
@@ -262,9 +275,8 @@ export function setupGithubOAuth(getWindow: () => BrowserWindow | null): void {
         // Poll for token in background
         pollForToken(args.deviceCode, args.interval, args.expiresIn).then(async (result) => {
           if ('token' in result) {
-            // Store token in app settings
-            const tokens = settingsStore.get('oauthTokens') || {}
-            settingsStore.set('oauthTokens', { ...tokens, github: result.token })
+            // Store token in encrypted storage
+            setSecureToken('github', result.token)
             // Fetch and store user profile
             const user = await fetchGitHubUser(result.token)
             if (user) {
@@ -308,19 +320,18 @@ export function setupGithubOAuth(getWindow: () => BrowserWindow | null): void {
   )
 
   ipcMain.handle('oauth:github:status', () => {
-    const tokens = settingsStore.get('oauthTokens') || {}
+    const token = getGithubToken()
     const user = settingsStore.get('githubUser') as
       | { login: string; avatar_url: string }
       | undefined
-    return { connected: !!tokens.github, login: user?.login, avatar_url: user?.avatar_url }
+    return { connected: !!token, login: user?.login, avatar_url: user?.avatar_url }
   })
 
   // List user's repos from GitHub API
   ipcMain.handle(
     'oauth:github:listRepos',
     async (): Promise<Array<{ name: string; full_name: string; html_url: string; private: boolean }> | { error: string }> => {
-      const tokens = settingsStore.get('oauthTokens') || {}
-      const token = tokens.github
+      const token = getGithubToken()
       if (!token) return { error: 'Not connected to GitHub' }
 
       try {
@@ -351,8 +362,7 @@ export function setupGithubOAuth(getWindow: () => BrowserWindow | null): void {
       _event,
       opts: { name: string; private?: boolean }
     ): Promise<{ url: string; owner: string } | { error: string }> => {
-      const tokens = settingsStore.get('oauthTokens') || {}
-      const token = tokens.github
+      const token = getGithubToken()
       if (!token) return { error: 'Not connected to GitHub' }
 
       try {
@@ -402,8 +412,7 @@ export function setupGithubOAuth(getWindow: () => BrowserWindow | null): void {
       { hasPR: false } |
       { error: string }
     > => {
-      const tokens = settingsStore.get('oauthTokens') || {}
-      const token = tokens.github
+      const token = getGithubToken()
       if (!token) return { error: 'Not connected to GitHub' }
 
       try {
@@ -425,9 +434,7 @@ export function setupGithubOAuth(getWindow: () => BrowserWindow | null): void {
   )
 
   ipcMain.handle('oauth:github:logout', () => {
-    const tokens = settingsStore.get('oauthTokens') || {}
-    delete tokens.github
-    settingsStore.set('oauthTokens', tokens)
+    deleteSecureToken('github')
     settingsStore.delete('githubUser')
     revokeGhCli()
   })
