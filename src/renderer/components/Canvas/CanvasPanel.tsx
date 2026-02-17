@@ -3,7 +3,7 @@ import { type CanvasTab } from '@/stores/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useFileWatcher } from '@/hooks/useFileWatcher'
 import { useInspector } from '@/hooks/useInspector'
-import { useRef, useCallback, useState } from 'react'
+import { useRef, useCallback, useState, useEffect } from 'react'
 import { X, RotateCw, Camera, Monitor, ChevronDown, XCircle } from 'lucide-react'
 import { useCanvasStore } from '@/stores/canvas'
 import { ScreenshotOverlay } from './ScreenshotOverlay'
@@ -29,6 +29,22 @@ export function CanvasPanel() {
   const inspectorActive = useCanvasStore((s) => s.inspectorActive)
   const selectedCount = useCanvasStore((s) => s.selectedElements.length)
   const [showViewportMenu, setShowViewportMenu] = useState(false)
+
+  // Recover dev server state after HMR — query main process for running servers
+  // Uses stale-closure guard: captures project path at effect start, verifies
+  // it still matches when the async response arrives (prevents cross-tab leaks)
+  useEffect(() => {
+    if (previewUrl || !tab?.project?.path) return
+    let stale = false
+    const capturedPath = tab.project.path
+    window.api.dev.status(capturedPath).then(({ running, url }) => {
+      if (stale) return // Tab switched before response
+      if (running && url) {
+        update({ previewUrl: url, dev: { status: 'running', url } })
+      }
+    })
+    return () => { stale = true }
+  }, [tab?.project?.path]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const reloadIframe = useCallback(() => {
     if (iframeRef.current) {

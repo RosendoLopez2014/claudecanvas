@@ -6,6 +6,7 @@ import { execFile } from 'child_process'
 import simpleGit, { SimpleGit } from 'simple-git'
 import { settingsStore } from '../store'
 import { getSecureToken } from '../services/secure-storage'
+import { isValidPath } from '../validate'
 import { GIT_PUSH_MODES, type GitPushMode } from '../../shared/constants'
 
 /** Resolve the full path to the claude CLI binary. */
@@ -23,10 +24,6 @@ function findClaudeBinary(): string {
 }
 
 const gitInstances = new Map<string, SimpleGit>()
-
-function isValidPath(p: unknown): p is string {
-  return typeof p === 'string' && p.length > 0 && path.isAbsolute(p)
-}
 
 // ── EBADF diagnostics ─────────────────────────────────────────────────
 // All diagnostics use ONLY synchronous fs calls (no spawn) to avoid
