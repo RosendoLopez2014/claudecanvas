@@ -2,38 +2,69 @@ import { useProjectStore } from '@/stores/project'
 import { useCanvasStore } from '@/stores/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useToastStore } from '@/stores/toast'
-import { useTabsStore } from '@/stores/tabs'
+import { useTabsStore, selectActiveTab } from '@/stores/tabs'
 import {
   GitBranch, Play, Square, PanelRight, Eye, Loader2, FolderOpen,
-  ArrowDown, ArrowUp, Check, Rocket, Settings
+  ArrowDown, ArrowUp, Check, Rocket, Settings, AlertTriangle
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { PushPopover } from './PushPopover'
 import { TokenGauge } from './TokenGauge'
+import { CommandPicker } from '../CommandPicker/CommandPicker'
 
 export function StatusBar() {
-  const { currentProject, isDevServerRunning, setDevServerRunning } = useProjectStore()
-  const { inspectorActive, setInspectorActive, setPreviewUrl } = useCanvasStore()
+  const { currentProject } = useProjectStore()
+  const { inspectorActive, setInspectorActive } = useCanvasStore()
   const { mode, openCanvas, closeCanvas } = useWorkspaceStore()
   const showCanvas = mode === 'terminal-canvas'
   const [startingStatus, setStartingStatus] = useState<string | null>(null)
-  const activeTab = useTabsStore((s) => s.getActiveTab())
+  const activeTab = useTabsStore(selectActiveTab)
+
+  // Dev server state — derived from the active tab (NOT deprecated globals)
+  const devStatus = activeTab?.dev.status ?? 'stopped'
+  const isDevServerRunning = devStatus === 'running'
+
+  // Reconcile dev server state from main process on tab switch.
+  // Handles the case where a server started/stopped while viewing a different tab.
+  const activeTabId = activeTab?.id ?? null
+  useEffect(() => {
+    const cwd = activeTab?.project.path
+    if (!cwd || !activeTabId) return
+    window.api.dev.status(cwd).then(({ running, url }) => {
+      const current = useTabsStore.getState().tabs.find((t) => t.id === activeTabId)
+      if (!current) return
+      const isRunning = current.dev.status === 'running'
+      // Only reconcile if main process disagrees with tab state
+      if (running && !isRunning) {
+        useTabsStore.getState().updateDevForProject(cwd, { status: 'running', url })
+        if (url) useTabsStore.getState().updateTabsByProject(cwd, { previewUrl: url })
+      } else if (!running && isRunning) {
+        useTabsStore.getState().updateDevForProject(cwd, { status: 'stopped', url: null, pid: null })
+        useTabsStore.getState().updateTabsByProject(cwd, { previewUrl: null })
+      }
+    })
+  }, [activeTabId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const gitAhead = activeTab?.gitAhead ?? 0
   const gitBehind = activeTab?.gitBehind ?? 0
   const gitRemoteConfigured = activeTab?.gitRemoteConfigured ?? false
+  const gitFetchError = activeTab?.gitFetchError ?? null
   const [showPushPopover, setShowPushPopover] = useState(false)
   const [pulling, setPulling] = useState(false)
   const [deploying, setDeploying] = useState(false)
   const [vercelConnected, setVercelConnected] = useState(false)
+  // Command picker state
+  const [showCommandPicker, setShowCommandPicker] = useState(false)
+  const [commandPickerSuggestions, setCommandPickerSuggestions] = useState<string[]>([])
+  const [commandPickerFramework, setCommandPickerFramework] = useState<string | null>(null)
 
-  // Check Vercel connection status
+  // Check Vercel connection status once on mount (not on every project change)
   useEffect(() => {
     window.api.oauth.vercel.status().then((s) => {
       setVercelConnected(s.connected)
     }).catch(() => {})
-  }, [currentProject])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDeploy = useCallback(async () => {
     const path = activeTab?.project.path
@@ -41,44 +72,46 @@ export function StatusBar() {
     setDeploying(true)
     const { addToast } = useToastStore.getState()
 
-    // First push current branch
-    const branch = activeTab?.worktreeBranch || 'main'
-    const pushResult = await window.api.git.squashAndPush(path, `Deploy from Claude Canvas`)
-    if (!pushResult.success) {
-      addToast(`Push failed: ${(pushResult as any).error}`, 'error')
-      setDeploying(false)
-      return
-    }
-
-    // Check for linked Vercel project
-    const gitInfo = await window.api.git.getProjectInfo(path)
-    const repoName = gitInfo.remoteUrl?.replace(/.*github\.com[:/]/, '').replace(/\.git$/, '') || null
-    const linked = await window.api.oauth.vercel.linkedProject({
-      projectPath: path,
-      gitRepo: repoName || undefined,
-    })
-
-    if ('error' in linked) {
-      addToast(`Deploy failed: ${linked.error}`, 'error')
-      setDeploying(false)
-      return
-    }
-
-    if (linked.linked && linked.latestDeployment) {
-      // Trigger redeploy
-      const redeploy = await window.api.oauth.vercel.redeploy(linked.latestDeployment.id)
-      if ('error' in redeploy) {
-        addToast(`Deploy failed: ${redeploy.error}`, 'error')
-      } else {
-        addToast(`Deploying... Preview: https://${redeploy.url}`, 'success')
-        // Open deploy tab in canvas
-        openCanvas()
-        if (activeTab) useTabsStore.getState().updateTab(activeTab.id, { activeCanvasTab: 'deploy' })
+    try {
+      // First push current branch
+      const pushResult = await window.api.git.squashAndPush(path, `Deploy from Claude Canvas`)
+      if (!pushResult.success) {
+        addToast(`Push failed: ${(pushResult as { error: string }).error}`, 'error')
+        return
       }
-    } else {
-      addToast('No linked Vercel project found. Link via Settings first.', 'info')
+
+      // Check for linked Vercel project
+      const gitInfo = await window.api.git.getProjectInfo(path)
+      const repoName = gitInfo.remoteUrl?.replace(/.*github\.com[:/]/, '').replace(/\.git$/, '') || null
+      const linked = await window.api.oauth.vercel.linkedProject({
+        projectPath: path,
+        gitRepo: repoName || undefined,
+      })
+
+      if ('error' in linked) {
+        addToast(`Deploy failed: ${linked.error}`, 'error')
+        return
+      }
+
+      if (linked.linked && linked.latestDeployment) {
+        // Trigger redeploy
+        const redeploy = await window.api.oauth.vercel.redeploy(linked.latestDeployment.id)
+        if ('error' in redeploy) {
+          addToast(`Deploy failed: ${redeploy.error}`, 'error')
+        } else {
+          addToast(`Deploying... Preview: https://${redeploy.url}`, 'success')
+          // Open deploy tab in canvas
+          openCanvas()
+          if (activeTab) useTabsStore.getState().updateTab(activeTab.id, { activeCanvasTab: 'deploy' })
+        }
+      } else {
+        addToast('No linked Vercel project found. Link via Settings first.', 'info')
+      }
+    } catch (err) {
+      addToast(`Deploy failed: ${err instanceof Error ? err.message : err}`, 'error')
+    } finally {
+      setDeploying(false)
     }
-    setDeploying(false)
   }, [activeTab, deploying])
 
   const handlePull = useCallback(async () => {
@@ -86,41 +119,62 @@ export function StatusBar() {
     if (!path || pulling) return
     setPulling(true)
     const { addToast } = useToastStore.getState()
-    const result = await window.api.git.pull(path)
-    if (result.success) {
-      if (result.conflicts) {
-        addToast('Pulled with conflicts — resolve in terminal', 'error')
+    try {
+      const result = await window.api.git.pull(path)
+      if (result.success) {
+        if (result.conflicts) {
+          addToast('Pulled with conflicts — resolve in terminal', 'error')
+        } else {
+          addToast('Pulled latest changes', 'success')
+        }
+        // Refresh counts
+        const counts = await window.api.git.fetch(path)
+        if (activeTab) {
+          useTabsStore.getState().updateTab(activeTab.id, {
+            gitAhead: counts.ahead || 0,
+            gitBehind: counts.behind || 0,
+            lastFetchTime: Date.now(),
+          })
+        }
       } else {
-        addToast('Pulled latest changes', 'success')
+        addToast(`Pull failed: ${result.error}`, 'error')
       }
-      // Refresh counts
-      const counts = await window.api.git.fetch(path)
-      if (activeTab) {
-        useTabsStore.getState().updateTab(activeTab.id, {
-          gitAhead: counts.ahead || 0,
-          gitBehind: counts.behind || 0,
-          lastFetchTime: Date.now(),
-        })
-      }
-    } else {
-      addToast(`Pull failed: ${result.error}`, 'error')
+    } catch (err) {
+      addToast(`Pull failed: ${err instanceof Error ? err.message : err}`, 'error')
+    } finally {
+      setPulling(false)
     }
-    setPulling(false)
   }, [activeTab, pulling])
 
   // Listen for dev server exit (crash, manual kill, etc.)
+  // Filtered by cwd — only updates tabs that match the exited project.
   useEffect(() => {
-    const removeExit = window.api.dev.onExit(({ cwd: _cwd, code: _code }) => {
-      setDevServerRunning(false)
-      setPreviewUrl(null)
-      setStartingStatus(null)
+    const removeExit = window.api.dev.onExit(({ cwd, code }) => {
+      useTabsStore.getState().updateDevForProject(cwd, {
+        status: 'stopped',
+        url: null,
+        pid: null,
+        lastExitCode: code ?? null,
+      })
+      // Clear preview URL for all tabs of this project
+      useTabsStore.getState().updateTabsByProject(cwd, { previewUrl: null })
+      // Only clear local starting status if this is the active tab's project
+      const active = useTabsStore.getState().getActiveTab()
+      if (active?.project.path === cwd) {
+        setStartingStatus(null)
+      }
     })
     return removeExit
-  }, [setDevServerRunning, setPreviewUrl])
+  }, [])
 
   // Listen for dev server status updates (self-healing feedback)
+  // Filtered by cwd — only shows toasts/status for the active tab's project.
   useEffect(() => {
     const removeStatus = window.api.dev.onStatus((status) => {
+      // Only update local UI status if this event matches the active tab
+      const active = useTabsStore.getState().getActiveTab()
+      if (status.cwd && active?.project.path !== status.cwd) return
+
       const { addToast } = useToastStore.getState()
 
       switch (status.stage) {
@@ -151,40 +205,181 @@ export function StatusBar() {
     return removeStatus
   }, [])
 
-  const startApp = useCallback(async () => {
-    if (!currentProject?.path || isDevServerRunning || startingStatus) return
-    setStartingStatus('Starting...')
+  /** Resolve the dev command for the current project.
+   *  Chain: per-project override → auto-detect → show picker */
+  const resolveCommand = useCallback(async (): Promise<string | null> => {
+    const cwd = currentProject?.path
+    if (!cwd) return null
+
+    // 1. Per-project override (persisted in project info)
+    if (currentProject.devCommand) return currentProject.devCommand
+
+    // 2. Auto-detect from filesystem
     try {
-      const result = await window.api.dev.start(currentProject.path, currentProject.devCommand)
+      const detected = await window.api.framework.detect(cwd)
+      if (detected?.devCommand) {
+        // Cache the detected command on the project info for next time
+        useProjectStore.getState().setCurrentProject({
+          ...currentProject,
+          devCommand: detected.devCommand,
+          devPort: detected.devPort,
+          framework: detected.framework,
+        })
+        // Also update the tab and persisted recent projects
+        if (activeTab) {
+          useTabsStore.getState().updateProjectInfo(activeTab.id, {
+            devCommand: detected.devCommand,
+            devPort: detected.devPort,
+            framework: detected.framework,
+          })
+        }
+        return detected.devCommand
+      }
+      // Detection returned a result without a clear command — show picker with suggestions
+      setCommandPickerSuggestions(detected?.suggestions ?? [])
+      setCommandPickerFramework(detected?.framework ?? null)
+    } catch {
+      // Detection failed — show picker with no suggestions
+      setCommandPickerSuggestions([])
+      setCommandPickerFramework(null)
+    }
+
+    // 3. No command found — show picker and return null (start deferred)
+    setShowCommandPicker(true)
+    return null
+  }, [currentProject, activeTab])
+
+  /** Actually start the dev server with a resolved command. */
+  const doStart = useCallback(async (command: string) => {
+    const cwd = currentProject?.path
+    if (!cwd) return
+
+    setStartingStatus('Starting...')
+    useTabsStore.getState().updateDevForProject(cwd, { status: 'starting', lastError: null })
+
+    try {
+      const result = await window.api.dev.start(cwd, command)
       if (result?.error) {
         setStartingStatus(null)
-        useToastStore.getState().addToast(result.error, 'error')
+        useTabsStore.getState().updateDevForProject(cwd, {
+          status: 'error',
+          lastError: result.error,
+        })
+        // If crash loop, offer a way to clear and retry
+        if (result.error.includes('crashed') && result.error.includes('times')) {
+          useToastStore.getState().addToast(result.error, 'error', {
+            duration: 10000,
+            action: {
+              label: 'Clear & Retry',
+              onClick: async () => {
+                await window.api.dev.clearCrashHistory(cwd)
+                useTabsStore.getState().updateDevForProject(cwd, { status: 'stopped', lastError: null })
+              },
+            },
+          })
+        } else {
+          useToastStore.getState().addToast(result.error, 'error')
+        }
       } else if (result?.url) {
         setStartingStatus(null)
-        setDevServerRunning(true)
-        setPreviewUrl(result.url)
+        useTabsStore.getState().updateDevForProject(cwd, {
+          status: 'running',
+          url: result.url,
+          pid: result.pid ?? null,
+        })
+        useTabsStore.getState().updateTabsByProject(cwd, { previewUrl: result.url })
         openCanvas()
         useToastStore.getState().addToast(`Dev server on ${result.url}`, 'success')
       } else {
         setStartingStatus(null)
-        setDevServerRunning(true)
-        useToastStore.getState().addToast('Dev server started (URL not detected)', 'info')
+        useTabsStore.getState().updateDevForProject(cwd, {
+          status: 'running',
+          pid: result?.pid ?? null,
+        })
+        // Server started but no URL — still mark as running, user can check terminal
+        useToastStore.getState().addToast('Dev server started — check terminal for URL', 'info')
       }
     } catch (err) {
       setStartingStatus(null)
+      useTabsStore.getState().updateDevForProject(cwd, {
+        status: 'error',
+        lastError: String(err),
+      })
       useToastStore.getState().addToast(`Failed to start: ${err}`, 'error')
     }
-  }, [currentProject, isDevServerRunning, startingStatus, setDevServerRunning, setPreviewUrl, openCanvas])
+  }, [currentProject?.path, openCanvas])
+
+  const startApp = useCallback(async () => {
+    const cwd = currentProject?.path
+    if (!cwd || isDevServerRunning || startingStatus) return
+
+    // Check if another tab already started a server for this project
+    const alreadyRunning = useTabsStore.getState().tabs.some(
+      (t) => t.project.path === cwd && t.dev.status === 'running'
+    )
+    if (alreadyRunning) {
+      // Server already running — just open the preview
+      openCanvas()
+      return
+    }
+
+    const command = await resolveCommand()
+    if (!command) return // picker will be shown — start deferred to onCommandSelect
+    await doStart(command)
+  }, [currentProject, isDevServerRunning, startingStatus, openCanvas, resolveCommand, doStart])
+
+  /** Called by CommandPicker when the user selects or types a command. */
+  const handleCommandSelect = useCallback(async (command: string, remember: boolean) => {
+    setShowCommandPicker(false)
+    if (remember && currentProject) {
+      // Persist to project info
+      const updated = { ...currentProject, devCommand: command }
+      useProjectStore.getState().setCurrentProject(updated)
+      if (activeTab) {
+        useTabsStore.getState().updateProjectInfo(activeTab.id, { devCommand: command })
+      }
+      // Update recent projects
+      const recents = useProjectStore.getState().recentProjects
+      const updatedRecents = recents.map((p) =>
+        p.path === currentProject.path ? { ...p, devCommand: command } : p
+      )
+      useProjectStore.getState().setRecentProjects(updatedRecents)
+      window.api.settings.set('recentProjects', updatedRecents)
+    }
+    await doStart(command)
+  }, [currentProject, activeTab, doStart])
+
+  // Listen for start requests from other components (e.g. QuickActions)
+  useEffect(() => {
+    const handler = () => startApp()
+    window.addEventListener('dev:request-start', handler)
+    return () => window.removeEventListener('dev:request-start', handler)
+  }, [startApp])
 
   const stopApp = useCallback(async () => {
-    await window.api.dev.stop(currentProject?.path)
-    setDevServerRunning(false)
-    setPreviewUrl(null)
+    const cwd = currentProject?.path
+    if (!cwd) return
+    await window.api.dev.stop(cwd)
+    useTabsStore.getState().updateDevForProject(cwd, {
+      status: 'stopped',
+      url: null,
+      pid: null,
+    })
+    useTabsStore.getState().updateTabsByProject(cwd, { previewUrl: null })
     setStartingStatus(null)
     useToastStore.getState().addToast('Dev server stopped', 'info')
-  }, [currentProject?.path, setDevServerRunning, setPreviewUrl])
+  }, [currentProject?.path])
 
   return (
+    <>
+    <CommandPicker
+      open={showCommandPicker}
+      onClose={() => setShowCommandPicker(false)}
+      onSelect={handleCommandSelect}
+      suggestions={commandPickerSuggestions}
+      framework={commandPickerFramework}
+      projectName={currentProject?.name ?? 'project'}
+    />
     <div className="h-6 flex items-center justify-between px-3 bg-[var(--bg-secondary)] border-t border-white/10 text-[11px] text-white/50">
       <div className="flex items-center gap-3">
         {(activeTab || currentProject) && (
@@ -232,6 +427,11 @@ export function StatusBar() {
                   <span>{gitAhead} Push</span>
                   <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-cyan)] animate-pulse" />
                 </button>
+              ) : gitFetchError ? (
+                <span className="flex items-center gap-1 text-red-400/70" title={gitFetchError}>
+                  <AlertTriangle size={10} />
+                  <span>Sync error</span>
+                </span>
               ) : gitBehind === 0 ? (
                 <span className="flex items-center gap-1 text-white/20">
                   <Check size={10} />
@@ -263,15 +463,40 @@ export function StatusBar() {
         {/* Token usage gauge */}
         <TokenGauge />
 
-        {/* Dev server start/stop */}
+        {/* Dev server start/stop + URL */}
         {isDevServerRunning ? (
+          <>
+            {/* Clickable URL when running */}
+            {activeTab?.previewUrl && (
+              <button
+                onClick={() => {
+                  openCanvas()
+                  if (activeTab) useTabsStore.getState().updateTab(activeTab.id, { activeCanvasTab: 'preview' })
+                }}
+                className="flex items-center gap-1 text-emerald-400/70 hover:text-emerald-300 transition-colors font-mono"
+                title={`Open preview: ${activeTab.previewUrl}`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                <span>{activeTab.previewUrl.replace('http://localhost:', ':')}</span>
+              </button>
+            )}
+            <button
+              onClick={stopApp}
+              className="flex items-center gap-1 text-green-400 hover:text-red-400 transition-colors"
+              title="Stop dev server"
+            >
+              <Square size={9} className="fill-current" />
+              <span>Stop</span>
+            </button>
+          </>
+        ) : devStatus === 'error' ? (
           <button
-            onClick={stopApp}
-            className="flex items-center gap-1 text-green-400 hover:text-red-400 transition-colors"
-            title="Stop dev server"
+            onClick={startApp}
+            className="flex items-center gap-1 text-red-400 hover:text-green-400 transition-colors"
+            title={activeTab?.dev.lastError || 'Dev server error — click to retry'}
           >
-            <Square size={9} className="fill-current" />
-            <span>Stop</span>
+            <AlertTriangle size={11} />
+            <span>Retry</span>
           </button>
         ) : startingStatus ? (
           <span className="flex items-center gap-1 text-yellow-400">
@@ -282,7 +507,9 @@ export function StatusBar() {
           <button
             onClick={startApp}
             className="flex items-center gap-1 hover:text-green-400 transition-colors"
-            title="Start dev server"
+            title={currentProject?.devCommand
+              ? `Start: ${currentProject.devCommand}`
+              : 'Start dev server'}
           >
             <Play size={11} className="fill-current" />
             <span>Start</span>
@@ -323,5 +550,6 @@ export function StatusBar() {
         </button>
       </div>
     </div>
+    </>
   )
 }

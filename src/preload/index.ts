@@ -1,5 +1,19 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+/** Create a typed IPC event listener that returns an unsubscribe function.
+ *  Wraps callback in try/catch so a single listener error never crashes the renderer. */
+function onIpc<T>(channel: string, cb: (data: T) => void): () => void {
+  const handler = (_: unknown, data: T) => {
+    try {
+      cb(data)
+    } catch (err) {
+      console.error(`[IPC] Error in ${channel} listener:`, err)
+    }
+  }
+  ipcRenderer.on(channel, handler)
+  return () => ipcRenderer.removeListener(channel, handler)
+}
+
 const api = {
   platform: process.platform,
 
@@ -19,16 +33,8 @@ const api = {
     resize: (id: string, cols: number, rows: number) => ipcRenderer.send('pty:resize', id, cols, rows),
     kill: (id: string) => ipcRenderer.send('pty:kill', id),
     setCwd: (id: string, cwd: string) => ipcRenderer.send('pty:setCwd', id, cwd),
-    onData: (id: string, cb: (data: string) => void) => {
-      const handler = (_: unknown, data: string) => cb(data)
-      ipcRenderer.on(`pty:data:${id}`, handler)
-      return () => ipcRenderer.removeListener(`pty:data:${id}`, handler)
-    },
-    onExit: (id: string, cb: (exitCode: number) => void) => {
-      const handler = (_: unknown, code: number) => cb(code)
-      ipcRenderer.on(`pty:exit:${id}`, handler)
-      return () => ipcRenderer.removeListener(`pty:exit:${id}`, handler)
-    }
+    onData: (id: string, cb: (data: string) => void) => onIpc(`pty:data:${id}`, cb),
+    onExit: (id: string, cb: (exitCode: number) => void) => onIpc(`pty:exit:${id}`, cb)
   },
 
   settings: {
@@ -45,26 +51,11 @@ const api = {
     detect: (projectPath: string) => ipcRenderer.invoke('framework:detect', projectPath),
   },
 
-  component: {
-    scan: (projectPath: string) => ipcRenderer.invoke('component:scan', projectPath) as Promise<
-      Array<{ name: string; filePath: string; relativePath: string }>
-    >,
-    parse: (filePath: string) => ipcRenderer.invoke('component:parse', filePath) as Promise<{
-      name: string
-      filePath: string
-      renderHtml: string
-    } | null>,
-  },
-
   template: {
     list: () => ipcRenderer.invoke('template:list'),
     scaffold: (opts: { templateId: string; projectName: string; parentDir: string }) =>
       ipcRenderer.invoke('template:scaffold', opts),
-    onProgress: (cb: (data: { text: string }) => void) => {
-      const handler = (_: unknown, data: { text: string }) => cb(data)
-      ipcRenderer.on('template:progress', handler)
-      return () => ipcRenderer.removeListener('template:progress', handler)
-    }
+    onProgress: (cb: (data: { text: string }) => void) => onIpc('template:progress', cb)
   },
 
   search: {
@@ -81,21 +72,9 @@ const api = {
       >,
     watch: (path: string) => ipcRenderer.invoke('fs:watch', path),
     unwatch: (path?: string) => ipcRenderer.invoke('fs:unwatch', path),
-    onChange: (cb: (data: { projectPath: string; path: string }) => void) => {
-      const handler = (_: unknown, data: { projectPath: string; path: string }) => cb(data)
-      ipcRenderer.on('fs:change', handler)
-      return () => ipcRenderer.removeListener('fs:change', handler)
-    },
-    onAdd: (cb: (data: { projectPath: string; path: string }) => void) => {
-      const handler = (_: unknown, data: { projectPath: string; path: string }) => cb(data)
-      ipcRenderer.on('fs:add', handler)
-      return () => ipcRenderer.removeListener('fs:add', handler)
-    },
-    onUnlink: (cb: (data: { projectPath: string; path: string }) => void) => {
-      const handler = (_: unknown, data: { projectPath: string; path: string }) => cb(data)
-      ipcRenderer.on('fs:unlink', handler)
-      return () => ipcRenderer.removeListener('fs:unlink', handler)
-    }
+    onChange: (cb: (data: { projectPath: string; path: string }) => void) => onIpc('fs:change', cb),
+    onAdd: (cb: (data: { projectPath: string; path: string }) => void) => onIpc('fs:add', cb),
+    onUnlink: (cb: (data: { projectPath: string; path: string }) => void) => onIpc('fs:unlink', cb)
   },
 
   visualDiff: {
@@ -135,7 +114,7 @@ const api = {
     show: (projectPath: string, hash: string, filePath: string) => ipcRenderer.invoke('git:show', projectPath, hash, filePath),
     remoteUrl: (projectPath: string) => ipcRenderer.invoke('git:remoteUrl', projectPath) as Promise<string | null>,
     getProjectInfo: (cwd: string) =>
-      ipcRenderer.invoke('git:getProjectInfo', cwd) as Promise<{ remoteUrl: string | null; branch: string | null }>,
+      ipcRenderer.invoke('git:getProjectInfo', cwd) as Promise<{ remoteUrl: string | null; branch: string | null; error?: string }>,
     setRemote: (cwd: string, remoteUrl: string) =>
       ipcRenderer.invoke('git:setRemote', cwd, remoteUrl) as Promise<{ ok: true } | { error: string }>,
     fetch: (projectPath: string) =>
@@ -248,14 +227,11 @@ const api = {
         >
     },
     supabase: {
-      start: (args: {
-        bounds: { x: number; y: number; width: number; height: number }
-      }) => ipcRenderer.invoke('oauth:supabase:start', args) as Promise<
+      start: () => ipcRenderer.invoke('oauth:supabase:start') as Promise<
         { token: string } | { error: string }
       >,
       cancel: () => ipcRenderer.invoke('oauth:supabase:cancel'),
-      updateBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
-        ipcRenderer.send('oauth:supabase:updateBounds', bounds),
+      updateBounds: (_bounds: { x: number; y: number; width: number; height: number }) => {},
       status: () =>
         ipcRenderer.invoke('oauth:supabase:status') as Promise<{
           connected: boolean
@@ -295,92 +271,91 @@ const api = {
       getConnectionInfo: (projectRef: string) =>
         ipcRenderer.invoke('oauth:supabase:getConnectionInfo', projectRef) as Promise<
           { url: string; anonKey: string; serviceKey: string; dbUrl: string } | { error: string }
-        >
+        >,
+      onExpired: (cb: () => void) => onIpc('oauth:supabase:expired', cb)
     }
   },
 
   dev: {
     start: (cwd: string, command?: string) => ipcRenderer.invoke('dev:start', cwd, command),
     stop: (cwd?: string) => ipcRenderer.invoke('dev:stop', cwd),
-    onOutput: (cb: (data: { cwd: string; data: string }) => void) => {
-      const handler = (_: unknown, data: { cwd: string; data: string }) => cb(data)
-      ipcRenderer.on('dev:output', handler)
-      return () => ipcRenderer.removeListener('dev:output', handler)
-    },
-    onExit: (cb: (data: { cwd: string; code: number }) => void) => {
-      const handler = (_: unknown, data: { cwd: string; code: number }) => cb(data)
-      ipcRenderer.on('dev:exit', handler)
-      return () => ipcRenderer.removeListener('dev:exit', handler)
-    },
-    onStatus: (cb: (status: { cwd?: string; stage: string; message: string; url?: string }) => void) => {
-      const handler = (_: unknown, status: { cwd?: string; stage: string; message: string; url?: string }) => cb(status)
-      ipcRenderer.on('dev:status', handler)
-      return () => ipcRenderer.removeListener('dev:status', handler)
-    }
+    status: (cwd: string) => ipcRenderer.invoke('dev:status', cwd) as Promise<{ running: boolean; url: string | null }>,
+    clearCrashHistory: (cwd: string) => ipcRenderer.invoke('dev:clearCrashHistory', cwd),
+    onOutput: (cb: (data: { cwd: string; data: string }) => void) => onIpc('dev:output', cb),
+    onExit: (cb: (data: { cwd: string; code: number }) => void) => onIpc('dev:exit', cb),
+    onStatus: (cb: (status: { cwd?: string; stage: string; message: string; url?: string }) => void) => onIpc('dev:status', cb)
   },
 
   mcp: {
     projectOpened: (projectPath: string) => ipcRenderer.invoke('mcp:project-opened', projectPath),
     projectClosed: () => ipcRenderer.invoke('mcp:project-closed'),
 
-    onCanvasRender: (cb: (data: { projectPath?: string; html: string; css?: string }) => void) => {
-      const handler = (_: unknown, data: { projectPath?: string; html: string; css?: string }) => cb(data)
-      ipcRenderer.on('mcp:canvas-render', handler)
-      return () => ipcRenderer.removeListener('mcp:canvas-render', handler)
-    },
-    onStartPreview: (cb: (data: { projectPath?: string; command?: string; cwd?: string }) => void) => {
-      const handler = (_: unknown, data: { projectPath?: string; command?: string; cwd?: string }) => cb(data)
-      ipcRenderer.on('mcp:start-preview', handler)
-      return () => ipcRenderer.removeListener('mcp:start-preview', handler)
-    },
-    onStopPreview: (cb: (data: { projectPath?: string }) => void) => {
-      const handler = (_: unknown, data: { projectPath?: string }) => cb(data)
-      ipcRenderer.on('mcp:stop-preview', handler)
-      return () => ipcRenderer.removeListener('mcp:stop-preview', handler)
-    },
-    onSetPreviewUrl: (cb: (data: { projectPath?: string; url: string }) => void) => {
-      const handler = (_: unknown, data: { projectPath?: string; url: string }) => cb(data)
-      ipcRenderer.on('mcp:set-preview-url', handler)
-      return () => ipcRenderer.removeListener('mcp:set-preview-url', handler)
-    },
-    onOpenTab: (cb: (data: { projectPath?: string; tab: string }) => void) => {
-      const handler = (_: unknown, data: { projectPath?: string; tab: string }) => cb(data)
-      ipcRenderer.on('mcp:open-tab', handler)
-      return () => ipcRenderer.removeListener('mcp:open-tab', handler)
-    },
-    onAddToGallery: (cb: (data: { projectPath?: string; label: string; html: string; css?: string }) => void) => {
-      const handler = (_: unknown, data: { projectPath?: string; label: string; html: string; css?: string }) => cb(data)
-      ipcRenderer.on('mcp:add-to-gallery', handler)
-      return () => ipcRenderer.removeListener('mcp:add-to-gallery', handler)
-    },
-    onCheckpoint: (cb: (data: { projectPath?: string; message: string }) => void) => {
-      const handler = (_: unknown, data: { projectPath?: string; message: string }) => cb(data)
-      ipcRenderer.on('mcp:checkpoint', handler)
-      return () => ipcRenderer.removeListener('mcp:checkpoint', handler)
-    },
-    onNotify: (cb: (data: { projectPath?: string; message: string; type: string }) => void) => {
-      const handler = (_: unknown, data: { projectPath?: string; message: string; type: string }) => cb(data)
-      ipcRenderer.on('mcp:notify', handler)
-      return () => ipcRenderer.removeListener('mcp:notify', handler)
-    }
+    onCanvasRender: (cb: (data: { projectPath?: string; html: string; css?: string }) => void) =>
+      onIpc('mcp:canvas-render', cb),
+    onStartPreview: (cb: (data: { projectPath?: string; command?: string; cwd?: string }) => void) =>
+      onIpc('mcp:start-preview', cb),
+    onStopPreview: (cb: (data: { projectPath?: string }) => void) =>
+      onIpc('mcp:stop-preview', cb),
+    onSetPreviewUrl: (cb: (data: { projectPath?: string; url: string }) => void) =>
+      onIpc('mcp:set-preview-url', cb),
+    onOpenTab: (cb: (data: { projectPath?: string; tab: string }) => void) =>
+      onIpc('mcp:open-tab', cb),
+    onAddToGallery: (cb: (data: {
+      projectPath?: string
+      label: string
+      html: string
+      css?: string
+      description?: string
+      category?: string
+      pros?: string[]
+      cons?: string[]
+      annotations?: Array<{ label: string; x: number; y: number }>
+      sessionId?: string
+      order?: number
+    }) => void) => onIpc('mcp:add-to-gallery', cb),
+    onDesignSession: (cb: (data: {
+      projectPath?: string
+      action: string
+      sessionId?: string
+      title?: string
+      prompt?: string
+      variantId?: string
+    }) => void) => onIpc('mcp:design-session', cb),
+    onCheckpoint: (cb: (data: { projectPath?: string; message: string }) => void) =>
+      onIpc('mcp:checkpoint', cb),
+    onUpdateVariant: (cb: (data: {
+      projectPath?: string
+      variantId: string
+      label?: string
+      html?: string
+      css?: string
+      description?: string
+      pros?: string[]
+      cons?: string[]
+      status?: string
+      annotations?: Array<{ label: string; x: number; y: number }>
+    }) => void) => onIpc('mcp:update-variant', cb),
+    onNotify: (cb: (data: { projectPath?: string; message: string; type: string }) => void) =>
+      onIpc('mcp:notify', cb),
+    gallerySelect: (variantId: string) => ipcRenderer.send('gallery:select-variant', variantId)
   },
 
   worktree: {
     list: (projectPath: string) =>
       ipcRenderer.invoke('worktree:list', projectPath) as Promise<
-        Array<{ path: string; branch: string; head: string }>
+        Array<{ path: string; branch: string; head: string }> | { error: string }
       >,
     create: (opts: { projectPath: string; branchName: string; targetDir: string }) =>
-      ipcRenderer.invoke('worktree:create', opts) as Promise<{ path: string; branch: string }>,
+      ipcRenderer.invoke('worktree:create', opts) as Promise<{ path: string; branch: string } | { error: string }>,
     checkout: (opts: { projectPath: string; branchName: string; targetDir: string }) =>
-      ipcRenderer.invoke('worktree:checkout', opts) as Promise<{ path: string; branch: string }>,
+      ipcRenderer.invoke('worktree:checkout', opts) as Promise<{ path: string; branch: string } | { error: string }>,
     remove: (opts: { projectPath: string; worktreePath: string }) =>
-      ipcRenderer.invoke('worktree:remove', opts) as Promise<{ ok: true }>,
+      ipcRenderer.invoke('worktree:remove', opts) as Promise<{ ok: true } | { error: string }>,
     branches: (projectPath: string) =>
       ipcRenderer.invoke('worktree:branches', projectPath) as Promise<{
         current: string
         branches: string[]
-      }>
+      } | { error: string }>
   }
 }
 
