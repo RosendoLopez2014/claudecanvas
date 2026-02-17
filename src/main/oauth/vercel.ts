@@ -1,13 +1,20 @@
-import { ipcMain, WebContentsView, BrowserWindow, app } from 'electron'
+import { ipcMain, WebContentsView, BrowserWindow } from 'electron'
 import { settingsStore } from '../store'
 import { OAUTH_TIMEOUT_MS } from '../../shared/constants'
 import http from 'http'
 import crypto from 'crypto'
-import { promises as fsp } from 'fs'
 import pathMod from 'path'
 
-const VERCEL_CLIENT_ID = 'oac_pu1SEcYlwguNfVZJ2sd9t3FP'
-const VERCEL_CLIENT_SECRET = 'V0MWsY5JzEpfmRpudxNW0DoT'
+/**
+ * OAuth credentials — loaded from environment variables.
+ * In development: set VERCEL_CLIENT_ID / VERCEL_CLIENT_SECRET in .env
+ * In production: a backend gateway should handle the token exchange.
+ *
+ * Build guard: if secrets are missing at runtime, Vercel OAuth gracefully
+ * returns an error rather than crashing or shipping hardcoded secrets.
+ */
+const VERCEL_CLIENT_ID = process.env.VERCEL_CLIENT_ID || ''
+const VERCEL_CLIENT_SECRET = process.env.VERCEL_CLIENT_SECRET || ''
 const AUTH_URL = 'https://vercel.com/integrations/claudecanvas/new'
 const TOKEN_URL = 'https://api.vercel.com/v2/oauth/access_token'
 const REDIRECT_PORT = 38902
@@ -89,6 +96,9 @@ export function setupVercelOAuth(getWindow: () => BrowserWindow | null): void {
     ) => {
       const win = getWindow()
       if (!win) return { error: 'No window available' }
+      if (!VERCEL_CLIENT_ID || !VERCEL_CLIENT_SECRET) {
+        return { error: 'Vercel OAuth not configured — set VERCEL_CLIENT_ID and VERCEL_CLIENT_SECRET environment variables' }
+      }
 
       // Resolve any pending flow before starting a new one
       if (pendingResolve) {
@@ -149,10 +159,13 @@ export function setupVercelOAuth(getWindow: () => BrowserWindow | null): void {
 
             const data = (await tokenRes.json()) as Record<string, unknown>
 
-            console.log('[Vercel] Token exchange response:', JSON.stringify(data))
-            // Save debug info
-            const debugFile = pathMod.join(app.getPath('userData'), 'vercel-debug.json')
-            fsp.writeFile(debugFile, JSON.stringify({ tokenExchange: data, timestamp: Date.now() }, null, 2)).catch((e: Error) => console.warn('[vercel] debug write:', e.message))
+            // Sanitized log — never print token values
+            console.log('[Vercel] Token exchange:', {
+              status: tokenRes.status,
+              hasAccessToken: !!data.access_token,
+              hasTeamId: !!data.team_id,
+              tokenType: data.token_type,
+            })
 
             if (data.access_token) {
               const accessToken = data.access_token as string

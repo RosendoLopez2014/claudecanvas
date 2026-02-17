@@ -93,7 +93,6 @@ export function setupTemplateHandlers(getWindow: () => BrowserWindow | null): vo
         const win = getWindow()
         const proc = spawn(bin, fullArgs, {
           cwd: opts.parentDir,
-          shell: true,
           env: { ...process.env, npm_config_yes: 'true' },
           stdio: ['pipe', 'pipe', 'pipe'],
         })

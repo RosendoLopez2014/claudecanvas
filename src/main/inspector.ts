@@ -519,23 +519,31 @@ const OVERLAY_JS = `(function() {
         rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
         html: el.outerHTML.substring(0, 500)
       }
-    }, '*');
+    }, window.location.origin);
   }, true);
 
-  window.addEventListener('message', function(e) {
-    if (e.data && e.data.type === 'inspector:activate') active = true;
-    if (e.data && e.data.type === 'inspector:deactivate') {
+  // Store message handler reference for cleanup on re-injection
+  if (window.__ciMessageHandler) {
+    window.removeEventListener('message', window.__ciMessageHandler);
+  }
+  window.__ciMessageHandler = function(e) {
+    // Only accept messages from the parent frame (same origin)
+    if (e.source !== window.parent) return;
+    if (!e.data || typeof e.data.type !== 'string') return;
+    if (e.data.type === 'inspector:activate') active = true;
+    if (e.data.type === 'inspector:deactivate') {
       active = false;
       hideHighlight();
       // Persistent highlight stays — it outlives inspector mode
     }
-    if (e.data && e.data.type === 'inspector:clearHighlight') {
+    if (e.data.type === 'inspector:clearHighlight') {
       clearAllPersistHighlights();
     }
-    if (e.data && e.data.type === 'inspector:fadeHighlight') {
+    if (e.data.type === 'inspector:fadeHighlight') {
       fadeAllPersistHighlights();
     }
-  });
+  };
+  window.addEventListener('message', window.__ciMessageHandler);
 
   // ── Error Capture + Overlay ─────────────────────────────────
   var errorBuffer = [];
@@ -606,7 +614,7 @@ const OVERLAY_JS = `(function() {
   function postError(err) {
     if (errorBuffer.length >= MAX_ERRORS) errorBuffer.shift();
     errorBuffer.push(err);
-    window.parent.postMessage({ type: 'inspector:runtimeError', error: err }, '*');
+    window.parent.postMessage({ type: 'inspector:runtimeError', error: err }, window.location.origin);
 
     // Update overlay
     errorList.appendChild(renderErrorItem(err));
@@ -638,14 +646,19 @@ const OVERLAY_JS = `(function() {
     postError({ message: parts.join(' '), file: null, line: null, column: null });
   };
 
-  // Allow parent to clear/dismiss overlay
-  window.addEventListener('message', function(e) {
+  // Allow parent to clear/dismiss overlay (handled by __ciMessageHandler above)
+  if (window.__ciErrorHandler) {
+    window.removeEventListener('message', window.__ciErrorHandler);
+  }
+  window.__ciErrorHandler = function(e) {
+    if (e.source !== window.parent) return;
     if (e.data && e.data.type === 'inspector:clearErrors') {
       errorBuffer = [];
       while (errorList.firstChild) errorList.removeChild(errorList.firstChild);
       hideErrorOverlay();
     }
-  });
+  };
+  window.addEventListener('message', window.__ciErrorHandler);
 
   // ── Console Log Interception ──────────────────────────────
   var origLog = console.log;
@@ -667,7 +680,7 @@ const OVERLAY_JS = `(function() {
     window.parent.postMessage({
       type: 'inspector:consoleLog',
       log: { level: level, message: parts.join(' '), timestamp: Date.now() }
-    }, '*');
+    }, window.location.origin);
   }
 
   console.log = function() { origLog.apply(console, arguments); postLog('log', arguments); };

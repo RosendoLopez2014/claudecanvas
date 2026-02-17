@@ -10,6 +10,18 @@ export function useInspector(iframeRef: RefObject<HTMLIFrameElement | null>) {
   // Listen for messages from inspector overlay in iframe
   useEffect(() => {
     const handler = async (event: MessageEvent) => {
+      // Security: only accept messages from our own iframes (same origin)
+      // or from the expected localhost preview frames
+      if (event.origin !== window.location.origin &&
+          !event.origin.startsWith('http://localhost') &&
+          !event.origin.startsWith('http://127.0.0.1')) {
+        return
+      }
+      // Only process known inspector message types
+      if (typeof event.data?.type !== 'string' ||
+          !event.data.type.startsWith('inspector:')) {
+        return
+      }
       if (event.data?.type === 'inspector:elementSelected') {
         const raw = event.data.element
         const projPath = useProjectStore.getState().currentProject?.path
@@ -74,7 +86,7 @@ export function useInspector(iframeRef: RefObject<HTMLIFrameElement | null>) {
       fadeTimerRef.current = setTimeout(() => {
         fadeTimerRef.current = null
         const iframe = iframeRef.current
-        iframe?.contentWindow?.postMessage({ type: 'inspector:fadeHighlight' }, '*')
+        iframe?.contentWindow?.postMessage({ type: 'inspector:fadeHighlight' }, '*')  // targetOrigin '*' OK: iframe origin varies (localhost:N); overlay validates e.source
         clearSelectedElements()
       }, 2000)
     })
@@ -92,7 +104,7 @@ export function useInspector(iframeRef: RefObject<HTMLIFrameElement | null>) {
 
     iframe.contentWindow.postMessage(
       { type: inspectorActive ? 'inspector:activate' : 'inspector:deactivate' },
-      '*'
+      '*'  // targetOrigin '*' OK: iframe origin varies (localhost:N); overlay validates e.source
     )
   }, [inspectorActive, iframeRef])
 
@@ -107,14 +119,14 @@ export function useInspector(iframeRef: RefObject<HTMLIFrameElement | null>) {
     const { inspectorActive: isActive } = useCanvasStore.getState()
     if (isActive) {
       const iframe = iframeRef.current
-      iframe?.contentWindow?.postMessage({ type: 'inspector:activate' }, '*')
+      iframe?.contentWindow?.postMessage({ type: 'inspector:activate' }, '*')  // targetOrigin '*' OK: iframe origin varies (localhost:N); overlay validates e.source
     }
   }, [iframeRef])
 
   // Clear all persistent highlights in the iframe
   const clearHighlight = useCallback(() => {
     const iframe = iframeRef.current
-    iframe?.contentWindow?.postMessage({ type: 'inspector:clearHighlight' }, '*')
+    iframe?.contentWindow?.postMessage({ type: 'inspector:clearHighlight' }, '*')  // targetOrigin '*' OK: iframe origin varies (localhost:N); overlay validates e.source
     clearSelectedElements()
   }, [iframeRef, clearSelectedElements])
 
