@@ -42,6 +42,7 @@ export function setupFileWatcher(getWindow: () => BrowserWindow | null): void {
       ignored: shouldIgnore,
       persistent: true,
       ignoreInitial: true,
+      followSymlinks: false, // Prevent infinite loops from circular symlinks
     })
 
     w.on('change', (path) => {

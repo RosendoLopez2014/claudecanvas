@@ -210,7 +210,10 @@ export function getGit(projectPath: string): SimpleGit {
   if (!gitInstances.has(key)) {
     // Limit concurrent git spawns to avoid EBADF from fd exhaustion
     // when PTY shells + chokidar watchers are consuming descriptors.
-    gitInstances.set(key, simpleGit(key, { maxConcurrentProcesses: 3 }))
+    gitInstances.set(key, simpleGit(key, {
+      maxConcurrentProcesses: 3,
+      timeout: { block: 30_000 }, // 30s timeout to prevent hanging git ops
+    }))
   }
   return gitInstances.get(key)!
 }
@@ -222,6 +225,12 @@ function getGitAuthArgs(): string[] {
   // Rewrite github.com URLs to embed the token as Basic auth credentials.
   // This only applies for the duration of this single git command.
   return ['-c', `url.https://x-access-token:${ghToken}@github.com/.insteadOf=https://github.com/`]
+}
+
+/** Strip embedded tokens from git error messages to prevent leaks in logs/UI. */
+function sanitizeGitError(msg: string): string {
+  // Matches x-access-token:<TOKEN>@ in git URLs
+  return msg.replace(/x-access-token:[^@]+@/g, 'x-access-token:***@')
 }
 
 /** Ensure a directory has a .git folder (minimal init without spawning) */
@@ -474,8 +483,8 @@ export function setupGitHandlers(): void {
         const [behind, ahead] = status.trim().split(/\s+/).map(Number)
         return { ahead: ahead || 0, behind: behind || 0 }
       } catch (err: any) {
-        console.error('git:fetch error:', err?.message)
-        return { ahead: 0, behind: 0, error: err?.message }
+        console.error('git:fetch error:', sanitizeGitError(err?.message || ''))
+        return { ahead: 0, behind: 0, error: sanitizeGitError(err?.message || '') }
       }
     })
   })
@@ -503,7 +512,7 @@ export function setupGitHandlers(): void {
         }
         return { success: true, conflicts: false }
       } catch (err: any) {
-        return { success: false, error: err?.message || 'Pull failed' }
+        return { success: false, error: sanitizeGitError(err?.message || 'Pull failed') }
       }
     })
   })
@@ -580,7 +589,7 @@ export function setupGitHandlers(): void {
           if (err?.message?.includes('rejected') || err?.message?.includes('non-fast-forward')) {
             return { success: false, error: 'rejected', needsPull: true }
           }
-          return { success: false, error: err?.message || 'Push failed' }
+          return { success: false, error: sanitizeGitError(err?.message || 'Push failed') }
         }
       })
     }

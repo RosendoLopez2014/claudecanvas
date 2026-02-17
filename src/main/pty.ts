@@ -2,6 +2,7 @@ import { spawn, IPty } from 'node-pty'
 import { ipcMain, BrowserWindow } from 'electron'
 import { platform } from 'os'
 import { existsSync } from 'fs'
+import { randomUUID } from 'crypto'
 import { getMcpPort } from './mcp/server'
 import { getSecureToken } from './services/secure-storage'
 import * as path from 'path'
@@ -9,7 +10,6 @@ import { PTY_BUFFER_BATCH_MS } from '../shared/constants'
 
 const ptys = new Map<string, IPty>()
 const closingPtys = new Set<string>()
-let idCounter = 0
 
 // Expose PTY count for EBADF diagnostics (read by git.ts via globalThis)
 ;(globalThis as any).__ptyCount = () => ptys.size
@@ -45,7 +45,7 @@ export function setupPtyHandlers(getWindow: () => BrowserWindow | null): void {
       return { error: `Shell not allowed: ${shell}` }
     }
 
-    const id = `pty-${++idCounter}`
+    const id = `pty-${randomUUID()}`
 
     const ptyProcess = spawn(defaultShell, [], {
       name: 'xterm-256color',
