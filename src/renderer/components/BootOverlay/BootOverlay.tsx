@@ -64,8 +64,6 @@ export function BootOverlay({ tabId, projectName }: BootOverlayProps) {
   const doneCount = steps.filter((s) => s.done).length
   const progress = showReady ? 100 : (doneCount / (steps.length + 1)) * 100
 
-  if (dismissed) return null
-
   return (
     <AnimatePresence>
       {!dismissed && (
