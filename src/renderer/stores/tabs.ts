@@ -5,13 +5,33 @@ import type { GalleryVariant } from './gallery'
 import type { ElementContext } from './canvas'
 import type { WorkspaceMode } from './workspace'
 
+// ── Dev Server State ────────────────────────────────────────────────
+export type DevStatus = 'stopped' | 'starting' | 'running' | 'error'
+
+export interface DevServerState {
+  status: DevStatus
+  url: string | null
+  pid: number | null
+  lastError: string | null
+  lastExitCode: number | null
+}
+
+export const DEFAULT_DEV_STATE: DevServerState = {
+  status: 'stopped',
+  url: null,
+  pid: null,
+  lastError: null,
+  lastExitCode: null,
+}
+
 export interface TabState {
   id: string
   project: ProjectInfo
   // Terminal
   ptyId: string | null
-  // Dev server
-  isDevServerRunning: boolean
+  splits: string[]  // array of split IDs, e.g. ['main', 'split-1']
+  // Dev server — per-project lifecycle, shared across tabs with same project.path
+  dev: DevServerState
   // Canvas
   previewUrl: string | null
   activeCanvasTab: CanvasTab
@@ -41,8 +61,25 @@ export interface TabState {
   gitBehind: number
   gitSyncing: boolean
   gitRemoteConfigured: boolean
+  gitFetchError: string | null
   lastPushTime: number | null
   lastFetchTime: number | null
+  // Integration cache (persists across tab switches)
+  githubRepoName: string | null
+  vercelLinkedProject: any | null
+  supabaseLinkedProject: any | null
+  lastIntegrationFetch: number | null
+  // Bootstrap flags — stored in Zustand (not component refs) to survive
+  // React StrictMode remounts and conditional re-renders.
+  githubBootstrapped: boolean
+  vercelBootstrapped: boolean
+  supabaseBootstrapped: boolean
+  // Boot progress (overlay tracks these to show loading state)
+  boot: {
+    ptyReady: boolean
+    mcpReady: boolean
+    claudeReady: boolean
+  }
 }
 
 function createDefaultTabState(project: ProjectInfo): TabState {
@@ -50,7 +87,8 @@ function createDefaultTabState(project: ProjectInfo): TabState {
     id: `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     project,
     ptyId: null,
-    isDevServerRunning: false,
+    splits: ['main'],
+    dev: { ...DEFAULT_DEV_STATE },
     previewUrl: null,
     activeCanvasTab: 'preview',
     inspectorActive: false,
@@ -72,8 +110,17 @@ function createDefaultTabState(project: ProjectInfo): TabState {
     gitBehind: 0,
     gitSyncing: false,
     gitRemoteConfigured: false,
+    gitFetchError: null,
     lastPushTime: null,
     lastFetchTime: null,
+    githubRepoName: null,
+    vercelLinkedProject: null,
+    supabaseLinkedProject: null,
+    lastIntegrationFetch: null,
+    githubBootstrapped: false,
+    vercelBootstrapped: false,
+    supabaseBootstrapped: false,
+    boot: { ptyReady: false, mcpReady: false, claudeReady: false },
   }
 }
 
@@ -89,6 +136,23 @@ interface TabsStore {
   getActiveTab: () => TabState | null
   reorderTabs: (newOrder: TabState[]) => void
   reset: () => void
+
+  /** Update ALL tabs that share a project path. Used for dev server events
+   *  where one process serves multiple tabs pointing at the same project. */
+  updateTabsByProject: (projectPath: string, partial: Omit<Partial<TabState>, 'id' | 'project'>) => void
+
+  /** Update the dev server state for ALL tabs sharing a project path.
+   *  Merges `devPartial` into each matching tab's `dev` field. */
+  updateDevForProject: (projectPath: string, devPartial: Partial<DevServerState>) => void
+
+  /** Update the project metadata (devCommand, framework, etc.) for a tab.
+   *  Used when framework detection enriches an already-open project. */
+  updateProjectInfo: (id: string, partial: Partial<ProjectInfo>) => void
+
+  /** Add a horizontal split to a tab's terminal */
+  addSplit: (tabId: string) => void
+  /** Remove a split from a tab's terminal. Keeps at least one split ('main'). */
+  removeSplit: (tabId: string, splitId: string) => void
 }
 
 function persistTabs(): void {
@@ -108,7 +172,7 @@ function persistTabs(): void {
  * Returns once all resources are released (no UI animation — callers handle that).
  */
 export async function cleanupTabResources(tab: TabState): Promise<void> {
-  if (tab.isDevServerRunning) {
+  if (tab.dev.status === 'running' || tab.dev.status === 'starting') {
     await window.api.dev.stop(tab.project.path)
   }
   if (tab.ptyId) {
@@ -149,6 +213,7 @@ export const useTabsStore = create<TabsStore>((set, get) => ({
 
   addTab: (project) => {
     const tab = createDefaultTabState(project)
+    console.log(`[TAB-DEBUG] addTab: new=${tab.id}, project=${project.name}, existing=${get().tabs.length} tabs`)
     set((s) => ({
       tabs: [...s.tabs, tab],
       activeTabId: tab.id,
@@ -158,6 +223,7 @@ export const useTabsStore = create<TabsStore>((set, get) => ({
   },
 
   closeTab: (id) => {
+    console.log(`[TAB-DEBUG] closeTab: ${id}`)
     set((s) => {
       const idx = s.tabs.findIndex((t) => t.id === id)
       if (idx === -1) return s
@@ -180,7 +246,13 @@ export const useTabsStore = create<TabsStore>((set, get) => ({
     get().closeTab(id)
   },
 
-  setActiveTab: (id) => set({ activeTabId: id }),
+  setActiveTab: (id) => {
+    if (id === get().activeTabId) return // no-op: avoid redundant state updates
+    const t0 = performance.now()
+    console.log(`[TAB-DEBUG] setActiveTab: ${get().activeTabId} → ${id}`)
+    set({ activeTabId: id })
+    console.log(`[TAB-DEBUG] setActiveTab took ${(performance.now() - t0).toFixed(1)}ms`)
+  },
 
   updateTab: (id, partial) => {
     set((s) => ({
@@ -202,4 +274,59 @@ export const useTabsStore = create<TabsStore>((set, get) => ({
     set({ tabs: [], activeTabId: null })
     persistTabs()
   },
+
+  updateTabsByProject: (projectPath, partial) => {
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.project.path === projectPath ? { ...t, ...partial } : t
+      ),
+    }))
+  },
+
+  updateDevForProject: (projectPath, devPartial) => {
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.project.path === projectPath
+          ? { ...t, dev: { ...t.dev, ...devPartial } }
+          : t
+      ),
+    }))
+  },
+
+  updateProjectInfo: (id, partial) => {
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.id === id ? { ...t, project: { ...t.project, ...partial } } : t
+      ),
+    }))
+    persistTabs()
+  },
+
+  addSplit: (tabId) => {
+    const splitId = `split-${Date.now()}`
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.id === tabId ? { ...t, splits: [...t.splits, splitId] } : t
+      ),
+    }))
+  },
+
+  removeSplit: (tabId, splitId) => {
+    set((s) => ({
+      tabs: s.tabs.map((t) => {
+        if (t.id !== tabId) return t
+        // Must keep at least one split
+        if (t.splits.length <= 1) return t
+        return { ...t, splits: t.splits.filter((s) => s !== splitId) }
+      }),
+    }))
+  },
 }))
+
+/**
+ * Stable selector for the active tab. Uses Zustand's built-in selector
+ * equality to avoid re-renders when unrelated tabs are updated.
+ * Returns the same reference as long as the active tab object hasn't changed.
+ */
+export const selectActiveTab = (s: { tabs: TabState[]; activeTabId: string | null }) =>
+  s.tabs.find((t) => t.id === s.activeTabId) || null
