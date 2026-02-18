@@ -1,27 +1,60 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
+import { LayoutGrid } from 'lucide-react'
 import { TerminalView } from '../Terminal/TerminalView'
+import { BootOverlay } from '../BootOverlay/BootOverlay'
 import { CanvasPanel } from '../Canvas/CanvasPanel'
 import { FileExplorer } from '../FileExplorer/FileExplorer'
+import { SplitPaneHeader, getGridStyle, shouldSpanFull } from './SplitViewGrid'
+import type { SplitViewTab } from './SplitViewGrid'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCanvasStore } from '@/stores/canvas'
-import { useProjectStore } from '@/stores/project'
 import { useTabsStore } from '@/stores/tabs'
-
-const TERMINAL_ONLY_WIDTH = 960
-const CANVAS_MOBILE_WIDTH = 1100
-const WINDOW_HEIGHT = 800
 
 // Terminal gets a narrow column in desktop mode so canvas is as wide as possible
 const TERMINAL_MIN = 380
 
 const TRANSITION = 'width 300ms cubic-bezier(0.25, 0.1, 0.25, 1)'
 
+/**
+ * Stable selector: only extracts tab IDs and project paths.
+ * Returns the same reference when unrelated tab fields (git sync, token usage, etc.) change.
+ */
+function useTabList() {
+  const raw = useTabsStore((s) => s.tabs)
+  // Memoize: only re-compute when the number of tabs or their IDs/paths change
+  return useMemo(
+    () => raw.map((t) => ({ id: t.id, projectPath: t.project.path })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [raw.length, ...raw.map((t) => t.id)]
+  )
+}
+
+/** Extra tab metadata needed only for split view pane headers */
+function useSplitViewTabs(): SplitViewTab[] {
+  const tabs = useTabsStore((s) => s.tabs)
+  return useMemo(
+    () => tabs.map((t) => ({
+      id: t.id,
+      projectName: t.project.name,
+      branch: t.worktreeBranch,
+      devStatus: t.dev.status,
+    })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tabs.length, ...tabs.map((t) => `${t.id}:${t.project.name}:${t.worktreeBranch}:${t.dev.status}`)]
+  )
+}
+
 export function Workspace() {
-  const { mode, fileExplorerOpen } = useWorkspaceStore()
+  const renderT0 = performance.now()
+  const { mode, fileExplorerOpen, splitViewActive } = useWorkspaceStore()
   const { viewportMode } = useCanvasStore()
-  const { currentProject } = useProjectStore()
+  const tabList = useTabList()
+  const splitTabs = useSplitViewTabs()
   const activeTabId = useTabsStore((s) => s.activeTabId)
-  const activeTab = useTabsStore((s) => s.getActiveTab())
+
+  useEffect(() => {
+    console.log(`[TAB-DEBUG] Workspace render took ${(performance.now() - renderT0).toFixed(1)}ms`)
+  })
   const showCanvas = mode === 'terminal-canvas'
   const isMobile = viewportMode === 'mobile'
 
@@ -53,18 +86,6 @@ export function Workspace() {
     const timer = setTimeout(() => setIsAnimating(false), 320)
     return () => clearTimeout(timer)
   }, [showCanvas, isMobile, computeCanvasWidth]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Animate window size on canvas open/close
-  useEffect(() => {
-    if (!showCanvas) {
-      window.api.window.setSize(TERMINAL_ONLY_WIDTH, WINDOW_HEIGHT, true)
-    } else if (isMobile) {
-      window.api.window.setSize(CANVAS_MOBILE_WIDTH, WINDOW_HEIGHT, true)
-    } else {
-      // Desktop: maximize to give canvas maximum real estate
-      window.api.window.maximize()
-    }
-  }, [showCanvas, isMobile])
 
   // Recompute canvas width on window resize (e.g. after maximize)
   useEffect(() => {
@@ -110,30 +131,119 @@ export function Workspace() {
 
   const shouldTransition = isAnimating || !dividerDragging.current
 
+  // Auto-exit split view when tab count drops below 2
+  const tabCount = tabList.length
+  useEffect(() => {
+    if (splitViewActive && tabCount < 2) {
+      useWorkspaceStore.getState().exitSplitView()
+    }
+  }, [splitViewActive, tabCount])
+
+  const handleSelectSplitPane = useCallback((id: string) => {
+    useTabsStore.getState().setActiveTab(id)
+    useWorkspaceStore.getState().exitSplitView()
+  }, [])
+
   return (
-    <div ref={containerRef} className="h-full flex overflow-hidden">
+    <div ref={containerRef} className="h-full flex overflow-hidden relative">
       {/* File explorer sidebar */}
       {fileExplorerOpen && <FileExplorer />}
 
-      {/* Terminal pane — takes remaining space */}
-      <div className="h-full flex-1 min-w-[300px]">
-        <TerminalView
-          cwd={activeTab?.project.path || currentProject?.path}
-          tabId={activeTabId || undefined}
-        />
+      {/* Floating split view toggle — always visible when 2+ tabs */}
+      {tabList.length >= 2 && (
+        <button
+          onClick={() => useWorkspaceStore.getState().toggleSplitView()}
+          className={`absolute top-1.5 right-2 z-10 flex items-center gap-1.5 px-2 py-1 rounded transition-colors text-[10px] ${
+            splitViewActive
+              ? 'bg-[var(--accent-cyan)]/15 text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/25'
+              : 'bg-white/5 text-white/25 hover:bg-white/10 hover:text-white/50'
+          }`}
+          title={splitViewActive ? 'Exit Split View (Esc)' : 'Split View (\u2318\u21e7S)'}
+        >
+          <LayoutGrid size={11} />
+          <span>Split</span>
+        </button>
+      )}
+
+      {/*
+       * Terminal pane container — switches layout mode but NEVER remounts TerminalView.
+       * Normal mode: position:relative with absolute-positioned children (only active visible).
+       * Split view: CSS Grid showing all terminals side by side.
+       */}
+      <div
+        className={
+          splitViewActive
+            ? 'h-full flex-1 min-w-0 grid gap-px bg-white/5'
+            : 'h-full flex-1 min-w-[300px] relative'
+        }
+        style={splitViewActive ? getGridStyle(tabList.length) : undefined}
+      >
+        {tabList.map((tab, index) => {
+          const isActive = tab.id === activeTabId
+          const splitTab = splitTabs.find((s) => s.id === tab.id)
+
+          return (
+            <div
+              key={tab.id}
+              className={
+                splitViewActive
+                  ? `flex flex-col min-w-0 min-h-0 bg-[var(--bg-primary)] border overflow-hidden transition-colors duration-150 ${
+                      isActive ? 'border-[var(--accent-cyan)]/40' : 'border-white/10'
+                    }`
+                  : 'absolute inset-0'
+              }
+              style={
+                splitViewActive
+                  ? shouldSpanFull(tabList.length, index) ? { gridColumn: '1 / -1' } : undefined
+                  : { visibility: isActive ? 'visible' : 'hidden' }
+              }
+            >
+              {/* Pane header — always mounted to keep child index stable, hidden when not split */}
+              <div style={splitViewActive ? undefined : { display: 'none' }}>
+                {splitTab && (
+                  <SplitPaneHeader
+                    tab={splitTab}
+                    index={index}
+                    onSelect={() => handleSelectSplitPane(tab.id)}
+                  />
+                )}
+              </div>
+
+              {/* TerminalView — ALWAYS at child index 1, never remounted */}
+              <div
+                className={splitViewActive ? 'flex-1 min-h-0' : 'h-full'}
+                onMouseDown={splitViewActive ? () => useTabsStore.getState().setActiveTab(tab.id) : undefined}
+              >
+                <TerminalView
+                  cwd={tab.projectPath}
+                  tabId={tab.id}
+                  isTabActive={splitViewActive || isActive}
+                />
+              </div>
+
+              {/* Boot overlay — covers terminal until Claude is ready */}
+              {!splitViewActive && isActive && (
+                <BootOverlay
+                  tabId={tab.id}
+                  projectName={tab.projectPath.split('/').pop() || 'project'}
+                />
+              )}
+            </div>
+          )
+        })}
       </div>
 
-      {/* Canvas pane — animated width, always mounted to avoid remount cost */}
+      {/* Canvas pane — collapsed to 0 during split view, animated width otherwise */}
       <div
         className="h-full flex overflow-hidden"
         style={{
-          width: canvasWidth,
-          transition: shouldTransition ? TRANSITION : 'none',
+          width: splitViewActive ? 0 : canvasWidth,
+          transition: shouldTransition && !splitViewActive ? TRANSITION : 'none',
           willChange: isAnimating ? 'width' : 'auto'
         }}
       >
         {/* Divider */}
-        {canvasWidth > 0 && (
+        {canvasWidth > 0 && !splitViewActive && (
           <div
             className="h-full flex-shrink-0 flex items-center justify-center group cursor-col-resize"
             style={{ width: 6 }}
