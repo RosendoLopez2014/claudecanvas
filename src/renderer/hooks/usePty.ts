@@ -78,6 +78,20 @@ export function usePty() {
     let settleTimer: ReturnType<typeof setTimeout> | null = null
 
     // Register MCP server via CLI, then launch Claude Code
+    let claudeOutputBytes = 0
+    let claudeReadyFired = false
+
+    const markClaudeReady = () => {
+      if (claudeReadyFired || !targetTabId) return
+      claudeReadyFired = true
+      const t = useTabsStore.getState().tabs.find(tab => tab.id === targetTabId)
+      if (t && !t.boot.claudeReady) {
+        useTabsStore.getState().updateTab(targetTabId, {
+          boot: { ...t.boot, claudeReady: true }
+        })
+      }
+    }
+
     const launchClaude = async () => {
       if (ptyIdRef.current !== id || claudeLaunchedRef.current) return
       claudeLaunchedRef.current = true
@@ -90,16 +104,9 @@ export function usePty() {
 
       window.api.pty.write(id, 'claude\r')
 
-      // Mark Claude as launched for boot overlay (delay for CLI to render)
-      setTimeout(() => {
-        if (!targetTabId) return
-        const t = useTabsStore.getState().tabs.find(tab => tab.id === targetTabId)
-        if (t && !t.boot.claudeReady) {
-          useTabsStore.getState().updateTab(targetTabId, {
-            boot: { ...t.boot, claudeReady: true }
-          })
-        }
-      }, 1500)
+      // Fallback: if Claude output detection doesn't fire, dismiss after 10s
+      const fallback = setTimeout(markClaudeReady, 10000)
+      cleanupRef.current.push(() => clearTimeout(fallback))
     }
 
     // Suppress shell init noise (compdef errors, prompts) until Claude launches
@@ -109,6 +116,15 @@ export function usePty() {
     const removeData = window.api.pty.onData(id, (data) => {
       if (!suppressOutput) {
         terminal.write(data)
+      }
+
+      // Detect Claude CLI startup by tracking output volume after launch.
+      // Claude's banner is 500+ chars of Unicode box-drawing and text.
+      if (claudeLaunchedRef.current && !claudeReadyFired) {
+        claudeOutputBytes += typeof data === 'string' ? data.length : 0
+        if (claudeOutputBytes > 500) {
+          markClaudeReady()
+        }
       }
 
       if (!claudeLaunchedRef.current && options?.autoLaunchClaude) {
