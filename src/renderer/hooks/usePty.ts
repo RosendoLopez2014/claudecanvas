@@ -6,6 +6,8 @@ import { useTabsStore } from '@/stores/tabs'
 
 interface ConnectOptions {
   autoLaunchClaude?: boolean
+  /** Explicit tab ID to associate the PTY with. Required when tabs spawn concurrently. */
+  tabId?: string
 }
 
 /**
@@ -79,9 +81,10 @@ export function usePty() {
   const connect = useCallback(async (terminal: Terminal, cwd?: string, options?: ConnectOptions) => {
     const gen = ++connectGenRef.current
 
-    // Capture the tab ID NOW, before any async work — if the user switches
-    // tabs while the shell is spawning, we still associate the PTY correctly.
-    const targetTabId = useTabsStore.getState().activeTabId
+    // Use the explicitly provided tab ID (correct when multiple tabs spawn
+    // concurrently), falling back to the active tab as a last resort.
+    const targetTabId = options?.tabId || useTabsStore.getState().activeTabId
+    console.log(`[TAB-DEBUG] usePty.connect: targetTabId=${targetTabId}, gen=${gen}`)
 
     if (options?.autoLaunchClaude) {
       writeWelcomeBanner(terminal)
@@ -98,9 +101,16 @@ export function usePty() {
     ptyIdRef.current = id
     setPtyId(id)
 
-    // Store ptyId in the tab that initiated the spawn (not necessarily active now)
+    // Store ptyId in the tab that owns this terminal
     if (targetTabId) {
-      useTabsStore.getState().updateTab(targetTabId, { ptyId: id })
+      console.log(`[TAB-DEBUG] usePty.connect: assigning pty=${id} to tab=${targetTabId}`)
+      const tab = useTabsStore.getState().tabs.find(t => t.id === targetTabId)
+      if (tab) {
+        useTabsStore.getState().updateTab(targetTabId, {
+          ptyId: id,
+          boot: { ...tab.boot, ptyReady: true }
+        })
+      }
     }
 
     setIsRunning(true)
@@ -120,19 +130,21 @@ export function usePty() {
       terminal.reset()
       writeWelcomeBanner(terminal)
 
-      // Get the MCP port from the project store
-      const port = useProjectStore.getState().mcpPort
-      if (port) {
-        // Register MCP server silently, then clear screen before launching Claude.
-        // The command text briefly echoes but clear wipes it instantly.
-        const url = `http://127.0.0.1:${port}/mcp`
-        window.api.pty.write(
-          id,
-          `claude mcp add --transport http -s project claude-canvas ${url} >/dev/null 2>&1; clear; claude\r`
-        )
-      } else {
-        window.api.pty.write(id, 'clear; claude\r')
-      }
+      // MCP server is already registered via writeGlobalClaudeJson in the main
+      // process — no need for `claude mcp add` here. Running it concurrently
+      // caused race conditions that corrupted ~/.claude.json (breaking auth).
+      window.api.pty.write(id, 'clear; claude\r')
+
+      // Mark Claude as launched for boot overlay (delay for CLI to render)
+      setTimeout(() => {
+        if (!targetTabId) return
+        const t = useTabsStore.getState().tabs.find(tab => tab.id === targetTabId)
+        if (t && !t.boot.claudeReady) {
+          useTabsStore.getState().updateTab(targetTabId, {
+            boot: { ...t.boot, claudeReady: true }
+          })
+        }
+      }, 1500)
     }
 
     // Suppress shell init noise (compdef errors, prompts) until Claude launches
@@ -193,9 +205,11 @@ export function usePty() {
 
   useEffect(() => {
     return () => {
+      console.log(`[TAB-DEBUG] usePty CLEANUP: ptyId=${ptyIdRef.current}`)
       cleanupRef.current.forEach((fn) => fn())
       cleanupRef.current = []
       if (ptyIdRef.current) {
+        console.log(`[TAB-DEBUG] usePty KILLING PTY: ${ptyIdRef.current}`)
         window.api.pty.kill(ptyIdRef.current)
         ptyIdRef.current = null
       }
