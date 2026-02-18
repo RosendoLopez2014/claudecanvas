@@ -11,45 +11,6 @@ interface ConnectOptions {
 }
 
 /**
- * Write a styled welcome banner to the terminal while the shell initializes.
- */
-function writeWelcomeBanner(terminal: Terminal) {
-  const c = '\x1b[36m'  // cyan
-  const b = '\x1b[1m'   // bold
-  const d = '\x1b[2m'   // dim
-  const r = '\x1b[0m'   // reset
-
-  const W = 44
-  const pad = (text: string, ansiPrefix = '', ansiSuffix = r) => {
-    const visible = text.length
-    const padding = Math.max(0, W - visible)
-    return `${c}\u2502${r} ${ansiPrefix}${text}${ansiSuffix}${' '.repeat(padding)}${c}\u2502${r}`
-  }
-
-  const lines = [
-    '',
-    `  ${c}\u256D${'\u2500'.repeat(W + 2)}\u256E${r}`,
-    `  ${pad('')}`,
-    `  ${pad('\u2726 Claude Canvas', b + c)}`,
-    `  ${pad('Terminal-first dev environment', d)}`,
-    `  ${pad('')}`,
-    `  ${pad('Canvas tools available to Claude:', d)}`,
-    `  ${pad('\u2022 Live preview & hot reload', d)}`,
-    `  ${pad('\u2022 Component gallery', d)}`,
-    `  ${pad('\u2022 Git timeline & visual diff', d)}`,
-    `  ${pad('\u2022 Element inspector', d)}`,
-    `  ${pad('')}`,
-    `  ${pad('Launching Claude Code...', d)}`,
-    `  ${pad('')}`,
-    `  ${c}\u2570${'\u2500'.repeat(W + 2)}\u256F${r}`,
-    '',
-    '',
-  ]
-
-  terminal.write(lines.join('\r\n'))
-}
-
-/**
  * Wait for the MCP server to be ready, then return the port.
  */
 function waitForMcpReady(timeoutMs = 5000): Promise<void> {
@@ -87,7 +48,6 @@ export function usePty() {
     console.log(`[TAB-DEBUG] usePty.connect: targetTabId=${targetTabId}, gen=${gen}`)
 
     if (options?.autoLaunchClaude) {
-      writeWelcomeBanner(terminal)
       claudeLaunchedRef.current = false
     }
 
@@ -125,15 +85,10 @@ export function usePty() {
       // Ensure output is no longer suppressed
       suppressOutput = false
 
-      // Clear shell init noise (compdef errors, prompt, etc.)
-      // then redraw the welcome banner cleanly
+      // Clear shell init noise
       terminal.reset()
-      writeWelcomeBanner(terminal)
 
-      // MCP server is already registered via writeGlobalClaudeJson in the main
-      // process — no need for `claude mcp add` here. Running it concurrently
-      // caused race conditions that corrupted ~/.claude.json (breaking auth).
-      window.api.pty.write(id, 'clear; claude\r')
+      window.api.pty.write(id, 'claude\r')
 
       // Mark Claude as launched for boot overlay (delay for CLI to render)
       setTimeout(() => {
