@@ -42,7 +42,41 @@ export function ProjectPicker() {
   const openProject = useCallback(
     async (project: ProjectInfo) => {
       project.lastOpened = Date.now()
-      useTabsStore.getState().addTab(project)
+
+      // Proactive dev server resolution — always re-resolve to catch stale commands.
+      // The cached devCommand may be from a previous session when the project had
+      // different scripts. Re-validate every time the project is opened.
+      try {
+        const result = await window.api.dev.resolve(project.path)
+        if (result?.plan && result.plan.confidence !== 'low') {
+          const cmdStr = [result.plan.command.bin, ...result.plan.command.args].join(' ')
+          project.devCommand = cmdStr
+          project.devPort = result.plan.port
+          project.framework = result.plan.detection?.framework
+        } else {
+          // Low confidence or no plan — clear stale cached command
+          project.devCommand = undefined
+          project.devPort = undefined
+        }
+      } catch {
+        // Resolution failure is non-fatal — user can still configure later
+      }
+
+      // Reuse existing tab if already restored, otherwise create new
+      const existing = useTabsStore.getState().tabs.find((t) => t.project.path === project.path)
+      if (existing) {
+        useTabsStore.getState().setActiveTab(existing.id)
+        // Update the tab's project info if we just enriched it
+        if (project.devCommand && !existing.project.devCommand) {
+          useTabsStore.getState().updateProjectInfo(existing.id, {
+            devCommand: project.devCommand,
+            devPort: project.devPort,
+            framework: project.framework,
+          })
+        }
+      } else {
+        useTabsStore.getState().addTab(project)
+      }
       setCurrentProject(project)
       setScreen('workspace')
 
@@ -125,6 +159,15 @@ export function ProjectPicker() {
         <AnimatePresence mode="wait">
           {!showNewProject ? (
             <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              {/* Back to workspace (only when tabs exist — user came from workspace) */}
+              {useTabsStore.getState().tabs.length > 0 && (
+                <button
+                  onClick={() => setScreen('workspace')}
+                  className="flex items-center gap-1 text-xs text-white/40 hover:text-white/60 mb-4"
+                >
+                  <ArrowLeft size={12} /> Back to workspace
+                </button>
+              )}
               {/* Actions */}
               <div className="flex gap-3 mb-6">
                 <button

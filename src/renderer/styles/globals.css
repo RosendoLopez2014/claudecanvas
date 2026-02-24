@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
 :root {
@@ -7,6 +8,23 @@
   --bg-secondary: #111827;
   --bg-tertiary: #1F2937;
   --border: rgba(255, 255, 255, 0.1);
+  --v9-surface: #111113;
+  --v9-raised: #19191d;
+  --v9-hover: #1f1f24;
+  --v9-t1: #ededed;
+  --v9-t2: rgba(255,255,255,0.50);
+  --v9-t3: rgba(255,255,255,0.25);
+  --v9-t4: rgba(255,255,255,0.10);
+  --v9-green: #34D399;
+  --v9-green-soft: rgba(52,211,153,0.12);
+  --v9-amber: #FBBF24;
+  --v9-red: #F87171;
+  --v9-red-soft: rgba(248,113,113,0.10);
+  --v9-violet: #A78BFA;
+  --v9-violet-soft: rgba(167,139,250,0.08);
+  --v9-sb: #3ECF8E;
+  --v9-sb-soft: rgba(62,207,142,0.10);
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 body {

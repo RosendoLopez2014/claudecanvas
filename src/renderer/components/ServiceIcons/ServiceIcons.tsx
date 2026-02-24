@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useLayoutEffect, useState, useCallback, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Github, Triangle, Database, Circle, Loader2, Copy, Check, ArrowRight, ArrowUp, ArrowDown, X, Plus, GitBranch, GitPullRequest, Link, ExternalLink, ChevronDown, ChevronRight, Rocket, Clock, FileText, Globe, RefreshCw } from 'lucide-react'
+import { Github, Triangle, Database, Circle, Loader2, Copy, Check, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, X, Plus, GitBranch, GitPullRequest, ExternalLink, ChevronDown, ChevronRight, Rocket, FileText, Globe, RefreshCw, AlertTriangle } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useProjectStore } from '@/stores/project'
@@ -220,6 +220,122 @@ function GitHubCodeOverlay({
   )
 }
 
+// ─── V9 Linear Expandable: shared presentational sub-components ───────────
+
+function CompactTopBar({ iconBg, icon, name, statusColor, statusLabel }: {
+  iconBg: string
+  icon: ReactNode
+  name: string
+  statusColor: string
+  statusLabel: string
+}) {
+  return (
+    <div className="flex items-center gap-2.5 px-[14px] py-3">
+      <div
+        className="w-6 h-6 rounded-[6px] flex items-center justify-center shrink-0"
+        style={{ background: iconBg }}
+      >
+        {icon}
+      </div>
+      <span className="text-[13px] font-semibold flex-1 text-[var(--v9-t1)]">{name}</span>
+      <div
+        className="flex items-center gap-[5px]"
+        style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', fontWeight: 500, color: statusColor }}
+      >
+        <div className="w-1.5 h-1.5 rounded-full" style={{ background: statusColor }} />
+        {statusLabel}
+      </div>
+    </div>
+  )
+}
+
+function HeroSection({ value, valueColor, label, tag }: {
+  value: string
+  valueColor: string
+  label: string
+  tag?: ReactNode
+}) {
+  return (
+    <div className="flex items-end gap-3 px-[14px] pb-3">
+      <div className="flex-1">
+        <div
+          className="text-[28px] font-bold leading-none"
+          style={{ letterSpacing: '-0.02em', color: valueColor }}
+        >
+          {value}
+        </div>
+        <div className="text-xs text-[var(--v9-t3)] mt-[3px]">{label}</div>
+      </div>
+      {tag && <div className="pb-[2px]">{tag}</div>}
+    </div>
+  )
+}
+
+function MetricsRow({ metrics }: {
+  metrics: Array<{ value: string; label: string; color?: string }>
+}) {
+  return (
+    <div className="flex px-[14px] pb-2.5">
+      {metrics.map((m, i) => (
+        <div key={i} className="flex-1 text-center py-1.5 relative">
+          {i > 0 && (
+            <div className="absolute left-0 top-1 bottom-1 w-px bg-white/[0.06]" />
+          )}
+          <div
+            className="text-[13px] font-semibold"
+            style={{ fontFamily: 'var(--font-mono)', color: m.color || 'var(--v9-t1)' }}
+          >
+            {m.value}
+          </div>
+          <div className="text-[9px] text-[var(--v9-t3)] mt-px">{m.label}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ExpandToggle({ expanded, onToggle }: {
+  expanded: boolean
+  onToggle: () => void
+}) {
+  return (
+    <div
+      onClick={(e) => { e.stopPropagation(); onToggle() }}
+      className="flex items-center justify-center px-[14px] py-1.5 border-t border-white/[0.06] cursor-pointer hover:bg-white/[0.02] select-none"
+    >
+      <span
+        className="flex items-center gap-1 text-[var(--v9-t3)]"
+        style={{ fontFamily: 'var(--font-mono)', fontSize: '9px' }}
+      >
+        <span
+          className="text-[10px] transition-transform duration-200"
+          style={{ transform: expanded ? 'rotate(180deg)' : undefined }}
+        >
+          ▾
+        </span>
+        More
+      </span>
+    </div>
+  )
+}
+
+function AccentSection({ color, opacity = 1, last, children }: {
+  color: string
+  opacity?: number
+  last?: boolean
+  children: ReactNode
+}) {
+  return (
+    <div className={`relative px-[14px] py-2.5 ${last ? '' : 'border-b border-white/[0.06]'}`}>
+      <div
+        className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-sm"
+        style={{ background: color, opacity }}
+      />
+      {children}
+    </div>
+  )
+}
+
 export function ServiceIcons() {
   const [status, setStatus] = useState<ServiceStatus>({
     github: false,
@@ -229,7 +345,23 @@ export function ServiceIcons() {
   const [githubUser, setGithubUser] = useState<GitHubUser | null>(null)
   const [vercelUser, setVercelUser] = useState<VercelUser | null>(null)
   const [repoName, setRepoName] = useState<string | null>(null)
-  const [dropdownOpen, setDropdownOpen] = useState<string | null>(null)
+  // Ref+state mirror: ref is synchronous (readable in same render cycle),
+  // state triggers re-renders. This prevents the race condition where
+  // setDropdownOpen(null) is async but fetch effects read stale state.
+  const dropdownOpenRef = useRef<string | null>(null)
+  const [dropdownOpen, _setDropdownOpen] = useState<string | null>(null)
+  const setDropdownOpen = useCallback((value: string | null) => {
+    dropdownOpenRef.current = value
+    _setDropdownOpen(value)
+  }, [])
+  // Generation counter: incremented on tab switch, checked in async callbacks
+  // to discard stale responses from the previous tab's fetches.
+  const fetchGenRef = useRef(0)
+  // Inflight dedup: tracks in-progress bootstrap fetches by "tabId:path".
+  // Prevents duplicate requests without preventing retries after discard.
+  // Refs survive StrictMode double-mount (same object across mount cycles).
+  const vercelInflightRef = useRef(new Set<string>())
+  const supabaseInflightRef = useRef(new Set<string>())
   const [connecting, setConnecting] = useState<string | null>(null)
   const [creatingRepo, setCreatingRepo] = useState(false)
   const [showRepoInput, setShowRepoInput] = useState(false)
@@ -247,6 +379,7 @@ export function ServiceIcons() {
   const [localBranches, setLocalBranches] = useState<string[]>([])
   const [currentBranch, setCurrentBranch] = useState<string | null>(null)
 
+  const activeTabId = useTabsStore((s) => s.activeTabId)
   const activeTab = useTabsStore((s) => {
     const id = s.activeTabId
     return id ? s.tabs.find((t) => t.id === id) ?? null : null
@@ -254,6 +387,7 @@ export function ServiceIcons() {
   const gitAhead = activeTab?.gitAhead ?? 0
   const gitBehind = activeTab?.gitBehind ?? 0
   const gitRemoteConfigured = activeTab?.gitRemoteConfigured ?? false
+  const gitFetchError = activeTab?.gitFetchError ?? null
   const lastPushTime = activeTab?.lastPushTime ?? null
   const lastFetchTime = activeTab?.lastFetchTime ?? null
 
@@ -286,12 +420,14 @@ export function ServiceIcons() {
   const [copiedSupabaseUrl, setCopiedSupabaseUrl] = useState(false)
   const [showSupabaseProjectPicker, setShowSupabaseProjectPicker] = useState(false)
   const [supabaseProjectSearch, setSupabaseProjectSearch] = useState('')
+  const [expandedDropdown, setExpandedDropdown] = useState<string | null>(null)
 
   codeDataRef.current = codeData
 
   // Close dropdown on outside click
   useEffect(() => {
     if (!dropdownOpen) {
+      setExpandedDropdown(null)
       setShowRepoInput(false)
       setShowLinkRepo(false)
       setNewRepoName('')
@@ -356,74 +492,342 @@ export function ServiceIcons() {
   }, [repoName, status.vercel, vercelUser, linkedProject])
 
   // Fetch service statuses + user info on mount
+  // OAuth tokens are app-global (not per-project), so no need to re-fetch on tab switch
   useEffect(() => {
-    Promise.all([
-      window.api.oauth.github.status(),
-      window.api.oauth.vercel.status(),
-      window.api.oauth.supabase.status()
-    ]).then(([gh, vc, sb]) => {
-      const ghData = gh as { connected: boolean; login?: string; avatar_url?: string }
-      const sbData = sb as { connected: boolean; name?: string; email?: string; avatar_url?: string | null }
-      setStatus({
-        github: ghData.connected,
-        vercel: vc.connected,
-        supabase: sbData.connected
+    const fetchStatus = () => {
+      Promise.all([
+        window.api.oauth.github.status(),
+        window.api.oauth.vercel.status(),
+        window.api.oauth.supabase.status()
+      ]).then(([gh, vc, sb]) => {
+        const ghData = gh as { connected: boolean; login?: string; avatar_url?: string }
+        const sbData = sb as { connected: boolean; name?: string; email?: string; avatar_url?: string | null }
+        setStatus({
+          github: ghData.connected,
+          vercel: vc.connected,
+          supabase: sbData.connected
+        })
+        if (ghData.connected && ghData.login) {
+          setGithubUser({ login: ghData.login, avatar_url: ghData.avatar_url || '' })
+        }
+        if (vc.connected && vc.username) {
+          setVercelUser({ username: vc.username, name: vc.name ?? null, avatar: vc.avatar ?? null })
+        }
+        if (sbData.connected && sbData.name) {
+          setSupabaseUser({ name: sbData.name, email: sbData.email || '', avatar_url: sbData.avatar_url || null })
+        }
       })
-      if (ghData.connected && ghData.login) {
-        setGithubUser({ login: ghData.login, avatar_url: ghData.avatar_url || '' })
-      }
-      if (vc.connected && vc.username) {
-        setVercelUser({ username: vc.username, name: vc.name ?? null, avatar: vc.avatar ?? null })
-      }
-      if (sbData.connected && sbData.name) {
-        setSupabaseUser({ name: sbData.name, email: sbData.email || '', avatar_url: sbData.avatar_url || null })
-      }
-    })
+    }
+    fetchStatus()
+    // Re-check when window regains focus (user may have connected/disconnected in browser)
+    window.addEventListener('focus', fetchStatus)
+    return () => window.removeEventListener('focus', fetchStatus)
   }, [])
 
-  // Fetch repo remote when GitHub is connected and project is loaded
-  const currentProject = useProjectStore((s) => s.currentProject)
+  // Listen for Supabase session expiry (refresh token revoked/invalid)
   useEffect(() => {
-    if (!status.github || !currentProject?.path) {
+    const cleanup = window.api.oauth.supabase.onExpired(() => {
+      console.log('[TAB-DEBUG] ServiceIcons: Supabase session expired — marking disconnected')
+      setStatus((prev) => ({ ...prev, supabase: false }))
+      setSupabaseUser(null)
+      setLinkedSupabaseProject(null)
+      const tabId = useTabsStore.getState().activeTabId
+      if (tabId) {
+        useTabsStore.getState().updateTab(tabId, {
+          supabaseBootstrapped: false,
+          supabaseLinkedProject: null
+        })
+      }
+      useToastStore.getState().addToast('Supabase session expired — reconnect to continue', 'error')
+    })
+    return cleanup
+  }, [])
+
+  // Close any open dropdown when switching tabs.
+  // useLayoutEffect fires BEFORE useEffect in the same render, so fetch effects
+  // below will see the updated dropdownOpenRef.current === null.
+  // Triggers on activeTabId (atomic) — NOT project store path (delayed).
+  const currentProject = useProjectStore((s) => s.currentProject)
+  const prevTabIdRef = useRef(activeTabId)
+
+  useLayoutEffect(() => {
+    if (activeTabId !== prevTabIdRef.current) {
+      const oldTabId = prevTabIdRef.current
+      prevTabIdRef.current = activeTabId
+      // Bump generation so in-flight fetches from the old tab are discarded
+      fetchGenRef.current += 1
+      // Close dropdown synchronously via ref (effects below read ref, not state)
+      setDropdownOpen(null)
+      console.log(`[TAB-DEBUG] ServiceIcons: tab switched ${oldTabId?.slice(-6) || 'none'} → ${activeTabId?.slice(-6) || 'none'}, gen=${fetchGenRef.current}, dropdown closed`)
+    }
+  }, [activeTabId, setDropdownOpen])
+
+  // Load cached integration state from tab store when active tab changes.
+  // When no tab is active (home screen), clear all integration local state.
+  useEffect(() => {
+    if (!activeTabId) {
       setRepoName(null)
+      setLinkedProject(null)
+      setLinkedSupabaseProject(null)
+      setCurrentBranch(null)
+      setLocalBranches([])
+      setPrInfo(null)
       return
     }
-    window.api.git.getProjectInfo(currentProject.path).then(({ remoteUrl }) => {
-      setRepoName(remoteUrl ? parseRepoName(remoteUrl) : null)
-    })
-  }, [status.github, currentProject?.path])
+    const tab = useTabsStore.getState().tabs.find((t) => t.id === activeTabId)
+    if (!tab) return
+    // Restore cached values — if null, the fetch effects below will populate them
+    if (tab.githubRepoName !== undefined) setRepoName(tab.githubRepoName)
+    if (tab.vercelLinkedProject !== undefined) setLinkedProject(tab.vercelLinkedProject)
+    if (tab.supabaseLinkedProject !== undefined) setLinkedSupabaseProject(tab.supabaseLinkedProject)
+    console.log(`[TAB-DEBUG] ServiceIcons: cache load for ${tab.project.name} — github=${tab.githubRepoName || 'null'}, vercel=${tab.vercelLinkedProject ? 'linked' : 'null'}, supabase=${tab.supabaseLinkedProject ? 'linked' : 'null'}`)
+  }, [activeTabId])
 
-  // Fetch branches and check PR when GitHub dropdown opens
+  // Bootstrap GitHub repo remote on project load (background, non-blocking).
+  // Same invariants as Vercel/Supabase bootstrap:
+  // 1. "bootstrapped" is set ONLY after response is successfully applied
+  // 2. If response is discarded (gen changed), flag stays false → retry on next switch back
+  // 3. Reads path from tab store (atomic) — NOT project store (delayed by one render)
   useEffect(() => {
-    if (dropdownOpen !== 'github' || !status.github) return
+    if (!status.github || !activeTabId) return
+    const tab = useTabsStore.getState().tabs.find((t) => t.id === activeTabId)
+    if (!tab) return
+    const tabPath = tab.project.path
+    const capturedTabId = activeTabId
 
-    // Fetch branches
-    if (currentProject?.path) {
-      window.api.worktree.branches(currentProject.path).then((result) => {
-        setCurrentBranch(result.current)
-        setLocalBranches(result.branches.filter((b: string) => b !== result.current))
-      }).catch(() => {})
+    // Guard: Already resolved — use cached value
+    if (tab.githubBootstrapped) {
+      console.log(`[TAB-DEBUG] ServiceIcons: GitHub bootstrap SKIP — resolved (tab ${capturedTabId.slice(-6)}, cached=${tab.githubRepoName || 'none'})`)
+      if (tab.githubRepoName) setRepoName(tab.githubRepoName)
+      return
     }
 
-    // Check PR status
-    if (repoName && currentProject?.path) {
-      window.api.git.getProjectInfo(currentProject.path).then(({ branch }) => {
-        if (!branch || branch === 'main' || branch === 'master') {
-          setPrInfo(null)
+    const gen = fetchGenRef.current
+    console.log(`[TAB-DEBUG] ServiceIcons: GitHub bootstrap FETCH (tab ${capturedTabId.slice(-6)}, path=${tabPath.split('/').pop()}, gen=${gen})`)
+    window.api.git.getProjectInfo(tabPath).then(({ remoteUrl, error }) => {
+      if (fetchGenRef.current !== gen) {
+        console.log(`[TAB-DEBUG] ServiceIcons: GitHub bootstrap discarded (gen ${gen} → ${fetchGenRef.current}) — will retry`)
+        return
+      }
+      // Transient failure — keep cached repo name, do NOT mark bootstrapped (will retry)
+      if (error) {
+        const cached = useTabsStore.getState().tabs.find((t) => t.id === capturedTabId)
+        if (cached?.githubRepoName) setRepoName(cached.githubRepoName)
+        console.log(`[TAB-DEBUG] ServiceIcons: GitHub bootstrap ERROR — will retry (tab ${capturedTabId.slice(-6)})`)
+        return
+      }
+      const name = remoteUrl ? parseRepoName(remoteUrl) : null
+      // Don't overwrite a known-good cached repo name with null.
+      if (!name) {
+        const cached = useTabsStore.getState().tabs.find((t) => t.id === capturedTabId)
+        if (cached?.githubRepoName) {
+          console.log(`[TAB-DEBUG] ServiceIcons: GitHub bootstrap returned none — keeping cached ${cached.githubRepoName} (tab ${capturedTabId.slice(-6)})`)
+          setRepoName(cached.githubRepoName)
+          useTabsStore.getState().updateTab(capturedTabId, { githubBootstrapped: true })
           return
         }
-        setLoadingPr(true)
-        window.api.oauth.github.prStatus(repoName, branch).then((result) => {
-          if ('hasPR' in result && result.hasPR) {
-            setPrInfo({ number: result.number, url: result.url, title: result.title })
-          } else {
-            setPrInfo(null)
-          }
-          setLoadingPr(false)
+      }
+      console.log(`[TAB-DEBUG] ServiceIcons: GitHub detected — ${name || 'none'} (tab ${capturedTabId.slice(-6)})`)
+      setRepoName(name)
+      // Persist to tab store — mark bootstrapped ONLY on successful apply
+      const currentActive = useTabsStore.getState().activeTabId
+      if (currentActive === capturedTabId) {
+        useTabsStore.getState().updateTab(capturedTabId, {
+          githubBootstrapped: true,
+          githubRepoName: name
         })
-      })
+      }
+    }).catch(() => {
+      console.log(`[TAB-DEBUG] ServiceIcons: GitHub bootstrap ERROR — will retry (tab ${capturedTabId.slice(-6)})`)
+    })
+  }, [status.github, activeTabId])
+
+  // Bootstrap Vercel linked project on project load (background, non-blocking).
+  //
+  // Key invariants:
+  // 1. "bootstrapped" is set ONLY after response is successfully applied (not at fetch start)
+  // 2. If response is discarded (gen changed), flag stays false → retry on next switch back
+  // 3. Inflight dedup via ref (keyed by tabId:path) prevents duplicate concurrent fetches
+  // 4. Path read from tab store (atomic), not project store (delayed)
+  useEffect(() => {
+    if (!activeTabId) return
+    const tab = useTabsStore.getState().tabs.find((t) => t.id === activeTabId)
+    if (!tab) return
+    const tabPath = tab.project.path
+
+    // Guard 1: OAuth must be connected first.
+    if (!status.vercel) {
+      console.log(`[TAB-DEBUG] ServiceIcons: Vercel bootstrap SKIP — not connected (tab ${activeTabId.slice(-6)})`)
+      return
     }
-  }, [dropdownOpen, status.github, repoName, currentProject?.path])
+    // Guard 2: Already resolved (bootstrapped=true means we have a definitive answer)
+    if (tab.vercelBootstrapped) {
+      console.log(`[TAB-DEBUG] ServiceIcons: Vercel bootstrap SKIP — resolved (tab ${activeTabId.slice(-6)}, cached=${tab.vercelLinkedProject ? 'linked' : 'not_linked'})`)
+      if (tab.vercelLinkedProject) setLinkedProject(tab.vercelLinkedProject)
+      return
+    }
+    // Guard 3: Inflight dedup — prevent duplicate concurrent fetches
+    const inflightKey = `${activeTabId}:${tabPath}`
+    if (vercelInflightRef.current.has(inflightKey)) {
+      console.log(`[TAB-DEBUG] ServiceIcons: Vercel bootstrap SKIP — inflight (tab ${activeTabId.slice(-6)})`)
+      return
+    }
+    vercelInflightRef.current.add(inflightKey)
+
+    const capturedTabId = activeTabId
+    const gen = fetchGenRef.current
+    console.log(`[TAB-DEBUG] ServiceIcons: Vercel bootstrap FETCH (tab ${capturedTabId.slice(-6)}, path=${tabPath.split('/').pop()}, gen=${gen})`)
+
+    window.api.oauth.vercel.linkedProject({
+      projectPath: tabPath,
+      gitRepo: repoName || undefined
+    }).then((result) => {
+      vercelInflightRef.current.delete(inflightKey)
+
+      if (fetchGenRef.current !== gen) {
+        // Discarded — do NOT mark bootstrapped. Next switch back will retry.
+        console.log(`[TAB-DEBUG] ServiceIcons: Vercel bootstrap discarded (gen ${gen} → ${fetchGenRef.current}) — will retry`)
+        return
+      }
+      const currentTab = useTabsStore.getState().tabs.find((t) => t.id === capturedTabId)
+      if (!currentTab || currentTab.project.path !== tabPath) return
+
+      if ('linked' in result && result.linked) {
+        console.log(`[TAB-DEBUG] ServiceIcons: Vercel detected — ${result.project.name} (tab ${capturedTabId.slice(-6)})`)
+        setLinkedProject(result)
+        useTabsStore.getState().updateTab(capturedTabId, {
+          vercelBootstrapped: true, // Mark done ONLY on successful apply
+          vercelLinkedProject: result,
+          lastIntegrationFetch: Date.now()
+        })
+      } else {
+        console.log(`[TAB-DEBUG] ServiceIcons: Vercel — not linked (tab ${capturedTabId.slice(-6)})`)
+        // Definitively not linked — mark as resolved so we don't re-fetch
+        useTabsStore.getState().updateTab(capturedTabId, {
+          vercelBootstrapped: true,
+        })
+      }
+    }).catch(() => {
+      vercelInflightRef.current.delete(inflightKey)
+      // Error — do NOT mark bootstrapped. Will retry on next trigger.
+      console.log(`[TAB-DEBUG] ServiceIcons: Vercel bootstrap ERROR — will retry (tab ${capturedTabId.slice(-6)})`)
+    })
+  }, [status.vercel, activeTabId, repoName])
+
+  // Bootstrap Supabase linked project on project load (background, non-blocking).
+  // Same invariants as Vercel bootstrap above.
+  useEffect(() => {
+    if (!activeTabId) return
+    const tab = useTabsStore.getState().tabs.find((t) => t.id === activeTabId)
+    if (!tab) return
+    const tabPath = tab.project.path
+
+    // Guard 1: OAuth must be connected first.
+    if (!status.supabase) {
+      console.log(`[TAB-DEBUG] ServiceIcons: Supabase bootstrap SKIP — not connected (tab ${activeTabId.slice(-6)})`)
+      return
+    }
+    // Guard 2: Already resolved
+    if (tab.supabaseBootstrapped) {
+      console.log(`[TAB-DEBUG] ServiceIcons: Supabase bootstrap SKIP — resolved (tab ${activeTabId.slice(-6)}, cached=${tab.supabaseLinkedProject ? 'linked' : 'not_linked'})`)
+      if (tab.supabaseLinkedProject) setLinkedSupabaseProject(tab.supabaseLinkedProject)
+      return
+    }
+    // Guard 3: Inflight dedup
+    const inflightKey = `${activeTabId}:${tabPath}`
+    if (supabaseInflightRef.current.has(inflightKey)) {
+      console.log(`[TAB-DEBUG] ServiceIcons: Supabase bootstrap SKIP — inflight (tab ${activeTabId.slice(-6)})`)
+      return
+    }
+    supabaseInflightRef.current.add(inflightKey)
+
+    const capturedTabId = activeTabId
+    const folderName = tabPath.split('/').pop()?.toLowerCase()
+    const gen = fetchGenRef.current
+    console.log(`[TAB-DEBUG] ServiceIcons: Supabase bootstrap FETCH (tab ${capturedTabId.slice(-6)}, folder="${folderName}", gen=${gen})`)
+
+    window.api.oauth.supabase.listProjects().then((projects) => {
+      supabaseInflightRef.current.delete(inflightKey)
+
+      if (fetchGenRef.current !== gen) {
+        console.log(`[TAB-DEBUG] ServiceIcons: Supabase bootstrap discarded (gen ${gen} → ${fetchGenRef.current}) — will retry`)
+        return
+      }
+      if ('error' in projects) return
+      const currentTab = useTabsStore.getState().tabs.find((t) => t.id === capturedTabId)
+      if (!currentTab || currentTab.project.path !== tabPath) return
+
+      const linked = (projects as SupabaseProject[]).find((p) => p.name.toLowerCase() === folderName)
+      if (linked) {
+        console.log(`[TAB-DEBUG] ServiceIcons: Supabase detected — ${linked.name} (tab ${capturedTabId.slice(-6)})`)
+        setLinkedSupabaseProject(linked)
+        useTabsStore.getState().updateTab(capturedTabId, {
+          supabaseBootstrapped: true,
+          supabaseLinkedProject: linked,
+          lastIntegrationFetch: Date.now()
+        })
+      } else {
+        console.log(`[TAB-DEBUG] ServiceIcons: Supabase — not linked for "${folderName}" (tab ${capturedTabId.slice(-6)})`)
+        useTabsStore.getState().updateTab(capturedTabId, {
+          supabaseBootstrapped: true,
+        })
+      }
+    }).catch(() => {
+      supabaseInflightRef.current.delete(inflightKey)
+      console.log(`[TAB-DEBUG] ServiceIcons: Supabase bootstrap ERROR — will retry (tab ${capturedTabId.slice(-6)})`)
+    })
+  }, [status.supabase, activeTabId])
+
+  // Fetch branches and check PR when GitHub dropdown opens.
+  // Reads from dropdownOpenRef (synchronous) — safe from the tab-switch race.
+  // Double-checks gen before IPC to prevent EBADF from rapid toggle.
+  // Uses tab store path (atomic) — NOT project store (delayed).
+  useEffect(() => {
+    if (dropdownOpenRef.current !== 'github' || !status.github || !activeTabId) return
+
+    const tab = useTabsStore.getState().tabs.find((t) => t.id === activeTabId)
+    if (!tab) return
+    const tabPath = tab.project.path
+    const gen = fetchGenRef.current
+
+    // Fetch branches — double-check gen right before IPC to catch rapid switches
+    Promise.resolve().then(() => {
+      if (fetchGenRef.current !== gen) return // pre-IPC bail
+      return window.api.worktree.branches(tabPath).then((result) => {
+        if (fetchGenRef.current !== gen) return
+        if ('error' in result) return // silently ignore transient failures
+        setCurrentBranch(result.current)
+        setLocalBranches(result.branches.filter((b: string) => b !== result.current))
+      })
+    }).catch((err) => {
+      if (err?.message?.includes('EBADF')) return // silently ignore fd leak races
+    })
+
+    // Check PR status
+    if (repoName) {
+      Promise.resolve().then(() => {
+        if (fetchGenRef.current !== gen) return // pre-IPC bail
+        return window.api.git.getProjectInfo(tabPath).then(({ branch, error }) => {
+          if (fetchGenRef.current !== gen) return
+          if (error) return  // keep existing PR info on transient failure
+          if (!branch || branch === 'main' || branch === 'master') {
+            setPrInfo(null)
+            return
+          }
+          setLoadingPr(true)
+          window.api.oauth.github.prStatus(repoName, branch).then((result) => {
+            if (fetchGenRef.current !== gen) return
+            if ('hasPR' in result && result.hasPR) {
+              setPrInfo({ number: result.number, url: result.url, title: result.title })
+            } else {
+              setPrInfo(null)
+            }
+            setLoadingPr(false)
+          })
+        })
+      }).catch(() => {})
+    }
+  }, [dropdownOpen, status.github, repoName, activeTabId])
 
   // Send updated bounds during resize while auth view is active
   useEffect(() => {
@@ -442,17 +846,6 @@ export function ServiceIcons() {
     const onResize = () => {
       const bounds = getCanvasBounds()
       if (bounds) window.api.oauth.vercel.updateBounds(bounds)
-    }
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [connecting])
-
-  // Supabase auth view resize
-  useEffect(() => {
-    if (connecting !== 'supabase') return
-    const onResize = () => {
-      const bounds = getCanvasBounds()
-      if (bounds) window.api.oauth.supabase.updateBounds(bounds)
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
@@ -569,39 +962,30 @@ export function ServiceIcons() {
     window.api.oauth.vercel.cancel()
   }, [])
 
-  // ─── Supabase connect flow ─────────────────────────────────
+  // ─── Supabase connect flow (opens system browser) ──────────
   const connectSupabase = useCallback(async () => {
     setDropdownOpen(null)
     setConnecting('supabase')
 
-    useWorkspaceStore.getState().openCanvas()
-    await new Promise((r) => setTimeout(r, 100))
-    await new Promise((r) => requestAnimationFrame(r))
-
-    const bounds = getCanvasBounds()
-    if (!bounds) {
-      setConnecting(null)
-      useToastStore.getState().addToast('Open the canvas panel first', 'error')
-      return
-    }
-
-    const result = (await window.api.oauth.supabase.start({ bounds })) as
-      | { token: string }
-      | { error: string }
+    const result = await window.api.oauth.supabase.start()
+    console.log('[Supabase] start() result:', JSON.stringify(result))
 
     setConnecting(null)
 
-    if ('token' in result) {
+    if (result && 'token' in result) {
       setStatus((prev) => ({ ...prev, supabase: true }))
-      const statusData = (await window.api.oauth.supabase.status()) as {
-        connected: boolean; name?: string; email?: string; avatar_url?: string | null
-      }
-      if (statusData.name) {
-        setSupabaseUser({ name: statusData.name, email: statusData.email || '', avatar_url: statusData.avatar_url || null })
+      const statusData = await window.api.oauth.supabase.status()
+      console.log('[Supabase] status() result:', JSON.stringify(statusData))
+      const sb = statusData as { connected: boolean; name?: string; email?: string; avatar_url?: string | null }
+      if (sb.name) {
+        setSupabaseUser({ name: sb.name, email: sb.email || '', avatar_url: sb.avatar_url || null })
       }
       useToastStore.getState().addToast('Connected to Supabase!', 'success')
-    } else if (result.error !== 'Cancelled') {
-      useToastStore.getState().addToast(`Supabase: ${result.error}`, 'error')
+    } else if (result && (result as { error?: string }).error !== 'Cancelled') {
+      const errMsg = (result as { error?: string }).error || 'Unknown error'
+      useToastStore.getState().addToast(`Supabase: ${errMsg}`, 'error')
+    } else if (!result) {
+      useToastStore.getState().addToast('Supabase: No response from auth', 'error')
     }
   }, [])
 
@@ -613,26 +997,37 @@ export function ServiceIcons() {
   // Fetch linked Vercel project for current workspace
   const fetchLinkedProject = useCallback(async () => {
     if (!currentProject?.path || !status.vercel) return
+    const gen = fetchGenRef.current
     setLoadingLinkedProject(true)
     try {
       const result = await window.api.oauth.vercel.linkedProject({
         projectPath: currentProject.path,
         gitRepo: repoName || undefined
       })
+      if (fetchGenRef.current !== gen) return // tab switched, discard
       if ('linked' in result && result.linked) {
         setLinkedProject(result)
+        // Persist to tab store
+        const tabId = useTabsStore.getState().activeTabId
+        if (tabId) useTabsStore.getState().updateTab(tabId, {
+          vercelLinkedProject: result,
+          lastIntegrationFetch: Date.now()
+        })
       } else {
         setLinkedProject(null)
+        // Persist null to tab store
+        const tabId = useTabsStore.getState().activeTabId
+        if (tabId) useTabsStore.getState().updateTab(tabId, { vercelLinkedProject: null })
         // Auto-load all projects when no linked project found
         setLoadingVercelProjects(true)
         const projects = await window.api.oauth.vercel.listProjects()
+        if (fetchGenRef.current !== gen) return
         setLoadingVercelProjects(false)
         if (Array.isArray(projects)) {
           setVercelProjects(projects)
           setShowVercelProjects(true)
         } else if (projects && 'error' in projects) {
           console.error('[Vercel] listProjects error:', projects.error)
-          // Still show empty list (not stuck on loading)
           setVercelProjects([])
           setShowVercelProjects(true)
         }
@@ -646,7 +1041,7 @@ export function ServiceIcons() {
 
   // Refresh Vercel user + linked project when dropdown opens
   useEffect(() => {
-    if (dropdownOpen !== 'vercel') return
+    if (dropdownOpenRef.current !== 'vercel') return
     // Always refresh user status when opening dropdown
     if (status.vercel) {
       window.api.oauth.vercel.status().then((vc) => {
@@ -667,8 +1062,10 @@ export function ServiceIcons() {
 
   // Fetch recent deployments when linked project is available
   useEffect(() => {
-    if (!linkedProject?.project?.id || dropdownOpen !== 'vercel') return
+    if (!linkedProject?.project?.id || dropdownOpenRef.current !== 'vercel') return
+    const gen = fetchGenRef.current
     window.api.oauth.vercel.deployments(linkedProject.project.id).then((result) => {
+      if (fetchGenRef.current !== gen) return
       if (Array.isArray(result)) {
         setRecentDeploys(result.slice(1, 4)) // Skip latest (already shown), take next 3
       }
@@ -715,9 +1112,11 @@ export function ServiceIcons() {
 
   const fetchLinkedSupabaseProject = useCallback(async () => {
     if (!currentProject?.path || !status.supabase) return
+    const gen = fetchGenRef.current
     setLoadingSupabaseProject(true)
 
     const projects = await window.api.oauth.supabase.listProjects()
+    if (fetchGenRef.current !== gen) return
     if ('error' in projects) {
       setLoadingSupabaseProject(false)
       return
@@ -729,6 +1128,12 @@ export function ServiceIcons() {
 
     if (linked) {
       setLinkedSupabaseProject(linked)
+      // Persist to tab store
+      const tabId = useTabsStore.getState().activeTabId
+      if (tabId) useTabsStore.getState().updateTab(tabId, {
+        supabaseLinkedProject: linked,
+        lastIntegrationFetch: Date.now()
+      })
       // Fetch all project data in parallel
       const [tables, fns, buckets, policies, connInfo] = await Promise.all([
         window.api.oauth.supabase.listTables(linked.ref),
@@ -737,6 +1142,7 @@ export function ServiceIcons() {
         window.api.oauth.supabase.listPolicies(linked.ref),
         window.api.oauth.supabase.getConnectionInfo(linked.ref)
       ])
+      if (fetchGenRef.current !== gen) return
       if (Array.isArray(tables)) setSupabaseTables(tables)
       if (Array.isArray(fns)) setSupabaseFunctions(fns)
       if (Array.isArray(buckets)) setSupabaseBuckets(buckets)
@@ -754,6 +1160,9 @@ export function ServiceIcons() {
     setLinkedSupabaseProject(project)
     setShowSupabaseProjectPicker(false)
     setLoadingSupabaseProject(true)
+    // Persist to tab store (optimistic)
+    const tabId = useTabsStore.getState().activeTabId
+    if (tabId) useTabsStore.getState().updateTab(tabId, { supabaseLinkedProject: project })
 
     const [tables, fns, buckets, policies, connInfo] = await Promise.all([
       window.api.oauth.supabase.listTables(project.ref),
@@ -773,7 +1182,7 @@ export function ServiceIcons() {
 
   // Refresh Supabase data when dropdown opens
   useEffect(() => {
-    if (dropdownOpen !== 'supabase' || !status.supabase) return
+    if (dropdownOpenRef.current !== 'supabase' || !status.supabase) return
     // Refresh user status
     window.api.oauth.supabase.status().then((sb) => {
       const sbData = sb as { connected: boolean; name?: string; email?: string; avatar_url?: string | null }
@@ -810,14 +1219,17 @@ export function ServiceIcons() {
   const disconnectService = useCallback(async (key: keyof ServiceStatus) => {
     await window.api.oauth[key].logout()
     setStatus((prev) => ({ ...prev, [key]: false }))
+    const tabId = useTabsStore.getState().activeTabId
     if (key === 'github') {
       setGithubUser(null)
       setRepoName(null)
+      if (tabId) useTabsStore.getState().updateTab(tabId, { githubRepoName: null, githubBootstrapped: false })
     }
     if (key === 'vercel') {
       setVercelUser(null)
       setVercelProjects([])
       setLinkedProject(null)
+      if (tabId) useTabsStore.getState().updateTab(tabId, { vercelLinkedProject: null })
     }
     if (key === 'supabase') {
       setSupabaseUser(null)
@@ -827,6 +1239,7 @@ export function ServiceIcons() {
       setSupabaseBuckets([])
       setSupabasePolicies([])
       setSupabaseConnectionInfo(null)
+      if (tabId) useTabsStore.getState().updateTab(tabId, { supabaseLinkedProject: null })
     }
     setDropdownOpen(null)
   }, [])
@@ -855,6 +1268,9 @@ export function ServiceIcons() {
       if ('ok' in setResult) {
         const parsed = `${result.owner}/${name.trim()}`
         setRepoName(parsed)
+        // Persist to tab store (optimistic)
+        const tabId = useTabsStore.getState().activeTabId
+        if (tabId) useTabsStore.getState().updateTab(tabId, { githubRepoName: parsed })
         useToastStore.getState().addToast(`Created ${parsed} — push when ready`, 'success')
       } else {
         useToastStore.getState().addToast(`Repo created but failed to set remote: ${setResult.error}`, 'error')
@@ -892,6 +1308,9 @@ export function ServiceIcons() {
 
       if ('ok' in result) {
         setRepoName(repo.full_name)
+        // Persist to tab store (optimistic)
+        const tabId = useTabsStore.getState().activeTabId
+        if (tabId) useTabsStore.getState().updateTab(tabId, { githubRepoName: repo.full_name })
         useToastStore.getState().addToast(`Linked to ${repo.full_name}`, 'success')
       } else {
         useToastStore.getState().addToast(`Failed: ${result.error}`, 'error')
@@ -923,39 +1342,49 @@ export function ServiceIcons() {
         <div className="relative flex items-center" data-service-dropdown>
           <button
             onClick={() => setDropdownOpen(dropdownOpen === 'github' ? null : 'github')}
-            className="relative p-1.5 rounded hover:bg-white/10 transition-colors"
-            title={`GitHub: ${status.github ? 'Connected' : 'Not connected'}`}
+            className={`flex items-center gap-[7px] h-8 rounded-md transition-all cursor-pointer ${
+              status.github && repoName
+                ? 'pl-1 pr-2.5 bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] hover:border-white/[0.12]'
+                : status.github
+                  ? 'pl-1 pr-2.5 border border-dashed border-white/[0.12] bg-transparent hover:bg-white/[0.04]'
+                  : 'pl-1 pr-2.5 border border-white/[0.06] bg-transparent opacity-50 hover:opacity-70'
+            }`}
+            title={`GitHub: ${status.github ? (repoName ? repoName : 'No repo linked') : 'Not connected'}`}
           >
-            {connecting === 'github' && !codeData ? (
-              <Loader2 size={13} className="text-[var(--accent-cyan)] animate-spin" />
-            ) : (
-              <Github size={13} className="text-white/40" />
-            )}
-            <Circle
-              size={5}
-              className={`absolute -top-0 -right-0 ${
-                status.github
-                  ? 'fill-green-400 text-green-400'
-                  : 'fill-white/20 text-white/20'
-              }`}
-            />
-          </button>
-
-          {/* Inline labels: username / repo */}
-          {status.github && githubUser && (
-            <button
-              onClick={() => setDropdownOpen(dropdownOpen === 'github' ? null : 'github')}
-              className="flex items-center gap-1 ml-0.5 px-1 py-0.5 rounded hover:bg-white/10 transition-colors"
-            >
-              <span className="text-[11px] text-white/45">{githubUser.login}</span>
-              {repoShort && (
-                <>
-                  <span className="text-[11px] text-white/20">/</span>
-                  <span className="text-[11px] text-white/55 max-w-[100px] truncate">{repoShort}</span>
-                </>
+            {/* Avatar square */}
+            <div className={`w-6 h-6 rounded-[5px] flex items-center justify-center shrink-0 ${
+              status.github ? 'bg-[#333]' : 'bg-white/[0.08]'
+            }`}>
+              {connecting === 'github' && !codeData ? (
+                <Loader2 size={14} className="text-[var(--accent-cyan)] animate-spin" />
+              ) : (
+                <Github size={14} className={status.github ? 'text-white' : 'text-white/30'} />
               )}
-            </button>
-          )}
+            </div>
+            {/* Two-line text */}
+            <div className="flex flex-col min-w-0">
+              {status.github && githubUser ? (
+                <>
+                  <span className="text-[9px] font-medium text-white/35 leading-tight truncate max-w-[100px]">
+                    {githubUser.login}
+                  </span>
+                  <span className={`text-[11px] leading-tight truncate max-w-[120px] ${
+                    repoName
+                      ? 'font-semibold text-white/85'
+                      : 'font-medium text-white/30 italic'
+                  }`}>
+                    {repoShort || 'No repo'}
+                  </span>
+                </>
+              ) : (
+                <span className="text-[11px] text-white/20">GitHub</span>
+              )}
+            </div>
+            {/* Status dot — only when linked */}
+            {status.github && repoName && (
+              <div className="w-[5px] h-[5px] rounded-full bg-green-400 shrink-0 -ml-0.5" />
+            )}
+          </button>
 
           <AnimatePresence>
             {dropdownOpen === 'github' && (
@@ -964,325 +1393,389 @@ export function ServiceIcons() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
                 transition={{ duration: 0.1 }}
-                className="absolute top-full right-0 mt-1 w-72 bg-[var(--bg-tertiary)] border border-white/10 rounded-lg shadow-xl z-[100] overflow-hidden"
+                className="absolute top-full right-0 mt-1 w-[300px] bg-[var(--v9-surface)] border border-white/[0.06] rounded-xl shadow-[0_16px_48px_rgba(0,0,0,0.45)] z-[100] overflow-hidden"
               >
-                {/* Header */}
-                {githubUser && status.github ? (
-                  <div className="px-3 py-2.5 border-b border-white/10">
-                    <div className="flex items-center gap-2">
-                      {githubUser.avatar_url && (
-                        <img
-                          src={`${githubUser.avatar_url}&s=32`}
-                          alt=""
-                          className="w-4 h-4 rounded-full shrink-0"
-                        />
-                      )}
-                      <span className="text-xs font-medium text-white/80 truncate">
-                        {githubUser.login}
-                      </span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="px-3 py-2 border-b border-white/10">
-                    <span className="text-xs text-white/60">GitHub</span>
-                  </div>
-                )}
+                {status.github && githubUser ? (
+                  repoName ? (
+                    /* ─── Connected + repo linked ─── */
+                    <>
+                      <CompactTopBar
+                        iconBg="#161b22"
+                        icon={<Github size={12} className="text-white/70" />}
+                        name={githubUser.login}
+                        statusColor="var(--v9-green)"
+                        statusLabel="Connected"
+                      />
+                      <HeroSection
+                        value={
+                          gitAhead > 0 ? `${gitAhead} ahead`
+                          : gitBehind > 0 ? `${gitBehind} behind`
+                          : gitFetchError ? 'Error'
+                          : 'Up to date'
+                        }
+                        valueColor={
+                          gitAhead > 0 ? 'var(--accent-cyan)'
+                          : gitBehind > 0 ? 'var(--v9-amber)'
+                          : gitFetchError ? 'var(--v9-red)'
+                          : 'var(--v9-green)'
+                        }
+                        label={`${currentBranch || 'branch'} → origin`}
+                      />
 
-                {/* Contextual primary action */}
-                {status.github && repoName && (
-                  <div className="px-3 py-2.5 border-b border-white/10">
-                    {gitAhead > 0 ? (
-                      <button
-                        onClick={() => {
-                          setDropdownOpen(null)
-                          document.querySelector<HTMLButtonElement>('[data-push-button]')?.click()
-                        }}
-                        className="w-full flex flex-col items-center gap-1 py-2.5 bg-[var(--accent-cyan)]/10 hover:bg-[var(--accent-cyan)]/15 border border-[var(--accent-cyan)]/20 rounded-lg transition-colors"
-                      >
-                        <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--accent-cyan)]">
-                          <ArrowUp size={12} />
-                          Push {gitAhead} commit{gitAhead !== 1 ? 's' : ''}
-                        </span>
-                        {lastPushTime && (
-                          <span className="text-[10px] text-white/25">Last pushed {timeAgo(lastPushTime)}</span>
-                        )}
-                      </button>
-                    ) : gitBehind > 0 ? (
-                      <button
-                        onClick={() => {
-                          setDropdownOpen(null)
-                          document.querySelector<HTMLButtonElement>('[data-pull-button]')?.click()
-                        }}
-                        className="w-full flex flex-col items-center gap-1 py-2.5 bg-yellow-500/10 hover:bg-yellow-500/15 border border-yellow-500/20 rounded-lg transition-colors"
-                      >
-                        <span className="flex items-center gap-1.5 text-xs font-medium text-yellow-400">
-                          <ArrowDown size={12} />
-                          Pull {gitBehind} commit{gitBehind !== 1 ? 's' : ''}
-                        </span>
-                        {lastFetchTime && (
-                          <span className="text-[10px] text-white/25">Last fetched {timeAgo(lastFetchTime)}</span>
-                        )}
-                      </button>
-                    ) : (
-                      <div className="w-full flex flex-col items-center gap-1 py-2.5 bg-white/[0.03] border border-white/5 rounded-lg">
-                        <span className="flex items-center gap-1.5 text-xs text-white/30">
-                          <Check size={12} />
-                          Up to date
-                        </span>
-                        {lastPushTime && (
-                          <span className="text-[10px] text-white/20">Last pushed {timeAgo(lastPushTime)}</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Quick actions */}
-                {repoName && (
-                  <div className="border-b border-white/10">
-                    {/* PR action — contextual */}
-                    {prInfo ? (
-                      <button
-                        onClick={() => window.open(prInfo.url, '_blank')}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/60 hover:bg-white/5 hover:text-white/80 transition"
-                      >
-                        <GitPullRequest size={11} className="shrink-0 text-green-400" />
-                        <span className="truncate flex-1">PR #{prInfo.number}</span>
-                        <ExternalLink size={9} className="shrink-0 text-white/20" />
-                      </button>
-                    ) : gitAhead > 0 && currentBranch && currentBranch !== 'main' && currentBranch !== 'master' ? (
-                      <button
-                        onClick={async () => {
-                          if (!currentProject?.path) return
-                          setDropdownOpen(null)
-                          const { addToast } = useToastStore.getState()
-                          const msg = await window.api.git.generateCommitMessage(currentProject.path).catch(() => '')
-                          const result = await window.api.git.createPr(currentProject.path, {
-                            title: msg || `${currentBranch}`,
-                            body: '',
-                            base: 'main'
-                          })
-                          if ('url' in result) {
-                            addToast(`PR #${result.number} created`, 'success', {
-                              action: { label: 'Open', onClick: () => window.open(result.url, '_blank') }
-                            })
-                          } else {
-                            addToast(`PR failed: ${result.error}`, 'error')
-                          }
-                        }}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-[var(--accent-cyan)] hover:bg-white/5 transition"
-                      >
-                        <Plus size={11} className="shrink-0" />
-                        Create Pull Request
-                      </button>
-                    ) : null}
-
-                    {/* Open on GitHub */}
-                    <button
-                      onClick={() => window.open(`https://github.com/${repoName}`, '_blank')}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/60 hover:bg-white/5 hover:text-white/80 transition"
-                    >
-                      <ExternalLink size={11} className="shrink-0" />
-                      <span className="flex-1">Open on GitHub</span>
-                      <kbd className="text-[9px] text-white/15 font-mono">⌘⇧G</kbd>
-                    </button>
-
-                    {/* View Issues */}
-                    <button
-                      onClick={() => window.open(`https://github.com/${repoName}/issues`, '_blank')}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/60 hover:bg-white/5 hover:text-white/80 transition"
-                    >
-                      <Circle size={11} className="shrink-0" />
-                      View Issues
-                    </button>
-                  </div>
-                )}
-
-                {/* Repo info or link/create repo */}
-                {status.github && (
-                  <>
-                    {repoName ? (
-                      <div className="px-3 py-2 border-b border-white/10">
-                        <div className="text-[10px] uppercase tracking-wider text-white/30 mb-1">
-                          Repository
-                        </div>
-                        <div className="text-xs text-white/60 truncate">{repoName}</div>
-                      </div>
-                    ) : showLinkRepo ? (
-                      <div className="border-b border-white/10">
-                        <div className="px-3 pt-2 pb-1">
-                          <input
-                            autoFocus
-                            value={repoSearchQuery}
-                            onChange={(e) => setRepoSearchQuery(e.target.value)}
-                            placeholder="Search repos..."
-                            className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white/80 placeholder-white/25 outline-none focus:border-[var(--accent-cyan)]/40"
-                          />
-                        </div>
-                        <div className="max-h-[200px] overflow-y-auto">
-                          {loadingRepos ? (
-                            <div className="flex items-center justify-center py-3">
-                              <Loader2 size={14} className="text-[var(--accent-cyan)] animate-spin" />
-                            </div>
-                          ) : filteredRepos.length === 0 ? (
-                            <div className="px-3 py-2 text-xs text-white/30">No repos found</div>
-                          ) : (
-                            filteredRepos.slice(0, 20).map((repo) => (
-                              <button
-                                key={repo.full_name}
-                                onClick={() => linkRepo(repo)}
-                                disabled={creatingRepo}
-                                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-white/70 hover:bg-white/5 transition disabled:opacity-50"
-                              >
-                                <span className="truncate flex-1 min-w-0">{repo.full_name}</span>
-                                {repo.private && (
-                                  <span className="shrink-0 text-[9px] text-white/25">private</span>
-                                )}
-                              </button>
-                            ))
-                          )}
-                        </div>
-                        <button
-                          onClick={() => { setShowLinkRepo(false); setRepoSearchQuery('') }}
-                          className="w-full px-3 py-1.5 text-[10px] text-white/30 hover:text-white/50 transition border-t border-white/5"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : showRepoInput ? (
-                      <div className="px-3 py-2 border-b border-white/10">
-                        <form
-                          onSubmit={(e) => {
-                            e.preventDefault()
-                            if (newRepoName.trim()) createRepo(newRepoName)
-                          }}
-                          className="flex items-center gap-1.5"
-                        >
-                          <input
-                            autoFocus
-                            value={newRepoName}
-                            onChange={(e) => setNewRepoName(e.target.value)}
-                            placeholder="repo-name"
-                            disabled={creatingRepo}
-                            className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white/80 placeholder-white/25 outline-none focus:border-[var(--accent-cyan)]/40"
-                          />
+                      {/* Primary action */}
+                      <div className="px-[14px] pb-3">
+                        {gitAhead > 0 ? (
                           <button
-                            type="submit"
-                            disabled={creatingRepo || !newRepoName.trim()}
-                            className="shrink-0 p-1 rounded hover:bg-white/10 transition-colors disabled:opacity-30"
+                            onClick={() => {
+                              setDropdownOpen(null)
+                              document.querySelector<HTMLButtonElement>('[data-push-button]')?.click()
+                            }}
+                            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold text-black bg-[var(--accent-cyan)] hover:brightness-110 transition-all"
                           >
-                            {creatingRepo ? (
-                              <Loader2 size={12} className="text-[var(--accent-cyan)] animate-spin" />
-                            ) : (
-                              <Check size={12} className="text-[var(--accent-cyan)]" />
-                            )}
+                            <ArrowUp size={12} />
+                            Push {gitAhead} commit{gitAhead !== 1 ? 's' : ''}
                           </button>
-                        </form>
+                        ) : gitBehind > 0 ? (
+                          <button
+                            onClick={() => {
+                              setDropdownOpen(null)
+                              document.querySelector<HTMLButtonElement>('[data-pull-button]')?.click()
+                            }}
+                            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold text-black bg-[var(--v9-amber)] hover:brightness-110 transition-all"
+                          >
+                            <ArrowDown size={12} />
+                            Pull {gitBehind} commit{gitBehind !== 1 ? 's' : ''}
+                          </button>
+                        ) : gitFetchError ? (
+                          <div className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs text-[var(--v9-red)] bg-[var(--v9-red-soft)]">
+                            <AlertTriangle size={12} />
+                            Remote not found
+                          </div>
+                        ) : (
+                          <div className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs text-[var(--v9-t3)] bg-white/[0.03]">
+                            <Check size={12} />
+                            Up to date
+                          </div>
+                        )}
                       </div>
-                    ) : (
-                      <div className="border-b border-white/10">
-                        <button
-                          onClick={openLinkRepo}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/60 hover:bg-white/5 hover:text-white/80 transition"
-                        >
-                          <GitBranch size={11} className="shrink-0" />
-                          Link Existing Repo
-                        </button>
-                        <button
-                          onClick={() => {
-                            const project = useProjectStore.getState().currentProject
-                            setNewRepoName(project?.path?.split('/').pop() || '')
-                            setShowRepoInput(true)
-                          }}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-[var(--accent-cyan)] hover:bg-white/5 transition"
-                        >
-                          <Plus size={11} className="shrink-0" />
-                          Create New Repo
-                        </button>
-                      </div>
-                    )}
-                  </>
-                )}
 
-                {/* Branches */}
-                {repoName && currentBranch && (
-                  <div className="border-b border-white/10">
-                    <div className="px-3 pt-2 pb-1">
-                      <div className="text-[10px] uppercase tracking-wider text-white/30">Branches</div>
-                    </div>
-                    <div className="px-1 pb-1.5">
-                      {/* Current branch */}
-                      <div className="flex items-center gap-2 px-2 py-1 text-xs text-white/60">
-                        <GitBranch size={10} className="shrink-0 text-[var(--accent-cyan)]" />
-                        <span className="truncate flex-1">{currentBranch}</span>
-                        <span className="text-[9px] text-white/20">current</span>
+                      <ExpandToggle
+                        expanded={expandedDropdown === 'github'}
+                        onToggle={() => setExpandedDropdown(expandedDropdown === 'github' ? null : 'github')}
+                      />
+
+                      {/* Expanded panel */}
+                      <div
+                        className="overflow-hidden transition-all duration-[250ms]"
+                        style={{
+                          maxHeight: expandedDropdown === 'github' ? '600px' : '0',
+                          borderTop: expandedDropdown === 'github' ? '1px solid rgba(255,255,255,0.06)' : '0px solid transparent',
+                          transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)'
+                        }}
+                      >
+                        {/* Branch info */}
+                        <AccentSection color="var(--accent-cyan)">
+                          <div className="text-[11px] font-semibold text-[var(--v9-t2)] mb-1.5">Branches</div>
+                          {currentBranch && (
+                            <div className="flex items-center gap-2 py-1 text-xs">
+                              <GitBranch size={10} className="shrink-0 text-[var(--accent-cyan)]" />
+                              <span className="text-[var(--v9-t1)] truncate flex-1">{currentBranch}</span>
+                              <span className="text-[9px] text-[var(--v9-t4)]" style={{ fontFamily: 'var(--font-mono)' }}>current</span>
+                            </div>
+                          )}
+                          {localBranches.slice(0, 5).map((branch) => (
+                            <button
+                              key={branch}
+                              onClick={async () => {
+                                if (!currentProject?.path) return
+                                setDropdownOpen(null)
+                                try {
+                                  const worktrees = await window.api.worktree.list(currentProject.path)
+                                  if (!Array.isArray(worktrees)) {
+                                    useToastStore.getState().addToast(`Failed: ${'error' in worktrees ? worktrees.error : 'Unknown error'}`, 'error')
+                                    return
+                                  }
+                                  const existing = worktrees.find((w) => w.branch === branch)
+                                  if (existing) {
+                                    const tabId = useTabsStore.getState().addTab({
+                                      name: currentProject.name,
+                                      path: existing.path
+                                    })
+                                    useTabsStore.getState().updateTab(tabId, {
+                                      worktreeBranch: existing.branch,
+                                      worktreePath: existing.path
+                                    })
+                                    useToastStore.getState().addToast(`Opened ${branch}`, 'success')
+                                    return
+                                  }
+                                  const mainRoot = worktrees[0]?.path || currentProject.path
+                                  const parentDir = mainRoot.replace(/\/[^/]+$/, '')
+                                  const targetDir = `${parentDir}/${currentProject.name}-${branch}`
+                                  const result = await window.api.worktree.checkout({
+                                    projectPath: currentProject.path,
+                                    branchName: branch,
+                                    targetDir
+                                  })
+                                  if ('error' in result) {
+                                    useToastStore.getState().addToast(`Failed: ${result.error}`, 'error')
+                                    return
+                                  }
+                                  const tabId = useTabsStore.getState().addTab({
+                                    name: currentProject.name,
+                                    path: result.path
+                                  })
+                                  useTabsStore.getState().updateTab(tabId, {
+                                    worktreeBranch: result.branch,
+                                    worktreePath: result.path
+                                  })
+                                  useToastStore.getState().addToast(`Switched to ${branch}`, 'success')
+                                } catch (err: any) {
+                                  useToastStore.getState().addToast(`Failed: ${err?.message}`, 'error')
+                                }
+                              }}
+                              className="w-full flex items-center gap-2 py-1 text-xs text-left text-[var(--v9-t3)] hover:text-[var(--v9-t1)] hover:bg-white/[0.04] rounded px-1 -mx-1 transition"
+                            >
+                              <GitBranch size={10} className="shrink-0" />
+                              <span className="truncate flex-1">{branch}</span>
+                            </button>
+                          ))}
+                          {localBranches.length > 5 && (
+                            <div className="py-1 text-[10px] text-[var(--v9-t4)]">
+                              +{localBranches.length - 5} more
+                            </div>
+                          )}
+                        </AccentSection>
+
+                        {/* PR section */}
+                        <AccentSection color="var(--v9-green)" opacity={0.5}>
+                          <div className="text-[11px] font-semibold text-[var(--v9-t2)] mb-1.5">Pull Request</div>
+                          {loadingPr ? (
+                            <div className="flex items-center justify-center py-2">
+                              <Loader2 size={12} className="text-[var(--accent-cyan)] animate-spin" />
+                            </div>
+                          ) : prInfo ? (
+                            <button
+                              onClick={() => window.open(prInfo.url, '_blank')}
+                              className="w-full flex items-center gap-2 py-1 text-xs text-left text-[var(--v9-green)] hover:brightness-110 transition"
+                            >
+                              <GitPullRequest size={10} className="shrink-0" />
+                              <span className="truncate flex-1">#{prInfo.number} {prInfo.title}</span>
+                              <ExternalLink size={9} className="shrink-0 opacity-50" />
+                            </button>
+                          ) : currentBranch && currentBranch !== 'main' && currentBranch !== 'master' ? (
+                            <button
+                              onClick={async () => {
+                                if (!currentProject?.path) return
+                                setDropdownOpen(null)
+                                const { addToast } = useToastStore.getState()
+                                const msg = await window.api.git.generateCommitMessage(currentProject.path).catch(() => '')
+                                const result = await window.api.git.createPr(currentProject.path, {
+                                  title: msg || `${currentBranch}`,
+                                  body: '',
+                                  base: 'main'
+                                })
+                                if ('url' in result) {
+                                  addToast(`PR #${result.number} created`, 'success', {
+                                    action: { label: 'Open', onClick: () => window.open(result.url, '_blank') }
+                                  })
+                                } else {
+                                  addToast(`PR failed: ${result.error}`, 'error')
+                                }
+                              }}
+                              className="w-full flex items-center gap-2 py-1 text-xs text-left text-[var(--accent-cyan)] hover:brightness-110 transition"
+                            >
+                              <Plus size={10} className="shrink-0" />
+                              Create Pull Request
+                            </button>
+                          ) : (
+                            <div className="text-[11px] text-[var(--v9-t4)]">On default branch</div>
+                          )}
+                        </AccentSection>
+
+                        {/* Actions */}
+                        <AccentSection color="var(--v9-t4)" opacity={0.4} last>
+                          <button
+                            onClick={() => window.open(`https://github.com/${repoName}`, '_blank')}
+                            className="w-full flex items-center gap-2 py-1.5 px-2 -mx-2 rounded-md text-xs text-[var(--v9-t2)] hover:text-[var(--v9-t1)] hover:bg-white/[0.04] transition"
+                          >
+                            <ExternalLink size={11} className="shrink-0" />
+                            <span className="flex-1">Open on GitHub</span>
+                            <span className="text-[9px] text-[var(--v9-t4)]" style={{ fontFamily: 'var(--font-mono)' }}>⌘⇧G</span>
+                          </button>
+                          {gitAhead > 0 && currentBranch && currentBranch !== 'main' && currentBranch !== 'master' && !prInfo && (
+                            <button
+                              onClick={async () => {
+                                if (!currentProject?.path) return
+                                setDropdownOpen(null)
+                                const { addToast } = useToastStore.getState()
+                                const msg = await window.api.git.generateCommitMessage(currentProject.path).catch(() => '')
+                                const result = await window.api.git.createPr(currentProject.path, {
+                                  title: msg || `${currentBranch}`,
+                                  body: '',
+                                  base: 'main'
+                                })
+                                if ('url' in result) {
+                                  addToast(`PR #${result.number} created`, 'success', {
+                                    action: { label: 'Open', onClick: () => window.open(result.url, '_blank') }
+                                  })
+                                } else {
+                                  addToast(`PR failed: ${result.error}`, 'error')
+                                }
+                              }}
+                              className="w-full flex items-center gap-2 py-1.5 px-2 -mx-2 rounded-md text-xs text-[var(--v9-t2)] hover:text-[var(--v9-t1)] hover:bg-white/[0.04] transition"
+                            >
+                              <GitPullRequest size={11} className="shrink-0" />
+                              Create Pull Request
+                            </button>
+                          )}
+                        </AccentSection>
+
+                        {/* Footer */}
+                        <div className="px-[14px] py-[5px] text-center border-t border-white/[0.06]">
+                          <button
+                            onClick={() => disconnectService('github')}
+                            className="text-[9px] text-[var(--v9-t4)] hover:text-[var(--v9-red)] bg-transparent border-none cursor-pointer"
+                            style={{ fontFamily: 'var(--font-mono)' }}
+                          >
+                            Disconnect
+                          </button>
+                        </div>
                       </div>
-                      {/* Other branches (max 5) */}
-                      {localBranches.slice(0, 5).map((branch) => (
-                        <button
-                          key={branch}
-                          onClick={async () => {
-                            if (!currentProject?.path) return
-                            setDropdownOpen(null)
-                            const targetDir = `${currentProject.path}/../${currentProject.name}-${branch}`
-                            try {
-                              const result = await window.api.worktree.checkout({
-                                projectPath: currentProject.path,
-                                branchName: branch,
-                                targetDir
-                              })
-                              const tabId = useTabsStore.getState().addTab({
-                                name: currentProject.name,
-                                path: result.path
-                              })
-                              useTabsStore.getState().updateTab(tabId, {
-                                worktreeBranch: result.branch,
-                                worktreePath: result.path
-                              })
-                              useToastStore.getState().addToast(`Switched to ${branch}`, 'success')
-                            } catch (err: any) {
-                              useToastStore.getState().addToast(`Failed: ${err?.message}`, 'error')
-                            }
-                          }}
-                          className="w-full flex items-center gap-2 px-2 py-1 text-xs text-left text-white/45 hover:bg-white/5 hover:text-white/70 rounded transition"
-                        >
-                          <GitBranch size={10} className="shrink-0" />
-                          <span className="truncate flex-1">{branch}</span>
-                        </button>
-                      ))}
-                      {localBranches.length > 5 && (
-                        <div className="px-2 py-1 text-[10px] text-white/20">
-                          +{localBranches.length - 5} more
+                    </>
+                  ) : (
+                    /* ─── Connected, no repo ─── */
+                    <>
+                      <CompactTopBar
+                        iconBg="#161b22"
+                        icon={<Github size={12} className="text-white/70" />}
+                        name={githubUser.login}
+                        statusColor="var(--v9-amber)"
+                        statusLabel="No repo"
+                      />
+                      {showLinkRepo ? (
+                        <div className="border-t border-white/[0.06]">
+                          <div className="px-[14px] pt-2.5 pb-1">
+                            <input
+                              autoFocus
+                              value={repoSearchQuery}
+                              onChange={(e) => setRepoSearchQuery(e.target.value)}
+                              placeholder="Search repos..."
+                              className="w-full bg-white/5 border border-white/[0.06] rounded-md px-2.5 py-1.5 text-xs text-[var(--v9-t1)] placeholder-[var(--v9-t4)] outline-none focus:border-[var(--accent-cyan)]/40"
+                            />
+                          </div>
+                          <div className="max-h-[200px] overflow-y-auto px-1 pb-1">
+                            {loadingRepos ? (
+                              <div className="flex items-center justify-center py-3">
+                                <Loader2 size={14} className="text-[var(--accent-cyan)] animate-spin" />
+                              </div>
+                            ) : filteredRepos.length === 0 ? (
+                              <div className="px-[14px] py-2 text-xs text-[var(--v9-t3)]">No repos found</div>
+                            ) : (
+                              filteredRepos.slice(0, 20).map((repo) => (
+                                <button
+                                  key={repo.full_name}
+                                  onClick={() => linkRepo(repo)}
+                                  disabled={creatingRepo}
+                                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-[var(--v9-t2)] hover:bg-white/[0.04] rounded-md transition disabled:opacity-50"
+                                >
+                                  <span className="truncate flex-1 min-w-0">{repo.full_name}</span>
+                                  {repo.private && (
+                                    <span className="shrink-0 text-[9px] text-[var(--v9-t4)]" style={{ fontFamily: 'var(--font-mono)' }}>private</span>
+                                  )}
+                                </button>
+                              ))
+                            )}
+                          </div>
+                          <button
+                            onClick={() => { setShowLinkRepo(false); setRepoSearchQuery('') }}
+                            className="w-full px-[14px] py-1.5 text-[10px] text-[var(--v9-t4)] hover:text-[var(--v9-t2)] transition border-t border-white/[0.06]"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : showRepoInput ? (
+                        <div className="px-[14px] py-2.5 border-t border-white/[0.06]">
+                          <form
+                            onSubmit={(e) => {
+                              e.preventDefault()
+                              if (newRepoName.trim()) createRepo(newRepoName)
+                            }}
+                            className="flex items-center gap-1.5"
+                          >
+                            <input
+                              autoFocus
+                              value={newRepoName}
+                              onChange={(e) => setNewRepoName(e.target.value)}
+                              placeholder="repo-name"
+                              disabled={creatingRepo}
+                              className="flex-1 min-w-0 bg-white/5 border border-white/[0.06] rounded-md px-2.5 py-1.5 text-xs text-[var(--v9-t1)] placeholder-[var(--v9-t4)] outline-none focus:border-[var(--accent-cyan)]/40"
+                            />
+                            <button
+                              type="submit"
+                              disabled={creatingRepo || !newRepoName.trim()}
+                              className="shrink-0 p-1 rounded hover:bg-white/10 transition-colors disabled:opacity-30"
+                            >
+                              {creatingRepo ? (
+                                <Loader2 size={12} className="text-[var(--accent-cyan)] animate-spin" />
+                              ) : (
+                                <Check size={12} className="text-[var(--accent-cyan)]" />
+                              )}
+                            </button>
+                          </form>
+                        </div>
+                      ) : (
+                        <div className="border-t border-white/[0.06]">
+                          <div className="mx-[14px] my-2.5 flex flex-col items-center gap-2 py-4 px-3 border border-dashed border-white/[0.06] rounded-lg">
+                            <Github size={18} className="text-[var(--v9-t4)]" />
+                            <div className="text-center">
+                              <div className="text-xs text-[var(--v9-t2)]">No repository linked</div>
+                              <div className="text-[10px] text-[var(--v9-t4)] mt-0.5">Connect a repo to push, pull, and create PRs</div>
+                            </div>
+                          </div>
+                          <button
+                            onClick={openLinkRepo}
+                            className="w-full flex items-center gap-2 px-[14px] py-2 text-xs text-left text-[var(--v9-t2)] hover:bg-white/[0.04] transition"
+                          >
+                            <GitBranch size={11} className="shrink-0" />
+                            Link Existing Repo
+                          </button>
+                          <button
+                            onClick={() => {
+                              const project = useProjectStore.getState().currentProject
+                              setNewRepoName(project?.path?.split('/').pop() || '')
+                              setShowRepoInput(true)
+                            }}
+                            className="w-full flex items-center gap-2 px-[14px] py-2 text-xs text-left text-[var(--accent-cyan)] hover:bg-white/[0.04] transition"
+                          >
+                            <Plus size={11} className="shrink-0" />
+                            Create New Repo
+                          </button>
                         </div>
                       )}
-                    </div>
-                    {/* Change repo link */}
-                    <button
-                      onClick={() => openLinkRepo()}
-                      className="w-full px-3 py-1.5 text-[10px] text-white/25 hover:text-white/45 transition border-t border-white/5"
-                    >
-                      Change repo...
-                    </button>
-                  </div>
-                )}
-
-                {/* Connect / Disconnect */}
-                {status.github ? (
-                  <button
-                    onClick={() => disconnectService('github')}
-                    className="w-full px-3 py-2 text-xs text-left text-white/30 hover:bg-white/5 hover:text-white/50 transition"
-                  >
-                    Disconnect
-                  </button>
+                      {/* Footer: Disconnect */}
+                      <div className="px-[14px] py-[5px] text-center border-t border-white/[0.06]">
+                        <button
+                          onClick={() => disconnectService('github')}
+                          className="text-[9px] text-[var(--v9-t4)] hover:text-[var(--v9-red)] bg-transparent border-none cursor-pointer"
+                          style={{ fontFamily: 'var(--font-mono)' }}
+                        >
+                          Disconnect
+                        </button>
+                      </div>
+                    </>
+                  )
                 ) : (
-                  <div className="p-4 text-center">
-                    <Github size={24} className="mx-auto mb-2.5 text-white/20" />
-                    <p className="text-xs text-white/40 mb-3 leading-relaxed">
+                  /* ─── Disconnected ─── */
+                  <div className="p-5 text-center">
+                    <div className="w-10 h-10 rounded-[10px] bg-white/[0.04] flex items-center justify-center mx-auto mb-3">
+                      <Github size={20} className="text-[var(--v9-t4)]" />
+                    </div>
+                    <p className="text-xs text-[var(--v9-t3)] mb-4 leading-relaxed">
                       Push code, create PRs, and<br />collaborate with your team.
                     </p>
                     <button
                       onClick={() => connectService('github')}
-                      className="w-full py-2 text-xs font-medium text-white bg-[#238636] hover:bg-[#2ea043] rounded-lg transition-colors"
+                      className="w-full py-2 text-xs font-semibold text-white bg-[#238636] hover:bg-[#2ea043] rounded-lg transition-colors"
                     >
                       Connect to GitHub
                     </button>
@@ -1293,45 +1786,56 @@ export function ServiceIcons() {
           </AnimatePresence>
         </div>
 
+        {/* Divider */}
+        <div className="w-px h-5 bg-white/[0.06]" />
+
         {/* ─── Vercel ─── */}
         <div className="relative flex items-center" data-service-dropdown>
           <button
             onClick={() => setDropdownOpen(dropdownOpen === 'vercel' ? null : 'vercel')}
-            className="relative p-1.5 rounded hover:bg-white/10 transition-colors"
-            title={`Vercel: ${status.vercel ? 'Connected' : 'Not connected'}`}
+            className={`flex items-center gap-[7px] h-8 rounded-md transition-all cursor-pointer ${
+              status.vercel && linkedProject
+                ? 'pl-1 pr-2.5 bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] hover:border-white/[0.12]'
+                : status.vercel
+                  ? 'pl-1 pr-2.5 border border-dashed border-white/[0.12] bg-transparent hover:bg-white/[0.04]'
+                  : 'pl-1 pr-2.5 border border-white/[0.06] bg-transparent opacity-50 hover:opacity-70'
+            }`}
+            title={`Vercel: ${status.vercel ? (linkedProject ? linkedProject.project.name : 'No project linked') : 'Not connected'}`}
           >
-            {connecting === 'vercel' ? (
-              <Loader2 size={13} className="text-[var(--accent-cyan)] animate-spin" />
-            ) : (
-              <Triangle size={13} className="text-white/40" />
-            )}
-            <Circle
-              size={5}
-              className={`absolute -top-0 -right-0 ${
-                status.vercel
-                  ? 'fill-green-400 text-green-400'
-                  : 'fill-white/20 text-white/20'
-              }`}
-            />
-          </button>
-
-          {/* Inline label: username / project */}
-          {status.vercel && vercelUser && (
-            <button
-              onClick={() => setDropdownOpen(dropdownOpen === 'vercel' ? null : 'vercel')}
-              className="flex items-center gap-1 ml-0.5 px-1 py-0.5 rounded hover:bg-white/10 transition-colors"
-            >
-              <span className="text-[11px] text-white/45">{vercelUser.username}</span>
-              {linkedProject && (
+            {/* Avatar square */}
+            <div className={`w-6 h-6 rounded-[5px] flex items-center justify-center shrink-0 ${
+              status.vercel ? 'bg-[#111]' : 'bg-white/[0.08]'
+            }`}>
+              {connecting === 'vercel' ? (
+                <Loader2 size={14} className="text-[var(--accent-cyan)] animate-spin" />
+              ) : (
+                <Triangle size={14} className={status.vercel ? 'text-white' : 'text-white/30'} fill={status.vercel ? 'white' : 'currentColor'} />
+              )}
+            </div>
+            {/* Two-line text */}
+            <div className="flex flex-col min-w-0">
+              {status.vercel && vercelUser ? (
                 <>
-                  <span className="text-[11px] text-white/20">/</span>
-                  <span className="text-[11px] text-white/55 max-w-[100px] truncate">
-                    {linkedProject.project.name}
+                  <span className="text-[9px] font-medium text-white/35 leading-tight truncate max-w-[100px]">
+                    {vercelUser.username}
+                  </span>
+                  <span className={`text-[11px] leading-tight truncate max-w-[120px] ${
+                    linkedProject
+                      ? 'font-semibold text-white/85'
+                      : 'font-medium text-white/30 italic'
+                  }`}>
+                    {linkedProject?.project.name || 'No project'}
                   </span>
                 </>
+              ) : (
+                <span className="text-[11px] text-white/20">Vercel</span>
               )}
-            </button>
-          )}
+            </div>
+            {/* Status dot — only when linked */}
+            {status.vercel && linkedProject && (
+              <div className="w-[5px] h-[5px] rounded-full bg-green-400 shrink-0 -ml-0.5" />
+            )}
+          </button>
 
           <AnimatePresence>
             {dropdownOpen === 'vercel' && (
@@ -1340,94 +1844,136 @@ export function ServiceIcons() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
                 transition={{ duration: 0.1 }}
-                className="absolute top-full right-0 mt-1 w-80 bg-[var(--bg-tertiary)] border border-white/10 rounded-lg shadow-xl z-[100] overflow-hidden"
+                className="absolute top-full right-0 mt-1 w-[300px] bg-[var(--v9-surface)] border border-white/[0.06] rounded-xl shadow-[0_16px_48px_rgba(0,0,0,0.45)] z-[100] overflow-hidden"
               >
-                {/* Header */}
-                {vercelUser && status.vercel ? (
-                  <div className="px-3 py-2.5 border-b border-white/10">
-                    <div className="flex items-center gap-2">
-                      {vercelUser.avatar ? (
-                        <img
-                          src={vercelUser.avatar}
-                          alt=""
-                          className="w-5 h-5 rounded-full shrink-0"
-                        />
-                      ) : (
-                        <Triangle size={12} className="text-white/40 shrink-0" />
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <span className="text-xs font-medium text-white/80 truncate block">
-                          {vercelUser.name || vercelUser.username}
-                        </span>
-                        {vercelUser.name && (
-                          <span className="text-[10px] text-white/30 truncate block">
-                            @{vercelUser.username}
-                          </span>
-                        )}
-                      </div>
+                {status.vercel ? (
+                  loadingLinkedProject ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 size={16} className="text-[var(--accent-cyan)] animate-spin" />
                     </div>
-                  </div>
-                ) : (
-                  <div className="px-3 py-2 border-b border-white/10">
-                    <span className="text-xs text-white/60">Vercel</span>
-                  </div>
-                )}
+                  ) : linkedProject ? (
+                    /* ─── Connected + project linked ─── */
+                    <>
+                      <CompactTopBar
+                        iconBg="#000"
+                        icon={<Triangle size={11} className="text-white" fill="white" />}
+                        name={linkedProject.project.name}
+                        statusColor={
+                          linkedProject.latestDeployment
+                            ? linkedProject.latestDeployment.state.toUpperCase() === 'READY' ? 'var(--v9-green)'
+                            : linkedProject.latestDeployment.state.toUpperCase() === 'BUILDING' ? 'var(--v9-amber)'
+                            : linkedProject.latestDeployment.state.toUpperCase() === 'ERROR' || linkedProject.latestDeployment.state.toUpperCase() === 'DEPLOYMENT_ERROR' ? 'var(--v9-red)'
+                            : 'var(--v9-t3)'
+                            : 'var(--v9-t3)'
+                        }
+                        statusLabel={linkedProject.latestDeployment ? deployStateLabel(linkedProject.latestDeployment.state) : 'No deploys'}
+                      />
+                      <HeroSection
+                        value={linkedProject.latestDeployment ? deployStateLabel(linkedProject.latestDeployment.state) : 'No deploys'}
+                        valueColor={
+                          linkedProject.latestDeployment
+                            ? linkedProject.latestDeployment.state.toUpperCase() === 'READY' ? 'var(--v9-green)'
+                            : linkedProject.latestDeployment.state.toUpperCase() === 'BUILDING' ? 'var(--v9-amber)'
+                            : linkedProject.latestDeployment.state.toUpperCase() === 'ERROR' || linkedProject.latestDeployment.state.toUpperCase() === 'DEPLOYMENT_ERROR' ? 'var(--v9-red)'
+                            : 'var(--v9-t2)'
+                            : 'var(--v9-t2)'
+                        }
+                        label={
+                          linkedProject.latestDeployment
+                            ? `${linkedProject.latestDeployment.commitMessage?.slice(0, 30) || 'deployment'} · ${timeAgo(linkedProject.latestDeployment.created)}`
+                            : 'No deployments yet'
+                        }
+                        tag={linkedProject.project.framework ? (
+                          <span
+                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-medium bg-white/[0.05] text-[var(--v9-t2)]"
+                            style={{ fontFamily: 'var(--font-mono)' }}
+                          >
+                            {linkedProject.project.framework}
+                          </span>
+                        ) : undefined}
+                      />
 
-                {/* Linked project info */}
-                {status.vercel && (
-                  <>
-                    {loadingLinkedProject ? (
-                      <div className="flex items-center justify-center py-4 border-b border-white/10">
-                        <Loader2 size={14} className="text-[var(--accent-cyan)] animate-spin" />
-                      </div>
-                    ) : linkedProject ? (
-                      <>
-                        {/* Deployment status */}
-                        <div className="px-3 py-2.5 border-b border-white/10">
-                          <div className="text-[10px] uppercase tracking-wider text-white/30 mb-2">
-                            Deployments
-                          </div>
+                      <ExpandToggle
+                        expanded={expandedDropdown === 'vercel'}
+                        onToggle={() => setExpandedDropdown(expandedDropdown === 'vercel' ? null : 'vercel')}
+                      />
 
-                          {/* Production */}
-                          <div className="flex items-center gap-2 mb-1">
-                            <Circle size={6} className={`shrink-0 ${
-                              linkedProject.latestDeployment
-                                ? deployStateColor(linkedProject.latestDeployment.state)
-                                : 'text-white/20 fill-white/20'
-                            }`} />
-                            <span className="text-[10px] text-white/40 w-16 shrink-0">Production</span>
-                            <span className={`text-xs font-medium flex-1 ${
-                              linkedProject.latestDeployment
-                                ? deployStateColor(linkedProject.latestDeployment.state).split(' ')[0]
-                                : 'text-white/30'
-                            }`}>
-                              {linkedProject.latestDeployment
-                                ? deployStateLabel(linkedProject.latestDeployment.state)
-                                : 'No deploys'}
-                            </span>
-                            {linkedProject.latestDeployment && (
-                              <span className="text-[10px] text-white/20 shrink-0">
-                                {timeAgo(linkedProject.latestDeployment.created)}
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Production URL */}
+                      {/* Expanded panel */}
+                      <div
+                        className="overflow-hidden transition-all duration-[250ms]"
+                        style={{
+                          maxHeight: expandedDropdown === 'vercel' ? '600px' : '0',
+                          borderTop: expandedDropdown === 'vercel' ? '1px solid rgba(255,255,255,0.06)' : '0px solid transparent',
+                          transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)'
+                        }}
+                      >
+                        {/* URLs */}
+                        <AccentSection color="var(--v9-green)">
+                          <div className="text-[11px] font-semibold text-[var(--v9-t2)] mb-1.5">URLs</div>
                           <a
                             href={linkedProject.project.productionUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center gap-1.5 ml-4 text-[10px] text-[var(--accent-cyan)]/60 hover:text-[var(--accent-cyan)] transition-colors"
+                            className="flex items-center gap-1.5 py-[5px] px-2 -mx-2 rounded-md hover:bg-white/[0.03] transition"
                           >
-                            <span className="truncate">
+                            <span
+                              className="text-[8px] font-semibold uppercase px-[5px] py-px rounded-[3px] shrink-0"
+                              style={{ background: 'var(--v9-green-soft)', color: 'var(--v9-green)' }}
+                            >
+                              Prod
+                            </span>
+                            <span className="text-[10px] text-[var(--v9-green)] truncate flex-1" style={{ fontFamily: 'var(--font-mono)' }}>
                               {linkedProject.project.productionUrl.replace('https://', '')}
                             </span>
-                            <ExternalLink size={8} className="shrink-0 opacity-50" />
+                            <span className="text-[11px] text-[var(--v9-t4)]">⎘</span>
                           </a>
-                        </div>
+                          {linkedProject.latestDeployment?.url && (
+                            <a
+                              href={linkedProject.latestDeployment.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1.5 py-[5px] px-2 -mx-2 rounded-md hover:bg-white/[0.03] transition"
+                            >
+                              <span
+                                className="text-[8px] font-semibold uppercase px-[5px] py-px rounded-[3px] shrink-0"
+                                style={{ background: 'rgba(74,234,255,0.08)', color: 'var(--accent-cyan)' }}
+                              >
+                                Preview
+                              </span>
+                              <span className="text-[10px] text-[var(--accent-cyan)] truncate flex-1" style={{ fontFamily: 'var(--font-mono)' }}>
+                                {linkedProject.latestDeployment.url.replace('https://', '')}
+                              </span>
+                              <span className="text-[11px] text-[var(--v9-t4)]">⎘</span>
+                            </a>
+                          )}
+                        </AccentSection>
 
-                        {/* Quick actions */}
-                        <div className="border-b border-white/10">
+                        {/* Recent deploys */}
+                        {recentDeploys.length > 0 && (
+                          <AccentSection color="var(--v9-t4)">
+                            <div className="text-[11px] font-semibold text-[var(--v9-t2)] mb-1.5">Recent</div>
+                            {recentDeploys.map((deploy) => (
+                              <a
+                                key={deploy.id}
+                                href={deploy.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1.5 py-[3px] text-[11px] group"
+                              >
+                                <Circle size={5} className={`shrink-0 ${deployStateColor(deploy.state)}`} />
+                                <span className="text-[var(--v9-t2)] flex-1 truncate group-hover:text-[var(--v9-t1)] transition-colors">
+                                  {deploy.source ? deploy.source : 'Deployment'}
+                                </span>
+                                <span className="text-[9px] text-[var(--v9-t4)] shrink-0" style={{ fontFamily: 'var(--font-mono)' }}>
+                                  {timeAgo(deploy.created)}
+                                </span>
+                              </a>
+                            ))}
+                          </AccentSection>
+                        )}
+
+                        {/* Actions */}
+                        <AccentSection color="var(--v9-t4)" opacity={0.5} last>
                           <button
                             onClick={async () => {
                               if (!linkedProject.latestDeployment) return
@@ -1441,7 +1987,7 @@ export function ServiceIcons() {
                               }
                             }}
                             disabled={!linkedProject.latestDeployment}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/60 hover:bg-white/5 hover:text-white/80 transition disabled:opacity-30"
+                            className="w-full flex items-center gap-2 py-1.5 px-2 -mx-2 rounded-md text-xs text-[var(--v9-t2)] hover:text-[var(--v9-t1)] hover:bg-white/[0.04] transition disabled:opacity-30"
                           >
                             <RefreshCw size={11} className="shrink-0" />
                             Redeploy
@@ -1451,21 +1997,11 @@ export function ServiceIcons() {
                               const url = `https://vercel.com/${vercelUser?.username}/${linkedProject.project.name}`
                               window.open(url, '_blank')
                             }}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/60 hover:bg-white/5 hover:text-white/80 transition"
+                            className="w-full flex items-center gap-2 py-1.5 px-2 -mx-2 rounded-md text-xs text-[var(--v9-t2)] hover:text-[var(--v9-t1)] hover:bg-white/[0.04] transition"
                           >
                             <ExternalLink size={11} className="shrink-0" />
                             <span className="flex-1">Open Dashboard</span>
-                            <kbd className="text-[9px] text-white/15 font-mono">&#8984;&#8679;V</kbd>
-                          </button>
-                          <button
-                            onClick={() => {
-                              const url = `https://vercel.com/${vercelUser?.username}/${linkedProject.project.name}/settings/domains`
-                              window.open(url, '_blank')
-                            }}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/60 hover:bg-white/5 hover:text-white/80 transition"
-                          >
-                            <Globe size={11} className="shrink-0" />
-                            Manage Domains
+                            <span className="text-[9px] text-[var(--v9-t4)]" style={{ fontFamily: 'var(--font-mono)' }}>⌘⇧V</span>
                           </button>
                           <button
                             onClick={() => {
@@ -1476,50 +2012,48 @@ export function ServiceIcons() {
                                 )
                               }
                             }}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/60 hover:bg-white/5 hover:text-white/80 transition"
+                            className="w-full flex items-center gap-2 py-1.5 px-2 -mx-2 rounded-md text-xs text-[var(--v9-t2)] hover:text-[var(--v9-t1)] hover:bg-white/[0.04] transition"
                           >
                             <FileText size={11} className="shrink-0" />
-                            View Build Logs
+                            Build Logs
+                          </button>
+                        </AccentSection>
+
+                        {/* Footer */}
+                        <div className="px-[14px] py-[5px] text-center border-t border-white/[0.06]">
+                          <button
+                            onClick={() => disconnectService('vercel')}
+                            className="text-[9px] text-[var(--v9-t4)] hover:text-[var(--v9-red)] bg-transparent border-none cursor-pointer"
+                            style={{ fontFamily: 'var(--font-mono)' }}
+                          >
+                            Disconnect
                           </button>
                         </div>
-
-                        {/* Recent deploys */}
-                        {recentDeploys.length > 0 && (
-                          <div className="border-b border-white/10">
-                            <div className="px-3 pt-2 pb-1">
-                              <div className="text-[10px] uppercase tracking-wider text-white/30">Recent</div>
-                            </div>
-                            <div className="px-1 pb-1.5">
-                              {recentDeploys.map((deploy) => (
-                                <a
-                                  key={deploy.id}
-                                  href={deploy.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex items-center gap-2 px-2 py-1 text-xs text-white/45 hover:bg-white/5 rounded transition"
-                                >
-                                  <Circle size={5} className={`shrink-0 ${deployStateColor(deploy.state)}`} />
-                                  <span className="truncate flex-1 text-[11px]">
-                                    {deploy.source ? `"${deploy.source}"` : 'Deployment'}
-                                  </span>
-                                  <span className="text-[10px] text-white/20 shrink-0">
-                                    {timeAgo(deploy.created)}
-                                  </span>
-                                </a>
-                              ))}
-                            </div>
+                      </div>
+                    </>
+                  ) : (
+                    /* ─── Connected, no project ─── */
+                    <>
+                      <CompactTopBar
+                        iconBg="#000"
+                        icon={<Triangle size={11} className="text-white" fill="white" />}
+                        name={vercelUser?.username || 'Vercel'}
+                        statusColor="var(--v9-amber)"
+                        statusLabel="No project"
+                      />
+                      <div className="border-t border-white/[0.06]">
+                        <div className="mx-[14px] my-2.5 flex flex-col items-center gap-2 py-4 px-3 border border-dashed border-white/[0.06] rounded-lg">
+                          <Triangle size={18} className="text-[var(--v9-t4)]" />
+                          <div className="text-center">
+                            <div className="text-xs text-[var(--v9-t2)]">No project linked</div>
+                            <div className="text-[10px] text-[var(--v9-t4)] mt-0.5">Import or link a project to deploy</div>
                           </div>
-                        )}
-                      </>
-                    ) : (
-                      /* No linked project — show all projects */
-                      <div className="border-b border-white/10">
-                        {/* Import option at top */}
+                        </div>
                         {repoName && (
                           <button
                             onClick={importToVercel}
                             disabled={importingProject}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/5 transition border-b border-white/5 disabled:opacity-50"
+                            className="w-full flex items-center gap-2 px-[14px] py-2 text-xs text-left text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/5 transition border-b border-white/[0.06] disabled:opacity-50"
                           >
                             {importingProject ? (
                               <Loader2 size={11} className="shrink-0 animate-spin" />
@@ -1529,10 +2063,8 @@ export function ServiceIcons() {
                             Import {repoName.split('/').pop()} to Vercel
                           </button>
                         )}
-
-                        {/* Projects list */}
-                        <div className="px-3 pt-2 pb-1">
-                          <div className="text-[10px] uppercase tracking-wider text-white/30 mb-1.5">
+                        <div className="px-[14px] pt-2 pb-1">
+                          <div className="text-[10px] uppercase tracking-wider text-[var(--v9-t3)] mb-1.5">
                             Your Projects
                           </div>
                           {vercelProjects.length > 3 && (
@@ -1540,7 +2072,7 @@ export function ServiceIcons() {
                               value={vercelProjectSearch}
                               onChange={(e) => setVercelProjectSearch(e.target.value)}
                               placeholder="Search..."
-                              className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white/80 placeholder-white/25 outline-none focus:border-[var(--accent-cyan)]/40 mb-1"
+                              className="w-full bg-white/5 border border-white/[0.06] rounded-md px-2.5 py-1.5 text-xs text-[var(--v9-t1)] placeholder-[var(--v9-t4)] outline-none focus:border-[var(--accent-cyan)]/40 mb-1"
                             />
                           )}
                         </div>
@@ -1550,19 +2082,19 @@ export function ServiceIcons() {
                               <Loader2 size={14} className="text-[var(--accent-cyan)] animate-spin" />
                             </div>
                           ) : filteredVercelProjects.length === 0 ? (
-                            <div className="px-2 py-2 text-xs text-white/30">
+                            <div className="px-2 py-2 text-xs text-[var(--v9-t3)]">
                               {vercelProjectSearch ? 'No matching projects' : 'No projects yet'}
                             </div>
                           ) : (
                             filteredVercelProjects.slice(0, 20).map((project) => (
                               <div
                                 key={project.id}
-                                className="flex items-center gap-2 py-1.5 px-2 text-xs text-white/70 hover:bg-white/5 rounded transition"
+                                className="flex items-center gap-2 py-1.5 px-2 text-xs text-[var(--v9-t2)] hover:bg-white/[0.04] rounded-md transition"
                               >
-                                <Triangle size={9} className="shrink-0 text-white/30" />
+                                <Triangle size={9} className="shrink-0 text-[var(--v9-t3)]" />
                                 <span className="truncate flex-1 min-w-0">{project.name}</span>
                                 {project.framework && (
-                                  <span className="shrink-0 text-[9px] text-white/25">
+                                  <span className="shrink-0 text-[9px] text-[var(--v9-t4)]">
                                     {project.framework}
                                   </span>
                                 )}
@@ -1571,7 +2103,7 @@ export function ServiceIcons() {
                                     href={project.url}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="shrink-0 p-0.5 text-white/30 hover:text-[var(--accent-cyan)] transition-colors"
+                                    className="shrink-0 p-0.5 text-[var(--v9-t3)] hover:text-[var(--accent-cyan)] transition-colors"
                                     onClick={(e) => e.stopPropagation()}
                                   >
                                     <ExternalLink size={9} />
@@ -1582,27 +2114,29 @@ export function ServiceIcons() {
                           )}
                         </div>
                       </div>
-                    )}
-                  </>
-                )}
-
-                {/* Connect / Disconnect */}
-                {status.vercel ? (
-                  <button
-                    onClick={() => disconnectService('vercel')}
-                    className="w-full px-3 py-2 text-xs text-left text-white/30 hover:bg-white/5 hover:text-white/50 transition"
-                  >
-                    Disconnect
-                  </button>
+                      <div className="px-[14px] py-[5px] text-center border-t border-white/[0.06]">
+                        <button
+                          onClick={() => disconnectService('vercel')}
+                          className="text-[9px] text-[var(--v9-t4)] hover:text-[var(--v9-red)] bg-transparent border-none cursor-pointer"
+                          style={{ fontFamily: 'var(--font-mono)' }}
+                        >
+                          Disconnect
+                        </button>
+                      </div>
+                    </>
+                  )
                 ) : (
-                  <div className="p-4 text-center">
-                    <Triangle size={24} className="mx-auto mb-2.5 text-white/20" />
-                    <p className="text-xs text-white/40 mb-3 leading-relaxed">
+                  /* ─── Disconnected ─── */
+                  <div className="p-5 text-center">
+                    <div className="w-10 h-10 rounded-[10px] bg-white/[0.04] flex items-center justify-center mx-auto mb-3">
+                      <Triangle size={20} className="text-[var(--v9-t4)]" />
+                    </div>
+                    <p className="text-xs text-[var(--v9-t3)] mb-4 leading-relaxed">
                       Deploy your app and get a<br />live URL in seconds.
                     </p>
                     <button
                       onClick={() => connectService('vercel')}
-                      className="w-full py-2 text-xs font-medium text-black bg-white hover:bg-white/90 rounded-lg transition-colors"
+                      className="w-full py-2 text-xs font-semibold text-black bg-white hover:bg-white/90 rounded-lg transition-colors"
                     >
                       Connect to Vercel
                     </button>
@@ -1613,45 +2147,56 @@ export function ServiceIcons() {
           </AnimatePresence>
         </div>
 
+        {/* Divider */}
+        <div className="w-px h-5 bg-white/[0.06]" />
+
         {/* ─── Supabase ─── */}
         <div className="relative flex items-center" data-service-dropdown>
           <button
             onClick={() => setDropdownOpen(dropdownOpen === 'supabase' ? null : 'supabase')}
-            className="relative p-1.5 rounded hover:bg-white/10 transition-colors"
-            title={`Supabase: ${status.supabase ? 'Connected' : 'Not connected'}`}
+            className={`flex items-center gap-[7px] h-8 rounded-md transition-all cursor-pointer ${
+              status.supabase && linkedSupabaseProject
+                ? 'pl-1 pr-2.5 bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] hover:border-white/[0.12]'
+                : status.supabase
+                  ? 'pl-1 pr-2.5 border border-dashed border-white/[0.12] bg-transparent hover:bg-white/[0.04]'
+                  : 'pl-1 pr-2.5 border border-white/[0.06] bg-transparent opacity-50 hover:opacity-70'
+            }`}
+            title={`Supabase: ${status.supabase ? (linkedSupabaseProject ? linkedSupabaseProject.name : 'No project linked') : 'Not connected'}`}
           >
-            {connecting === 'supabase' ? (
-              <Loader2 size={13} className="text-[var(--accent-cyan)] animate-spin" />
-            ) : (
-              <Database size={13} className="text-white/40" />
-            )}
-            <Circle
-              size={5}
-              className={`absolute -top-0 -right-0 ${
-                status.supabase
-                  ? 'fill-green-400 text-green-400'
-                  : 'fill-white/20 text-white/20'
-              }`}
-            />
-          </button>
-
-          {/* Inline label */}
-          {status.supabase && supabaseUser && (
-            <button
-              onClick={() => setDropdownOpen(dropdownOpen === 'supabase' ? null : 'supabase')}
-              className="flex items-center gap-1 ml-0.5 px-1 py-0.5 rounded hover:bg-white/10 transition-colors"
-            >
-              <span className="text-[11px] text-white/45 max-w-[80px] truncate">{supabaseUser.email}</span>
-              {linkedSupabaseProject && (
+            {/* Avatar square */}
+            <div className={`w-6 h-6 rounded-[5px] flex items-center justify-center shrink-0 ${
+              status.supabase ? 'bg-[#2d7a4f]' : 'bg-white/[0.08]'
+            }`}>
+              {connecting === 'supabase' ? (
+                <Loader2 size={14} className="text-[var(--accent-cyan)] animate-spin" />
+              ) : (
+                <Database size={14} className={status.supabase ? 'text-white' : 'text-white/30'} />
+              )}
+            </div>
+            {/* Two-line text */}
+            <div className="flex flex-col min-w-0">
+              {status.supabase && supabaseUser ? (
                 <>
-                  <span className="text-[11px] text-white/20">/</span>
-                  <span className="text-[11px] text-white/55 max-w-[100px] truncate">
-                    {linkedSupabaseProject.name}
+                  <span className="text-[9px] font-medium text-white/35 leading-tight truncate max-w-[100px]">
+                    {supabaseUser.name || supabaseUser.email}
+                  </span>
+                  <span className={`text-[11px] leading-tight truncate max-w-[120px] ${
+                    linkedSupabaseProject
+                      ? 'font-semibold text-white/85'
+                      : 'font-medium text-white/30 italic'
+                  }`}>
+                    {linkedSupabaseProject?.name || 'No project'}
                   </span>
                 </>
+              ) : (
+                <span className="text-[11px] text-white/20">Supabase</span>
               )}
-            </button>
-          )}
+            </div>
+            {/* Status dot — only when linked */}
+            {status.supabase && linkedSupabaseProject && (
+              <div className="w-[5px] h-[5px] rounded-full bg-green-400 shrink-0 -ml-0.5" />
+            )}
+          </button>
 
           <AnimatePresence>
             {dropdownOpen === 'supabase' && (
@@ -1660,197 +2205,232 @@ export function ServiceIcons() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
                 transition={{ duration: 0.1 }}
-                className="absolute top-full right-0 mt-1 w-80 bg-[var(--bg-tertiary)] border border-white/10 rounded-lg shadow-xl z-[100] overflow-hidden max-h-[500px] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10"
+                className="absolute top-full right-0 mt-1 w-[300px] bg-[var(--v9-surface)] border border-white/[0.06] rounded-xl shadow-[0_16px_48px_rgba(0,0,0,0.45)] z-[100] overflow-hidden"
               >
-                {/* Header */}
-                {supabaseUser && status.supabase ? (
-                  <div className="px-3 py-2.5 border-b border-white/10">
-                    <div className="flex items-center gap-2">
-                      {supabaseUser.avatar_url ? (
-                        <img src={supabaseUser.avatar_url} alt="" className="w-5 h-5 rounded-full shrink-0" />
-                      ) : (
-                        <Database size={12} className="text-white/40 shrink-0" />
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <span className="text-xs font-medium text-white/80 truncate block">
-                          {supabaseUser.name}
-                        </span>
-                        <span className="text-[10px] text-white/30 truncate block">
-                          {supabaseUser.email}
-                        </span>
-                      </div>
+                {status.supabase ? (
+                  loadingSupabaseProject ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 size={16} className="text-[var(--accent-cyan)] animate-spin" />
                     </div>
-                  </div>
-                ) : (
-                  <div className="px-3 py-2 border-b border-white/10">
-                    <span className="text-xs text-white/60">Supabase</span>
-                  </div>
-                )}
+                  ) : linkedSupabaseProject ? (
+                    /* ─── Connected + project linked ─── */
+                    <>
+                      <CompactTopBar
+                        iconBg="#1a3a2a"
+                        icon={<Database size={12} className="text-[var(--v9-sb)]" />}
+                        name={linkedSupabaseProject.name}
+                        statusColor={
+                          linkedSupabaseProject.status === 'ACTIVE_HEALTHY' ? 'var(--v9-sb)'
+                          : linkedSupabaseProject.status === 'INACTIVE' ? 'var(--v9-amber)'
+                          : 'var(--v9-t3)'
+                        }
+                        statusLabel={
+                          linkedSupabaseProject.status === 'ACTIVE_HEALTHY' ? 'Healthy'
+                          : linkedSupabaseProject.status === 'INACTIVE' ? 'Inactive'
+                          : linkedSupabaseProject.status || 'Unknown'
+                        }
+                      />
+                      <HeroSection
+                        value={`${supabaseTables.length}`}
+                        valueColor="var(--v9-sb)"
+                        label={`tables · ${linkedSupabaseProject.region}`}
+                      />
 
-                {/* Content when connected */}
-                {status.supabase && (
-                  <>
-                    {loadingSupabaseProject ? (
-                      <div className="flex items-center justify-center py-4 border-b border-white/10">
-                        <Loader2 size={14} className="text-[var(--accent-cyan)] animate-spin" />
-                      </div>
-                    ) : linkedSupabaseProject ? (
-                      <>
-                        {/* Linked project */}
-                        <div className="px-3 py-2.5 border-b border-white/10">
-                          <div className="text-[10px] uppercase tracking-wider text-white/30 mb-1.5">
-                            Project
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Database size={10} className="shrink-0 text-white/50" />
-                            <span className="text-xs font-medium text-white/80 truncate flex-1">
-                              {linkedSupabaseProject.name}
-                            </span>
-                            <Circle
-                              size={6}
-                              className={`shrink-0 ${
-                                linkedSupabaseProject.status === 'ACTIVE_HEALTHY'
-                                  ? 'fill-green-400 text-green-400'
-                                  : linkedSupabaseProject.status === 'INACTIVE'
-                                    ? 'fill-amber-400 text-amber-400'
-                                    : 'fill-white/30 text-white/30'
-                              }`}
-                            />
-                          </div>
-                          <div className="text-[10px] text-white/25 mt-0.5">
-                            {linkedSupabaseProject.region}
-                          </div>
+                      <MetricsRow metrics={[
+                        { value: `${supabaseTables.length}`, label: 'Tables', color: 'var(--v9-sb)' },
+                        { value: `${supabaseFunctions.length}`, label: 'Functions', color: 'var(--v9-violet)' },
+                        { value: `${supabasePolicies.length}`, label: 'RLS', color: 'var(--v9-amber)' }
+                      ]} />
 
-                          {/* Connection URL with copy */}
-                          {supabaseConnectionInfo && (
+                      <ExpandToggle
+                        expanded={expandedDropdown === 'supabase'}
+                        onToggle={() => setExpandedDropdown(expandedDropdown === 'supabase' ? null : 'supabase')}
+                      />
+
+                      {/* Expanded panel */}
+                      <div
+                        className="overflow-hidden transition-all duration-[250ms]"
+                        style={{
+                          maxHeight: expandedDropdown === 'supabase' ? '600px' : '0',
+                          borderTop: expandedDropdown === 'supabase' ? '1px solid rgba(255,255,255,0.06)' : '0px solid transparent',
+                          transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)'
+                        }}
+                      >
+                        {/* Connection URL */}
+                        {supabaseConnectionInfo && (
+                          <AccentSection color="var(--v9-sb)">
+                            <div className="text-[11px] font-semibold text-[var(--v9-t2)] mb-1.5">Connection</div>
                             <button
                               onClick={() => {
                                 navigator.clipboard.writeText(supabaseConnectionInfo.url)
                                 setCopiedSupabaseUrl(true)
                                 setTimeout(() => setCopiedSupabaseUrl(false), 2000)
                               }}
-                              className="flex items-center gap-1.5 mt-2 w-full text-left group"
+                              className="flex items-center gap-1.5 py-[5px] px-2 -mx-2 rounded-md hover:bg-white/[0.03] transition w-full text-left group"
                             >
-                              <span className="text-[10px] text-[var(--accent-cyan)]/60 group-hover:text-[var(--accent-cyan)] truncate flex-1 font-mono">
+                              <span
+                                className="text-[8px] font-semibold uppercase px-[5px] py-px rounded-[3px] shrink-0"
+                                style={{ background: 'var(--v9-sb-soft)', color: 'var(--v9-sb)' }}
+                              >
+                                URL
+                              </span>
+                              <span className="text-[10px] text-[var(--v9-sb)] truncate flex-1" style={{ fontFamily: 'var(--font-mono)' }}>
                                 {supabaseConnectionInfo.url.replace('https://', '')}
                               </span>
                               {copiedSupabaseUrl ? (
-                                <Check size={9} className="shrink-0 text-green-400" />
+                                <Check size={9} className="shrink-0 text-[var(--v9-green)]" />
                               ) : (
-                                <Copy size={9} className="shrink-0 text-white/20 group-hover:text-white/50" />
+                                <Copy size={9} className="shrink-0 text-[var(--v9-t4)] group-hover:text-[var(--v9-t2)]" />
                               )}
                             </button>
-                          )}
-                        </div>
+                          </AccentSection>
+                        )}
 
-                        {/* Tables section */}
-                        <div className="border-b border-white/10">
+                        {/* Resources: Tables, Functions, Buckets, Policies */}
+                        <AccentSection color="var(--v9-sb)" opacity={0.5}>
+                          {/* Tables */}
                           <button
                             onClick={() => setShowSupabaseTables(!showSupabaseTables)}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/50 hover:text-white/70 hover:bg-white/5 transition"
+                            className="w-full flex items-center gap-2 py-1 text-xs text-left text-[var(--v9-t2)] hover:text-[var(--v9-t1)] transition"
                           >
                             {showSupabaseTables ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                             <span>Tables</span>
-                            <span className="text-[10px] text-white/25 ml-auto">{supabaseTables.length}</span>
+                            <span className="text-[10px] text-[var(--v9-t4)] ml-auto" style={{ fontFamily: 'var(--font-mono)' }}>{supabaseTables.length}</span>
                           </button>
                           {showSupabaseTables && supabaseTables.length > 0 && (
-                            <div className="px-3 pb-2 max-h-[150px] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10">
+                            <div className="pl-4 pb-1 max-h-[150px] overflow-y-auto">
                               {supabaseTables.map((t) => (
-                                <div key={`${t.schema}.${t.name}`} className="flex items-center gap-2 py-1 text-[11px]">
-                                  <span className="text-white/25 shrink-0">{t.schema}.</span>
-                                  <span className="text-white/60 truncate flex-1">{t.name}</span>
-                                  <span className="text-[9px] text-white/20 shrink-0">{t.columns.length} cols</span>
+                                <div key={`${t.schema}.${t.name}`} className="flex items-center gap-2 py-0.5 text-[11px]">
+                                  <span className="text-[var(--v9-t4)] shrink-0">{t.schema}.</span>
+                                  <span className="text-[var(--v9-t2)] truncate flex-1">{t.name}</span>
+                                  <span className="text-[9px] text-[var(--v9-t4)] shrink-0" style={{ fontFamily: 'var(--font-mono)' }}>{t.columns.length} cols</span>
                                 </div>
                               ))}
                             </div>
                           )}
-                        </div>
 
-                        {/* Edge Functions section */}
-                        <div className="border-b border-white/10">
+                          {/* Edge Functions */}
                           <button
                             onClick={() => setShowSupabaseFunctions(!showSupabaseFunctions)}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/50 hover:text-white/70 hover:bg-white/5 transition"
+                            className="w-full flex items-center gap-2 py-1 text-xs text-left text-[var(--v9-t2)] hover:text-[var(--v9-t1)] transition mt-1"
                           >
                             {showSupabaseFunctions ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                             <span>Edge Functions</span>
-                            <span className="text-[10px] text-white/25 ml-auto">{supabaseFunctions.length}</span>
+                            <span className="text-[10px] text-[var(--v9-t4)] ml-auto" style={{ fontFamily: 'var(--font-mono)' }}>{supabaseFunctions.length}</span>
                           </button>
                           {showSupabaseFunctions && supabaseFunctions.length > 0 && (
-                            <div className="px-3 pb-2 max-h-[120px] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10">
+                            <div className="pl-4 pb-1 max-h-[120px] overflow-y-auto">
                               {supabaseFunctions.map((f) => (
-                                <div key={f.id} className="flex items-center gap-2 py-1 text-[11px]">
-                                  <span className="text-white/60 truncate flex-1">{f.name}</span>
-                                  <span className={`text-[9px] shrink-0 ${f.status === 'ACTIVE' ? 'text-green-400/60' : 'text-white/20'}`}>
+                                <div key={f.id} className="flex items-center gap-2 py-0.5 text-[11px]">
+                                  <span className="text-[var(--v9-t2)] truncate flex-1">{f.name}</span>
+                                  <span className={`text-[9px] shrink-0 ${f.status === 'ACTIVE' ? 'text-[var(--v9-green)]' : 'text-[var(--v9-t4)]'}`} style={{ fontFamily: 'var(--font-mono)' }}>
                                     {f.status?.toLowerCase()}
                                   </span>
                                 </div>
                               ))}
                             </div>
                           )}
-                        </div>
 
-                        {/* Storage Buckets section */}
-                        <div className="border-b border-white/10">
+                          {/* Storage Buckets */}
                           <button
                             onClick={() => setShowSupabaseBuckets(!showSupabaseBuckets)}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/50 hover:text-white/70 hover:bg-white/5 transition"
+                            className="w-full flex items-center gap-2 py-1 text-xs text-left text-[var(--v9-t2)] hover:text-[var(--v9-t1)] transition mt-1"
                           >
                             {showSupabaseBuckets ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                             <span>Storage Buckets</span>
-                            <span className="text-[10px] text-white/25 ml-auto">{supabaseBuckets.length}</span>
+                            <span className="text-[10px] text-[var(--v9-t4)] ml-auto" style={{ fontFamily: 'var(--font-mono)' }}>{supabaseBuckets.length}</span>
                           </button>
                           {showSupabaseBuckets && supabaseBuckets.length > 0 && (
-                            <div className="px-3 pb-2 max-h-[120px] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10">
+                            <div className="pl-4 pb-1 max-h-[120px] overflow-y-auto">
                               {supabaseBuckets.map((b) => (
-                                <div key={b.id} className="flex items-center gap-2 py-1 text-[11px]">
-                                  <span className="text-white/60 truncate flex-1">{b.name}</span>
-                                  <span className={`text-[9px] shrink-0 px-1.5 py-0.5 rounded-full ${b.public ? 'bg-amber-500/10 text-amber-400/60' : 'bg-white/5 text-white/25'}`}>
+                                <div key={b.id} className="flex items-center gap-2 py-0.5 text-[11px]">
+                                  <span className="text-[var(--v9-t2)] truncate flex-1">{b.name}</span>
+                                  <span className={`text-[9px] shrink-0 px-1.5 py-0.5 rounded-full ${b.public ? 'bg-[var(--v9-amber)]/10 text-[var(--v9-amber)]' : 'bg-white/[0.05] text-[var(--v9-t4)]'}`} style={{ fontFamily: 'var(--font-mono)' }}>
                                     {b.public ? 'public' : 'private'}
                                   </span>
                                 </div>
                               ))}
                             </div>
                           )}
-                        </div>
 
-                        {/* RLS Policies section */}
-                        <div className="border-b border-white/10">
+                          {/* RLS Policies */}
                           <button
                             onClick={() => setShowSupabasePolicies(!showSupabasePolicies)}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/50 hover:text-white/70 hover:bg-white/5 transition"
+                            className="w-full flex items-center gap-2 py-1 text-xs text-left text-[var(--v9-t2)] hover:text-[var(--v9-t1)] transition mt-1"
                           >
                             {showSupabasePolicies ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                             <span>RLS Policies</span>
-                            <span className="text-[10px] text-white/25 ml-auto">{supabasePolicies.length}</span>
+                            <span className="text-[10px] text-[var(--v9-t4)] ml-auto" style={{ fontFamily: 'var(--font-mono)' }}>{supabasePolicies.length}</span>
                           </button>
                           {showSupabasePolicies && supabasePolicies.length > 0 && (
-                            <div className="px-3 pb-2 max-h-[120px] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10">
+                            <div className="pl-4 pb-1 max-h-[120px] overflow-y-auto">
                               {supabasePolicies.map((p, i) => (
-                                <div key={i} className="flex items-center gap-2 py-1 text-[11px]">
-                                  <span className="text-white/25 shrink-0">{p.table}</span>
-                                  <span className="text-white/50 truncate flex-1">{p.name}</span>
-                                  <span className="text-[9px] text-white/20 shrink-0">{p.command}</span>
+                                <div key={i} className="flex items-center gap-2 py-0.5 text-[11px]">
+                                  <span className="text-[var(--v9-t4)] shrink-0">{p.table}</span>
+                                  <span className="text-[var(--v9-t2)] truncate flex-1">{p.name}</span>
+                                  <span className="text-[9px] text-[var(--v9-t4)] shrink-0" style={{ fontFamily: 'var(--font-mono)' }}>{p.command}</span>
                                 </div>
                               ))}
                             </div>
                           )}
-                        </div>
+                        </AccentSection>
 
-                        {/* Open Dashboard */}
-                        <button
-                          onClick={() => window.open(`https://supabase.com/dashboard/project/${linkedSupabaseProject.ref}`, '_blank')}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-white/50 hover:text-white/70 hover:bg-white/5 transition border-b border-white/10"
-                        >
-                          <ExternalLink size={10} className="shrink-0" />
-                          Open Dashboard
-                        </button>
-                      </>
-                    ) : showSupabaseProjectPicker ? (
-                      /* Project picker */
-                      <div className="border-b border-white/10">
-                        <div className="px-3 pt-2 pb-1">
-                          <div className="text-[10px] uppercase tracking-wider text-white/30 mb-1.5">
+                        {/* Actions */}
+                        <AccentSection color="var(--v9-t4)" opacity={0.4} last>
+                          <button
+                            onClick={() => window.open(`https://supabase.com/dashboard/project/${linkedSupabaseProject.ref}`, '_blank')}
+                            className="w-full flex items-center gap-2 py-1.5 px-2 -mx-2 rounded-md text-xs text-[var(--v9-t2)] hover:text-[var(--v9-t1)] hover:bg-white/[0.04] transition"
+                          >
+                            <ExternalLink size={11} className="shrink-0" />
+                            Open Dashboard
+                          </button>
+                          <button
+                            onClick={() => window.open(`https://supabase.com/dashboard/project/${linkedSupabaseProject.ref}/sql`, '_blank')}
+                            className="w-full flex items-center gap-2 py-1.5 px-2 -mx-2 rounded-md text-xs text-[var(--v9-t2)] hover:text-[var(--v9-t1)] hover:bg-white/[0.04] transition"
+                          >
+                            <FileText size={11} className="shrink-0" />
+                            SQL Editor
+                          </button>
+                          <button
+                            onClick={() => window.open(`https://supabase.com/dashboard/project/${linkedSupabaseProject.ref}/auth/users`, '_blank')}
+                            className="w-full flex items-center gap-2 py-1.5 px-2 -mx-2 rounded-md text-xs text-[var(--v9-t2)] hover:text-[var(--v9-t1)] hover:bg-white/[0.04] transition"
+                          >
+                            <Globe size={11} className="shrink-0" />
+                            Auth Settings
+                          </button>
+                        </AccentSection>
+
+                        {/* Footer */}
+                        <div className="px-[14px] py-[5px] text-center border-t border-white/[0.06]">
+                          <button
+                            onClick={() => disconnectService('supabase')}
+                            className="text-[9px] text-[var(--v9-t4)] hover:text-[var(--v9-red)] bg-transparent border-none cursor-pointer"
+                            style={{ fontFamily: 'var(--font-mono)' }}
+                          >
+                            Disconnect
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  ) : showSupabaseProjectPicker ? (
+                    /* ─── Project picker ─── */
+                    <>
+                      <CompactTopBar
+                        iconBg="#1a3a2a"
+                        icon={<Database size={12} className="text-[var(--v9-sb)]" />}
+                        name={supabaseUser?.name || 'Supabase'}
+                        statusColor="var(--v9-amber)"
+                        statusLabel="Select project"
+                      />
+                      <div className="border-t border-white/[0.06]">
+                        <div className="px-[14px] pt-2 pb-1">
+                          <button
+                            onClick={() => setShowSupabaseProjectPicker(false)}
+                            className="flex items-center gap-1 text-[10px] text-[var(--v9-t3)] hover:text-[var(--v9-t2)] transition mb-1.5"
+                          >
+                            <ArrowLeft size={9} /> Back
+                          </button>
+                          <div className="text-[10px] uppercase tracking-wider text-[var(--v9-t3)] mb-1.5">
                             Select Project
                           </div>
                           {supabaseProjects.length > 3 && (
@@ -1858,13 +2438,13 @@ export function ServiceIcons() {
                               value={supabaseProjectSearch}
                               onChange={(e) => setSupabaseProjectSearch(e.target.value)}
                               placeholder="Search..."
-                              className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white/80 placeholder-white/25 outline-none focus:border-[var(--accent-cyan)]/40 mb-1"
+                              className="w-full bg-white/5 border border-white/[0.06] rounded-md px-2.5 py-1.5 text-xs text-[var(--v9-t1)] placeholder-[var(--v9-t4)] outline-none focus:border-[var(--accent-cyan)]/40 mb-1"
                             />
                           )}
                         </div>
                         <div className="max-h-[200px] overflow-y-auto px-1 pb-2">
                           {filteredSupabaseProjects.length === 0 ? (
-                            <div className="px-2 py-2 text-xs text-white/30">
+                            <div className="px-2 py-2 text-xs text-[var(--v9-t3)]">
                               {supabaseProjectSearch ? 'No matching projects' : 'No projects'}
                             </div>
                           ) : (
@@ -1872,35 +2452,70 @@ export function ServiceIcons() {
                               <button
                                 key={project.id}
                                 onClick={() => selectSupabaseProject(project)}
-                                className="w-full flex items-center gap-2 py-1.5 px-2 text-xs text-left text-white/70 hover:bg-white/5 rounded transition"
+                                className="w-full flex items-center gap-2 py-1.5 px-2 text-xs text-left text-[var(--v9-t2)] hover:bg-white/[0.04] rounded-md transition"
                               >
-                                <Database size={9} className="shrink-0 text-white/30" />
+                                <Database size={9} className="shrink-0 text-[var(--v9-t3)]" />
                                 <span className="truncate flex-1">{project.name}</span>
-                                <span className="shrink-0 text-[9px] text-white/25">{project.region}</span>
+                                <span className="shrink-0 text-[9px] text-[var(--v9-t4)]" style={{ fontFamily: 'var(--font-mono)' }}>{project.region}</span>
                               </button>
                             ))
                           )}
                         </div>
                       </div>
-                    ) : null}
-                  </>
-                )}
-
-                {/* Connect / Disconnect */}
-                {status.supabase ? (
-                  <button
-                    onClick={() => disconnectService('supabase')}
-                    className="w-full px-3 py-2 text-xs text-left text-white/40 hover:bg-white/5 hover:text-white/60 transition"
-                  >
-                    Disconnect
-                  </button>
+                    </>
+                  ) : (
+                    /* ─── Connected, no project ─── */
+                    <>
+                      <CompactTopBar
+                        iconBg="#1a3a2a"
+                        icon={<Database size={12} className="text-[var(--v9-sb)]" />}
+                        name={supabaseUser?.name || 'Supabase'}
+                        statusColor="var(--v9-amber)"
+                        statusLabel="No project"
+                      />
+                      <div className="border-t border-white/[0.06]">
+                        <div className="mx-[14px] my-2.5 flex flex-col items-center gap-2 py-4 px-3 border border-dashed border-white/[0.06] rounded-lg">
+                          <Database size={18} className="text-[var(--v9-t4)]" />
+                          <div className="text-center">
+                            <div className="text-xs text-[var(--v9-t2)]">No project linked</div>
+                            <div className="text-[10px] text-[var(--v9-t4)] mt-0.5">Link a Supabase project for auth, database, and storage</div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setShowSupabaseProjectPicker(true)}
+                          className="w-full flex items-center gap-2 px-[14px] py-2 text-xs text-left text-[var(--accent-cyan)] hover:bg-white/[0.04] transition"
+                        >
+                          <Plus size={11} className="shrink-0" />
+                          Link Project
+                        </button>
+                      </div>
+                      <div className="px-[14px] py-[5px] text-center border-t border-white/[0.06]">
+                        <button
+                          onClick={() => disconnectService('supabase')}
+                          className="text-[9px] text-[var(--v9-t4)] hover:text-[var(--v9-red)] bg-transparent border-none cursor-pointer"
+                          style={{ fontFamily: 'var(--font-mono)' }}
+                        >
+                          Disconnect
+                        </button>
+                      </div>
+                    </>
+                  )
                 ) : (
-                  <button
-                    onClick={() => connectService('supabase')}
-                    className="w-full px-3 py-2 text-xs text-left text-[var(--accent-cyan)] hover:bg-white/5 transition"
-                  >
-                    Connect
-                  </button>
+                  /* ─── Disconnected ─── */
+                  <div className="p-5 text-center">
+                    <div className="w-10 h-10 rounded-[10px] bg-white/[0.04] flex items-center justify-center mx-auto mb-3">
+                      <Database size={20} className="text-[var(--v9-t4)]" />
+                    </div>
+                    <p className="text-xs text-[var(--v9-t3)] mb-4 leading-relaxed">
+                      Add auth, database, and storage<br />to your app.
+                    </p>
+                    <button
+                      onClick={() => connectService('supabase')}
+                      className="w-full py-2 text-xs font-semibold text-white bg-[var(--v9-sb)] hover:brightness-110 rounded-lg transition-all"
+                    >
+                      Connect to Supabase
+                    </button>
+                  </div>
                 )}
               </motion.div>
             )}

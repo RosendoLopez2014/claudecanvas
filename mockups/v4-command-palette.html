@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>V4 — Command Palette</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0d;
+    --surface: #111116;
+    --raised: #18181e;
+    --border: rgba(255,255,255,0.07);
+    --border-h: rgba(255,255,255,0.14);
+    --t1: rgba(255,255,255,0.90);
+    --t2: rgba(255,255,255,0.50);
+    --t3: rgba(255,255,255,0.24);
+    --cyan: #4AEAFF;
+    --green: #34D399;
+    --amber: #FBBF24;
+    --red: #F87171;
+    --sb: #3ECF8E;
+    --mono: 'Source Code Pro', monospace;
+    --sans: 'Outfit', sans-serif;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--t1); font-family:var(--sans); min-height:100vh; }
+
+  .page-header {
+    padding: 40px 48px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .page-header h1 { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--cyan); }
+  .page-header .sub { font-size: 11px; color: var(--t3); margin-top: 4px; }
+  .page-header .desc { font-size: 13px; color: var(--t2); margin-top: 12px; max-width: 600px; line-height: 1.6; }
+
+  .row { display: flex; gap: 40px; padding: 48px; flex-wrap: wrap; justify-content: center; }
+  .col { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .col-label { font-family:var(--mono); font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--t3); }
+
+  /* ── Command palette dropdown ── */
+  .dd {
+    width: 320px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px rgba(0,0,0,0.4),
+      0 24px 64px rgba(0,0,0,0.6);
+  }
+
+  /* ── Search-bar header ── */
+  .dd-search {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--raised);
+  }
+  .dd-search-icon { color: var(--t3); font-size: 14px; }
+  .dd-search-input {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--t1);
+    background: transparent;
+    border: none;
+    outline: none;
+  }
+  .dd-search-input::placeholder { color: var(--t3); }
+  .dd-search-badge {
+    font-family: var(--mono);
+    font-size: 8px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  /* ── Command group ── */
+  .cmd-group {
+    padding: 6px;
+  }
+  .cmd-group-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--t3);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 6px 8px 4px;
+  }
+
+  .cmd-sep { height: 1px; background: var(--border); margin: 2px 6px; }
+
+  /* ── Command item ── */
+  .cmd {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.1s;
+    position: relative;
+  }
+  .cmd:hover {
+    background: rgba(255,255,255,0.04);
+  }
+  .cmd.active {
+    background: var(--cyan);
+    color: #000;
+  }
+  .cmd.active .cmd-sub,
+  .cmd.active .cmd-kbd,
+  .cmd.active .cmd-tag { color: rgba(0,0,0,0.5); }
+  .cmd.active .cmd-icon { opacity: 1; color: #000; }
+
+  .cmd-icon {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    opacity: 0.5;
+    flex-shrink: 0;
+  }
+  .cmd-text { flex: 1; min-width: 0; }
+  .cmd-label {
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cmd-sub {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--t3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cmd-kbd {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--t3);
+    flex-shrink: 0;
+    display: flex;
+    gap: 3px;
+  }
+  .cmd-kbd kbd {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: var(--mono);
+    font-size: 9px;
+  }
+  .cmd-tag {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--t3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.04);
+    flex-shrink: 0;
+  }
+
+  /* ── Status row ── */
+  .cmd-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.02);
+    margin: 2px 0;
+  }
+  .cmd-status-dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  }
+  .cmd-status-text { font-size: 12px; color: var(--t2); flex: 1; }
+  .cmd-status-val {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+
+  /* ── Footer hint ── */
+  .dd-hints {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 14px;
+    border-top: 1px solid var(--border);
+    background: var(--raised);
+  }
+  .dd-hint {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--t3);
+  }
+  .dd-hint kbd {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0px 4px;
+    font-family: var(--mono);
+    font-size: 8px;
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>V4 — Command Palette</h1>
+  <div class="sub">VS Code / Linear / Raycast inspired</div>
+  <div class="desc">Keyboard-first design. Each dropdown is a mini command palette with a search input, grouped commands, and keyboard hints. Active selection highlight. Designed for users who prefer navigating with arrow keys rather than mouse.</div>
+</div>
+
+<div class="row">
+
+  <!-- ═══ GITHUB ═══ -->
+  <div class="col">
+    <span class="col-label">GitHub</span>
+    <div class="dd">
+      <div class="dd-search">
+        <span class="dd-search-icon">⌕</span>
+        <input class="dd-search-input" placeholder="Search GitHub actions..." readonly>
+        <span class="dd-search-badge" style="background:rgba(35,134,54,0.15);color:var(--green);">Connected</span>
+      </div>
+
+      <div class="cmd-group">
+        <div class="cmd-status">
+          <div class="cmd-status-dot" style="background:var(--cyan);"></div>
+          <span class="cmd-status-text">Local → Remote</span>
+          <span class="cmd-status-val" style="color:var(--cyan);">3 ahead</span>
+        </div>
+      </div>
+
+      <div class="cmd-group">
+        <div class="cmd active">
+          <div class="cmd-icon">↑</div>
+          <div class="cmd-text">
+            <div class="cmd-label">Push 3 commits</div>
+            <div class="cmd-sub">feat/gallery-revamp → origin</div>
+          </div>
+          <div class="cmd-kbd"><kbd>⏎</kbd></div>
+        </div>
+      </div>
+
+      <div class="cmd-sep"></div>
+
+      <div class="cmd-group">
+        <div class="cmd-group-label">Repository</div>
+        <div class="cmd">
+          <div class="cmd-icon">📦</div>
+          <div class="cmd-text">
+            <div class="cmd-label">rosendolopez/claude-canvas</div>
+            <div class="cmd-sub">feat/gallery-revamp</div>
+          </div>
+          <span class="cmd-tag">Private</span>
+        </div>
+        <div class="cmd">
+          <div class="cmd-icon" style="color:var(--green);">⑂</div>
+          <div class="cmd-text">
+            <div class="cmd-label" style="color:var(--green);">PR #42 — Add gallery view</div>
+            <div class="cmd-sub">Open · 2 reviewers</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cmd-sep"></div>
+
+      <div class="cmd-group">
+        <div class="cmd-group-label">Actions</div>
+        <div class="cmd">
+          <div class="cmd-icon">↗</div>
+          <div class="cmd-text"><div class="cmd-label">Open on GitHub</div></div>
+          <div class="cmd-kbd"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>G</kbd></div>
+        </div>
+        <div class="cmd">
+          <div class="cmd-icon">◉</div>
+          <div class="cmd-text"><div class="cmd-label">View Issues</div></div>
+        </div>
+        <div class="cmd">
+          <div class="cmd-icon">⑂</div>
+          <div class="cmd-text"><div class="cmd-label">Create Pull Request</div></div>
+        </div>
+        <div class="cmd">
+          <div class="cmd-icon">⑃</div>
+          <div class="cmd-text"><div class="cmd-label">Switch Branch</div></div>
+        </div>
+      </div>
+
+      <div class="dd-hints">
+        <div class="dd-hint"><kbd>↑↓</kbd> navigate</div>
+        <div class="dd-hint"><kbd>⏎</kbd> select</div>
+        <div class="dd-hint"><kbd>esc</kbd> close</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ VERCEL ═══ -->
+  <div class="col">
+    <span class="col-label">Vercel</span>
+    <div class="dd">
+      <div class="dd-search">
+        <span class="dd-search-icon">▲</span>
+        <input class="dd-search-input" placeholder="Search Vercel actions..." readonly>
+        <span class="dd-search-badge" style="background:rgba(255,255,255,0.06);color:var(--t2);">Pro</span>
+      </div>
+
+      <div class="cmd-group">
+        <div class="cmd-status">
+          <div class="cmd-status-dot" style="background:var(--green);"></div>
+          <span class="cmd-status-text">Production</span>
+          <span class="cmd-status-val" style="color:var(--green);">Ready · 12m ago</span>
+        </div>
+      </div>
+
+      <div class="cmd-group">
+        <div class="cmd-group-label">Deployment</div>
+        <div class="cmd active">
+          <div class="cmd-icon">🌐</div>
+          <div class="cmd-text">
+            <div class="cmd-label">claude-canvas.vercel.app</div>
+            <div class="cmd-sub">feat: complete Plan 2 features</div>
+          </div>
+          <div class="cmd-kbd"><kbd>⏎</kbd></div>
+        </div>
+      </div>
+
+      <div class="cmd-sep"></div>
+
+      <div class="cmd-group">
+        <div class="cmd-group-label">Stats</div>
+        <div class="cmd">
+          <div class="cmd-icon">⚡</div>
+          <div class="cmd-text"><div class="cmd-label">Build Time</div></div>
+          <span class="cmd-tag">2.1s</span>
+        </div>
+        <div class="cmd">
+          <div class="cmd-icon">📊</div>
+          <div class="cmd-text"><div class="cmd-label">Total Deployments</div></div>
+          <span class="cmd-tag">148</span>
+        </div>
+      </div>
+
+      <div class="cmd-sep"></div>
+
+      <div class="cmd-group">
+        <div class="cmd-group-label">Recent</div>
+        <div class="cmd">
+          <div class="cmd-icon" style="color:var(--green);">●</div>
+          <div class="cmd-text">
+            <div class="cmd-label">feat: complete Plan 2 features</div>
+            <div class="cmd-sub">12m ago · 2.1s</div>
+          </div>
+        </div>
+        <div class="cmd">
+          <div class="cmd-icon" style="color:var(--red);">●</div>
+          <div class="cmd-text">
+            <div class="cmd-label">feat: add keyboard shortcuts</div>
+            <div class="cmd-sub">5h ago · Failed</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cmd-sep"></div>
+
+      <div class="cmd-group">
+        <div class="cmd-group-label">Actions</div>
+        <div class="cmd">
+          <div class="cmd-icon">⟳</div>
+          <div class="cmd-text"><div class="cmd-label">Redeploy</div></div>
+        </div>
+        <div class="cmd">
+          <div class="cmd-icon">↗</div>
+          <div class="cmd-text"><div class="cmd-label">Open Dashboard</div></div>
+          <div class="cmd-kbd"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>V</kbd></div>
+        </div>
+        <div class="cmd">
+          <div class="cmd-icon">🌐</div>
+          <div class="cmd-text"><div class="cmd-label">Manage Domains</div></div>
+        </div>
+      </div>
+
+      <div class="dd-hints">
+        <div class="dd-hint"><kbd>↑↓</kbd> navigate</div>
+        <div class="dd-hint"><kbd>⏎</kbd> select</div>
+        <div class="dd-hint"><kbd>esc</kbd> close</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ SUPABASE ═══ -->
+  <div class="col">
+    <span class="col-label">Supabase</span>
+    <div class="dd">
+      <div class="dd-search">
+        <span class="dd-search-icon" style="color:var(--sb);">⬡</span>
+        <input class="dd-search-input" placeholder="Search Supabase actions..." readonly>
+        <span class="dd-search-badge" style="background:rgba(62,207,142,0.1);color:var(--sb);">Healthy</span>
+      </div>
+
+      <div class="cmd-group">
+        <div class="cmd-status">
+          <div class="cmd-status-dot" style="background:var(--sb);"></div>
+          <span class="cmd-status-text">canvas-prod</span>
+          <span class="cmd-status-val" style="color:var(--sb);">us-east-1</span>
+        </div>
+      </div>
+
+      <div class="cmd-group">
+        <div class="cmd-group-label">Resources</div>
+        <div class="cmd">
+          <div class="cmd-icon">⊞</div>
+          <div class="cmd-text"><div class="cmd-label">Tables</div></div>
+          <span class="cmd-tag">12</span>
+        </div>
+        <div class="cmd">
+          <div class="cmd-icon">ƒ</div>
+          <div class="cmd-text"><div class="cmd-label">Edge Functions</div></div>
+          <span class="cmd-tag">5</span>
+        </div>
+        <div class="cmd">
+          <div class="cmd-icon">◫</div>
+          <div class="cmd-text"><div class="cmd-label">Storage Buckets</div></div>
+          <span class="cmd-tag">3</span>
+        </div>
+        <div class="cmd">
+          <div class="cmd-icon">🛡</div>
+          <div class="cmd-text"><div class="cmd-label">RLS Policies</div></div>
+          <span class="cmd-tag" style="background:rgba(62,207,142,0.08);color:var(--sb);">8 active</span>
+        </div>
+      </div>
+
+      <div class="cmd-sep"></div>
+
+      <div class="cmd-group">
+        <div class="cmd-group-label">Connection</div>
+        <div class="cmd active">
+          <div class="cmd-icon">🔗</div>
+          <div class="cmd-text">
+            <div class="cmd-label">xyzcompany.supabase.co</div>
+            <div class="cmd-sub">Click to copy connection URL</div>
+          </div>
+          <div class="cmd-kbd"><kbd>⏎</kbd></div>
+        </div>
+      </div>
+
+      <div class="cmd-sep"></div>
+
+      <div class="cmd-group">
+        <div class="cmd-group-label">Actions</div>
+        <div class="cmd">
+          <div class="cmd-icon">↗</div>
+          <div class="cmd-text"><div class="cmd-label">Open Dashboard</div></div>
+        </div>
+        <div class="cmd">
+          <div class="cmd-icon">⊞</div>
+          <div class="cmd-text"><div class="cmd-label">SQL Editor</div></div>
+        </div>
+        <div class="cmd">
+          <div class="cmd-icon">🔑</div>
+          <div class="cmd-text"><div class="cmd-label">Auth Settings</div></div>
+        </div>
+      </div>
+
+      <div class="dd-hints">
+        <div class="dd-hint"><kbd>↑↓</kbd> navigate</div>
+        <div class="dd-hint"><kbd>⏎</kbd> select</div>
+        <div class="dd-hint"><kbd>esc</kbd> close</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

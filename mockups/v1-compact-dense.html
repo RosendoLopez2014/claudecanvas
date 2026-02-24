@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>V1 — Compact Dense</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-0: #08080a;
+    --bg-1: #0e0e12;
+    --bg-2: #141418;
+    --bg-3: #1a1a20;
+    --bg-4: #222228;
+    --border: rgba(255,255,255,0.07);
+    --border-h: rgba(255,255,255,0.12);
+    --t1: rgba(255,255,255,0.90);
+    --t2: rgba(255,255,255,0.50);
+    --t3: rgba(255,255,255,0.25);
+    --cyan: #4AEAFF;
+    --cyan-d: rgba(74,234,255,0.10);
+    --coral: #FF6B4A;
+    --green: #34D399;
+    --amber: #FBBF24;
+    --red: #F87171;
+    --gh: #238636;
+    --sb: #3ECF8E;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg-0); color:var(--t1); font-family:var(--sans); min-height:100vh; }
+
+  .page-header {
+    padding: 40px 48px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .page-header h1 {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--cyan);
+  }
+  .page-header .sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--t3);
+    margin-top: 4px;
+  }
+  .page-header .desc {
+    font-size: 13px;
+    color: var(--t2);
+    margin-top: 12px;
+    max-width: 600px;
+    line-height: 1.6;
+  }
+
+  .row {
+    display: flex;
+    gap: 40px;
+    padding: 48px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+  .col-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--t3);
+  }
+
+  /* ── Dropdown shell ── */
+  .dd {
+    width: 280px;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+  }
+
+  /* ── Tight header ── */
+  .dd-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-2);
+  }
+  .dd-head-icon {
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .dd-head-text {
+    flex: 1;
+    min-width: 0;
+  }
+  .dd-head-name {
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .dd-head-sub {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--t3);
+  }
+  .dd-badge {
+    font-family: var(--mono);
+    font-size: 8px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 3px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  /* ── Data rows ── */
+  .dd-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: var(--t2);
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+  .dd-row:last-child { border-bottom: none; }
+  .dd-row:hover { background: rgba(255,255,255,0.02); }
+  .dd-row .label {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--t3);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    width: 52px;
+    flex-shrink: 0;
+  }
+  .dd-row .value {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--t1);
+    font-size: 11px;
+    font-family: var(--mono);
+  }
+  .dd-row .tag {
+    font-family: var(--mono);
+    font-size: 8px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.04);
+    color: var(--t3);
+    flex-shrink: 0;
+  }
+
+  /* ── Stat bar ── */
+  .dd-stats {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+  }
+  .dd-stat {
+    flex: 1;
+    padding: 8px 10px;
+    text-align: center;
+    border-right: 1px solid var(--border);
+  }
+  .dd-stat:last-child { border-right: none; }
+  .dd-stat-val {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--t1);
+  }
+  .dd-stat-label {
+    font-family: var(--mono);
+    font-size: 8px;
+    color: var(--t3);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  /* ── Action list ── */
+  .dd-actions {
+    padding: 4px;
+    border-top: 1px solid var(--border);
+  }
+  .dd-act {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: var(--t2);
+    cursor: pointer;
+    transition: all 0.1s;
+  }
+  .dd-act:hover { background: rgba(255,255,255,0.04); color: var(--t1); }
+  .dd-act .a-icon { opacity: 0.4; font-size: 11px; width: 14px; text-align: center; }
+  .dd-act .a-kbd {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 8px;
+    color: var(--t3);
+    padding: 1px 4px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+  }
+
+  /* ── Section divider ── */
+  .dd-div {
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--t3);
+    padding: 6px 10px 3px;
+    background: var(--bg-2);
+    border-bottom: 1px solid var(--border);
+    border-top: 1px solid var(--border);
+  }
+
+  /* ── Primary button ── */
+  .dd-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin: 6px;
+    padding: 7px 12px;
+    border-radius: 5px;
+    border: none;
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  /* ── Status dots ── */
+  .dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  }
+  .dot-g { background: var(--green); }
+  .dot-a { background: var(--amber); }
+  .dot-r { background: var(--red); }
+
+  /* ── Sync indicator ── */
+  .sync-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: var(--cyan-d);
+    border-bottom: 1px solid var(--border);
+  }
+  .sync-row .s-icon { font-size: 11px; }
+  .sync-row .s-text {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--cyan);
+    flex: 1;
+  }
+  .sync-row .s-btn {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 4px;
+    background: var(--cyan);
+    color: #000;
+    border: none;
+    cursor: pointer;
+  }
+
+  /* ── List items ── */
+  .dd-list-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--t2);
+    cursor: pointer;
+  }
+  .dd-list-item:hover { background: rgba(255,255,255,0.02); }
+  .dd-list-item .li-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--t3); flex-shrink: 0; }
+  .dd-list-item .li-current { color: var(--cyan); }
+  .dd-list-item .li-tag {
+    margin-left: auto;
+    font-size: 8px;
+    color: var(--t3);
+  }
+
+  .dd-footer {
+    padding: 4px 10px 6px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+  }
+  .dd-footer button {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--t3);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 3px 6px;
+  }
+  .dd-footer button:hover { color: var(--red); }
+
+  /* ── Deploy timeline ── */
+  .deploy-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    font-size: 10px;
+    color: var(--t2);
+    cursor: pointer;
+  }
+  .deploy-item:hover { background: rgba(255,255,255,0.02); }
+  .deploy-item .d-msg {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .deploy-item .d-time {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--t3);
+    flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>V1 — Compact Dense</h1>
+  <div class="sub">Bloomberg terminal meets dev tools</div>
+  <div class="desc">Maximum information density in minimal space. Every pixel earns its keep. Data-table inspired rows, tight spacing, IBM Plex typography. Designed for power users who want everything at a glance without scrolling.</div>
+</div>
+
+<div class="row">
+
+  <!-- ═══ GITHUB ═══ -->
+  <div class="col">
+    <span class="col-label">GitHub</span>
+    <div class="dd">
+      <div class="dd-head">
+        <div class="dd-head-icon" style="background:#161b22;border:1px solid rgba(255,255,255,0.08);">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="rgba(255,255,255,0.7)"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        </div>
+        <div class="dd-head-text">
+          <div class="dd-head-name">rosendolopez</div>
+          <div class="dd-head-sub">github.com</div>
+        </div>
+        <span class="dd-badge" style="background:rgba(35,134,54,0.15);color:var(--green);">●&nbsp;Live</span>
+      </div>
+
+      <div class="sync-row">
+        <span class="s-icon">↑</span>
+        <span class="s-text">3 commits ahead of origin/main</span>
+        <button class="s-btn">Push</button>
+      </div>
+
+      <div class="dd-row">
+        <span class="label">Repo</span>
+        <span class="value">rosendolopez/claude-canvas</span>
+        <span class="tag">Private</span>
+      </div>
+      <div class="dd-row">
+        <span class="label">Branch</span>
+        <span class="value" style="color:var(--cyan);">feat/gallery-revamp</span>
+        <span class="tag">4 total</span>
+      </div>
+      <div class="dd-row">
+        <span class="label">PR</span>
+        <span class="value" style="color:var(--green);">#42 Add gallery view</span>
+        <span class="tag">Open</span>
+      </div>
+
+      <div class="dd-div">Branches</div>
+      <div class="dd-list-item">
+        <span class="li-dot" style="background:var(--cyan);"></span>
+        <span class="li-current" style="color:var(--cyan);">feat/gallery-revamp</span>
+        <span class="li-tag">current</span>
+      </div>
+      <div class="dd-list-item">
+        <span class="li-dot"></span>
+        main
+        <span class="li-tag">default</span>
+      </div>
+      <div class="dd-list-item">
+        <span class="li-dot"></span>
+        fix/pty-lifecycle
+      </div>
+      <div class="dd-list-item">
+        <span class="li-dot"></span>
+        feat/oauth-flow
+      </div>
+
+      <div class="dd-actions">
+        <div class="dd-act">
+          <span class="a-icon">↗</span>Open on GitHub<span class="a-kbd">⌘⇧G</span>
+        </div>
+        <div class="dd-act">
+          <span class="a-icon">◉</span>View Issues
+        </div>
+        <div class="dd-act">
+          <span class="a-icon">+</span>Create Pull Request
+        </div>
+      </div>
+      <div class="dd-footer"><button>Disconnect</button></div>
+    </div>
+  </div>
+
+  <!-- ═══ VERCEL ═══ -->
+  <div class="col">
+    <span class="col-label">Vercel</span>
+    <div class="dd">
+      <div class="dd-head">
+        <div class="dd-head-icon" style="background:#000;border:1px solid rgba(255,255,255,0.12);">
+          <svg width="11" height="10" viewBox="0 0 76 65" fill="white"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z"/></svg>
+        </div>
+        <div class="dd-head-text">
+          <div class="dd-head-name">Rosendo Lopez</div>
+          <div class="dd-head-sub">@rosendolopez</div>
+        </div>
+        <span class="dd-badge" style="background:rgba(255,255,255,0.06);color:var(--t2);">Pro</span>
+      </div>
+
+      <div class="dd-stats">
+        <div class="dd-stat">
+          <div class="dd-stat-val" style="color:var(--green);">Ready</div>
+          <div class="dd-stat-label">Status</div>
+        </div>
+        <div class="dd-stat">
+          <div class="dd-stat-val">2.1s</div>
+          <div class="dd-stat-label">Build</div>
+        </div>
+        <div class="dd-stat">
+          <div class="dd-stat-val">148</div>
+          <div class="dd-stat-label">Deploys</div>
+        </div>
+      </div>
+
+      <div class="dd-row">
+        <span class="label">Prod</span>
+        <span class="value" style="color:var(--cyan);">claude-canvas.vercel.app</span>
+      </div>
+      <div class="dd-row">
+        <span class="label">Domain</span>
+        <span class="value">claudecanvas.dev</span>
+        <span class="tag">primary</span>
+      </div>
+      <div class="dd-row">
+        <span class="label">Commit</span>
+        <span class="value">feat: complete Plan 2 features</span>
+      </div>
+
+      <div class="dd-div">Recent Deploys</div>
+      <div class="deploy-item">
+        <div class="dot dot-g"></div>
+        <span class="d-msg">feat: complete Plan 2 features</span>
+        <span class="d-time">12m</span>
+      </div>
+      <div class="deploy-item">
+        <div class="dot dot-g"></div>
+        <span class="d-msg">refactor: remove dead build-logs state</span>
+        <span class="d-time">2h</span>
+      </div>
+      <div class="deploy-item">
+        <div class="dot dot-r"></div>
+        <span class="d-msg">feat: add keyboard shortcuts</span>
+        <span class="d-time">5h</span>
+      </div>
+      <div class="deploy-item">
+        <div class="dot dot-g"></div>
+        <span class="d-msg">feat: rebuild Vercel dropdown</span>
+        <span class="d-time">8h</span>
+      </div>
+
+      <div class="dd-actions">
+        <div class="dd-act">
+          <span class="a-icon">⟳</span>Redeploy
+        </div>
+        <div class="dd-act">
+          <span class="a-icon">↗</span>Open Dashboard<span class="a-kbd">⌘⇧V</span>
+        </div>
+        <div class="dd-act">
+          <span class="a-icon">◎</span>Manage Domains
+        </div>
+        <div class="dd-act">
+          <span class="a-icon">≡</span>Build Logs
+        </div>
+      </div>
+      <div class="dd-footer"><button>Disconnect</button></div>
+    </div>
+  </div>
+
+  <!-- ═══ SUPABASE ═══ -->
+  <div class="col">
+    <span class="col-label">Supabase</span>
+    <div class="dd">
+      <div class="dd-head">
+        <div class="dd-head-icon" style="background:#1a3a2a;border:1px solid rgba(62,207,142,0.15);">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--sb)" stroke-width="2.5"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        </div>
+        <div class="dd-head-text">
+          <div class="dd-head-name">canvas-prod</div>
+          <div class="dd-head-sub">us-east-1 · Healthy</div>
+        </div>
+        <span class="dd-badge" style="background:rgba(62,207,142,0.1);color:var(--sb);">●&nbsp;Live</span>
+      </div>
+
+      <div class="dd-stats">
+        <div class="dd-stat">
+          <div class="dd-stat-val">12</div>
+          <div class="dd-stat-label">Tables</div>
+        </div>
+        <div class="dd-stat">
+          <div class="dd-stat-val">5</div>
+          <div class="dd-stat-label">Funcs</div>
+        </div>
+        <div class="dd-stat">
+          <div class="dd-stat-val">3</div>
+          <div class="dd-stat-label">Buckets</div>
+        </div>
+        <div class="dd-stat">
+          <div class="dd-stat-val">8</div>
+          <div class="dd-stat-label">RLS</div>
+        </div>
+      </div>
+
+      <div class="dd-row">
+        <span class="label">URL</span>
+        <span class="value" style="color:var(--cyan);">xyzcompany.supabase.co</span>
+      </div>
+      <div class="dd-row">
+        <span class="label">Auth</span>
+        <span class="value">Email + GitHub OAuth</span>
+        <span class="tag">2 providers</span>
+      </div>
+
+      <div class="dd-div">Tables</div>
+      <div class="dd-list-item">
+        <span class="li-dot" style="background:var(--sb);"></span>
+        public.users
+        <span class="li-tag">8 cols</span>
+      </div>
+      <div class="dd-list-item">
+        <span class="li-dot" style="background:var(--sb);"></span>
+        public.projects
+        <span class="li-tag">12 cols</span>
+      </div>
+      <div class="dd-list-item">
+        <span class="li-dot" style="background:var(--sb);"></span>
+        public.deployments
+        <span class="li-tag">9 cols</span>
+      </div>
+      <div class="dd-list-item">
+        <span class="li-dot" style="background:var(--sb);"></span>
+        public.sessions
+        <span class="li-tag">6 cols</span>
+      </div>
+      <div class="dd-list-item">
+        <span class="li-dot" style="background:var(--sb);"></span>
+        public.api_keys
+        <span class="li-tag">5 cols</span>
+      </div>
+
+      <div class="dd-actions">
+        <div class="dd-act">
+          <span class="a-icon">↗</span>Open Dashboard
+        </div>
+        <div class="dd-act">
+          <span class="a-icon">⊞</span>SQL Editor
+        </div>
+        <div class="dd-act">
+          <span class="a-icon">🛡</span>Auth Settings
+        </div>
+      </div>
+      <div class="dd-footer"><button>Disconnect</button></div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

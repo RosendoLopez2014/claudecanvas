@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { Loader2, ArrowUpRight } from 'lucide-react'
-import { useTabsStore } from '@/stores/tabs'
+import { useTabsStore, selectActiveTab } from '@/stores/tabs'
 import { useToastStore } from '@/stores/toast'
+import { GIT_PUSH_MODES, type GitPushMode } from '../../../shared/constants'
 
 interface PushPopoverProps {
   onClose: () => void
@@ -12,13 +13,20 @@ export function PushPopover({ onClose }: PushPopoverProps) {
   const [message, setMessage] = useState('')
   const [generating, setGenerating] = useState(true)
   const [pushing, setPushing] = useState(false)
+  const [pushMode, setPushMode] = useState<GitPushMode>('solo')
   const inputRef = useRef<HTMLInputElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
 
-  const tab = useTabsStore((s) => s.getActiveTab())
+  const tab = useTabsStore(selectActiveTab)
   const projectPath = tab?.project.path
 
-  // Generate AI commit message on mount
+  // Load push mode and generate AI commit message on mount
+  useEffect(() => {
+    window.api.settings.get('gitPushMode').then((v) => {
+      if (v && typeof v === 'string') setPushMode(v as GitPushMode)
+    })
+  }, [])
+
   useEffect(() => {
     if (!projectPath) return
     setGenerating(true)
@@ -50,6 +58,7 @@ export function PushPopover({ onClose }: PushPopoverProps) {
     if (result.success) {
       const branch = result.branch
       const isMain = branch === 'main' || branch === 'master'
+      const modeConfig = GIT_PUSH_MODES[pushMode]
 
       // Refresh sync counts
       const counts = await window.api.git.fetch(projectPath)
@@ -57,20 +66,19 @@ export function PushPopover({ onClose }: PushPopoverProps) {
         useTabsStore.getState().updateTab(tab.id, {
           gitAhead: counts.ahead || 0,
           gitBehind: counts.behind || 0,
+          gitFetchError: counts.error || null,
           gitSyncing: false,
           lastPushTime: Date.now(),
         })
       }
 
-      if (isMain) {
-        addToast(`Pushed to origin/${branch}`, 'success')
-      } else {
+      const shouldSuggestPR = modeConfig.suggestPR && !isMain
+      if (shouldSuggestPR) {
         addToast(`Pushed to origin/${branch}`, 'success', {
-          duration: 6000,
+          duration: 8000,
           action: {
             label: 'Create PR',
             onClick: async () => {
-              // Generate PR body
               let body = ''
               try {
                 body = await window.api.git.generateCommitMessage(projectPath)
@@ -94,6 +102,8 @@ export function PushPopover({ onClose }: PushPopoverProps) {
             },
           },
         })
+      } else {
+        addToast(`Pushed to origin/${branch}`, 'success')
       }
       onClose()
     } else {
@@ -127,7 +137,12 @@ export function PushPopover({ onClose }: PushPopoverProps) {
       transition={{ duration: 0.12 }}
       className="absolute bottom-full mb-2 right-0 w-72 bg-[var(--bg-tertiary)] border border-white/10 rounded-lg shadow-xl z-[200] p-3"
     >
-      <div className="text-[11px] text-white/40 mb-2">Commit message</div>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[11px] text-white/40">Commit message</span>
+        <span className="text-[9px] text-white/20 px-1.5 py-0.5 rounded bg-white/[0.04]">
+          {GIT_PUSH_MODES[pushMode].label}
+        </span>
+      </div>
       <input
         ref={inputRef}
         type="text"

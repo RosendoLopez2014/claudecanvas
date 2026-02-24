@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useCanvasStore } from '@/stores/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useProjectStore } from '@/stores/project'
+import { useTabsStore, selectActiveTab } from '@/stores/tabs'
 
 /**
  * Exposes current canvas / workspace / project state on window globals
@@ -12,9 +13,12 @@ import { useProjectStore } from '@/stores/project'
  * window.__inspectorContext — selected inspector elements (array)
  */
 export function useMcpStateExposer() {
-  const { activeTab, previewUrl, inspectorActive, selectedElements, previewErrors, addPreviewError, addConsoleLog } = useCanvasStore()
+  const { activeTab, inspectorActive, selectedElements, previewErrors, addPreviewError, addConsoleLog } = useCanvasStore()
   const { mode } = useWorkspaceStore()
-  const { isDevServerRunning, currentProject } = useProjectStore()
+  const { currentProject } = useProjectStore()
+  const currentTab = useTabsStore(selectActiveTab)
+  const previewUrl = currentTab?.previewUrl ?? null
+  const isDevServerRunning = currentTab?.dev.status === 'running'
   const [supabaseConnected, setSupabaseConnected] = useState(false)
 
   // Fetch Supabase connection status

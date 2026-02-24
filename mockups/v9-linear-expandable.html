@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>V9 — Linear Expandable</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #09090b;
+    --surface: #111113;
+    --raised: #19191d;
+    --hover: #1f1f24;
+    --border: rgba(255,255,255,0.06);
+    --border-h: rgba(255,255,255,0.12);
+    --t1: #ededed;
+    --t2: rgba(255,255,255,0.50);
+    --t3: rgba(255,255,255,0.25);
+    --t4: rgba(255,255,255,0.10);
+    --cyan: #4AEAFF;
+    --green: #34D399;
+    --green-soft: rgba(52,211,153,0.12);
+    --amber: #FBBF24;
+    --amber-soft: rgba(251,191,36,0.10);
+    --red: #F87171;
+    --red-soft: rgba(248,113,113,0.10);
+    --violet: #A78BFA;
+    --violet-soft: rgba(167,139,250,0.08);
+    --sb: #3ECF8E;
+    --sb-soft: rgba(62,207,142,0.10);
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--t1); font-family:var(--sans); min-height:100vh; -webkit-font-smoothing:antialiased; }
+
+  .page-header { padding:40px 48px 24px; border-bottom:1px solid var(--border); }
+  .page-header h1 { font-family:var(--mono); font-size:11px; font-weight:500; letter-spacing:0.1em; text-transform:uppercase; color:var(--cyan); }
+  .page-header .sub { font-family:var(--mono); font-size:11px; color:var(--t3); margin-top:4px; }
+  .page-header .desc { font-size:13px; color:var(--t2); margin-top:12px; max-width:640px; line-height:1.6; }
+
+  .row { display:flex; gap:48px; padding:48px; flex-wrap:wrap; justify-content:center; align-items:flex-start; }
+  .col { display:flex; flex-direction:column; align-items:center; gap:10px; }
+  .col-label { font-family:var(--mono); font-size:9px; letter-spacing:0.12em; text-transform:uppercase; color:var(--t3); }
+  .col-sub { font-family:var(--mono); font-size:9px; color:var(--t4); }
+
+  /* ══════════════════════════════════════
+     DROPDOWN SHELL
+     ══════════════════════════════════════ */
+  .dd {
+    width: 300px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.2);
+  }
+
+  /* ── Compact: the always-visible part ── */
+  .dd-compact {
+    cursor: default;
+  }
+
+  /* ── Top bar: icon + name + status ── */
+  .dd-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+  }
+  .dd-top-av {
+    width: 24px; height: 24px;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .dd-top-name {
+    font-size: 13px;
+    font-weight: 600;
+    flex: 1;
+  }
+  .dd-top-status {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+  }
+  .dd-top-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+  }
+
+  /* ── Hero row: the key metric displayed prominently ── */
+  .dd-hero {
+    padding: 0 14px 12px;
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+  }
+  .dd-hero-left { flex: 1; }
+  .dd-hero-val {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .dd-hero-label {
+    font-size: 12px;
+    color: var(--t3);
+    margin-top: 3px;
+  }
+  .dd-hero-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    padding-bottom: 2px;
+  }
+
+  /* ── Inline tag ── */
+  .tag {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 100px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* ── Primary action bar ── */
+  .dd-action-bar {
+    padding: 0 14px 12px;
+  }
+  .action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: none;
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .action-btn:hover { filter: brightness(1.1); transform: translateY(-0.5px); }
+
+  /* ── Expand toggle ── */
+  .dd-expand-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 14px;
+    border-top: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.1s;
+    user-select: none;
+  }
+  .dd-expand-bar:hover { background: rgba(255,255,255,0.02); }
+  .dd-expand-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--t3);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .dd-expand-arrow {
+    transition: transform 0.2s;
+    font-size: 10px;
+  }
+  .dd.expanded .dd-expand-arrow { transform: rotate(180deg); }
+
+  /* ── Expanded panel ── */
+  .dd-panel {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    border-top: 0px solid transparent;
+  }
+  .dd.expanded .dd-panel {
+    max-height: 600px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ── Panel sections: left-bordered like Linear ── */
+  .p-section {
+    padding: 10px 14px 10px 14px;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+  .p-section:last-child { border-bottom: none; }
+
+  /* Colored left accent line (Linear signature) */
+  .p-section::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 6px; bottom: 6px;
+    width: 2px;
+    border-radius: 0 1px 1px 0;
+  }
+
+  .p-section-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .p-section-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--t2);
+  }
+  .p-section-badge {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--t3);
+    margin-left: auto;
+  }
+
+  /* ── Panel rows ── */
+  .p-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: 12px;
+  }
+  .p-row-label { color: var(--t3); flex-shrink: 0; }
+  .p-row-value { font-family: var(--mono); font-size: 11px; margin-left: auto; }
+  .p-row-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ── Panel action list ── */
+  .p-action {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    margin: 0 -8px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--t2);
+    cursor: pointer;
+    transition: all 0.1s;
+  }
+  .p-action:hover { background: rgba(255,255,255,0.04); color: var(--t1); }
+  .p-action-kbd {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--t4);
+  }
+
+  /* ── Deploy item ── */
+  .p-deploy {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .p-deploy:hover .pd-msg { color: var(--t1); }
+  .pd-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+  .pd-msg { color: var(--t2); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.1s; }
+  .pd-err { font-family:var(--mono); font-size:8px; padding:1px 5px; border-radius:3px; flex-shrink:0; }
+  .pd-time { font-family: var(--mono); font-size: 9px; color: var(--t4); flex-shrink: 0; }
+
+  /* ── URL line ── */
+  .p-url {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    margin: 2px -8px;
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 10px;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .p-url:hover { background: rgba(255,255,255,0.03); }
+  .p-url-tag {
+    font-size: 8px; font-weight: 600;
+    text-transform: uppercase;
+    padding: 1px 5px; border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .p-url-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .p-url-copy { opacity: 0.3; font-size: 11px; }
+  .p-url:hover .p-url-copy { opacity: 0.7; }
+
+  /* ── Usage bar (thin) ── */
+  .p-usage {
+    margin: 4px 0;
+  }
+  .p-usage-head {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+  .p-usage-label { font-size: 11px; color: var(--t3); }
+  .p-usage-val { font-family: var(--mono); font-size: 10px; }
+  .p-usage-track {
+    height: 2px;
+    background: var(--t4);
+    border-radius: 1px;
+    overflow: hidden;
+  }
+  .p-usage-fill { height: 100%; border-radius: 1px; }
+
+  /* ── Footer ── */
+  .dd-foot {
+    padding: 5px 14px 7px;
+    text-align: center;
+    border-top: 1px solid var(--border);
+  }
+  .dd-foot button {
+    font-family: var(--mono); font-size: 9px;
+    color: var(--t4); background: none; border: none; cursor: pointer;
+  }
+  .dd-foot button:hover { color: var(--red); }
+
+  /* ── Inline horizontal metrics ── */
+  .dd-metrics {
+    display: flex;
+    padding: 0 14px 10px;
+    gap: 0;
+  }
+  .dd-metric {
+    flex: 1;
+    text-align: center;
+    padding: 6px 0;
+    position: relative;
+  }
+  .dd-metric + .dd-metric::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 4px; bottom: 4px;
+    width: 1px;
+    background: var(--border);
+  }
+  .dd-metric-val { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+  .dd-metric-label { font-size: 9px; color: var(--t3); margin-top: 1px; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>V9 — Linear Expandable</h1>
+  <div class="sub">Compact default · click to expand · left-accent sections · text-forward</div>
+  <div class="desc">Starts compact: hero metric + primary action. Expand to reveal full details. Linear-inspired left-border color accents mark each section. No cards, no gauges — just typography, color, and whitespace. Click "More" to toggle.</div>
+</div>
+
+<div class="row">
+
+  <!-- ══════════════════════════════════════════
+       GITHUB — COMPACT
+       ══════════════════════════════════════════ -->
+  <div class="col">
+    <span class="col-label">GitHub</span>
+    <span class="col-sub">compact → expanded</span>
+    <div class="dd" id="gh" onclick="toggle('gh')">
+      <div class="dd-compact">
+        <div class="dd-top">
+          <div class="dd-top-av" style="background:#161b22;">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="rgba(255,255,255,0.7)"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          </div>
+          <span class="dd-top-name">rosendolopez</span>
+          <div class="dd-top-status" style="color:var(--green);">
+            <div class="dd-top-dot" style="background:var(--green);"></div>
+            Connected
+          </div>
+        </div>
+
+        <div class="dd-hero">
+          <div class="dd-hero-left">
+            <div class="dd-hero-val" style="color:var(--cyan);">3 ahead</div>
+            <div class="dd-hero-label">feat/gallery-revamp → origin</div>
+          </div>
+          <div class="dd-hero-right">
+            <span class="tag" style="background:var(--green-soft);color:var(--green);">CI ✓</span>
+          </div>
+        </div>
+
+        <div class="dd-action-bar">
+          <button class="action-btn" style="background:var(--cyan);color:#000;" onclick="event.stopPropagation()">Push 3 commits</button>
+        </div>
+      </div>
+
+      <div class="dd-expand-bar">
+        <span class="dd-expand-label">
+          <span class="dd-expand-arrow">▾</span>
+          More
+        </span>
+      </div>
+
+      <div class="dd-panel">
+        <!-- CI Section -->
+        <div class="p-section" style="--accent:var(--green);">
+          <div style="position:absolute;left:0;top:6px;bottom:6px;width:2px;border-radius:0 1px 1px 0;background:var(--green);"></div>
+          <div class="p-section-head">
+            <span class="p-section-title">CI Pipeline</span>
+            <span class="p-section-badge">All passing</span>
+          </div>
+          <div class="p-row">
+            <div class="p-row-dot" style="background:var(--green);"></div>
+            <span>Build & Test</span>
+            <span class="p-row-value" style="color:var(--green);">Passed</span>
+          </div>
+          <div class="p-row">
+            <div class="p-row-dot" style="background:var(--green);"></div>
+            <span>Lint</span>
+            <span class="p-row-value" style="color:var(--green);">Passed</span>
+          </div>
+        </div>
+
+        <!-- PR Section -->
+        <div class="p-section">
+          <div style="position:absolute;left:0;top:6px;bottom:6px;width:2px;border-radius:0 1px 1px 0;background:var(--green);opacity:0.5;"></div>
+          <div class="p-section-head">
+            <span class="p-section-title" style="color:var(--green);">#42 Add gallery view</span>
+            <span class="p-section-badge">1/2 approved</span>
+          </div>
+          <div class="p-row">
+            <span class="p-row-label">Status</span>
+            <span class="p-row-value" style="color:var(--green);">Open</span>
+          </div>
+          <div class="p-row">
+            <span class="p-row-label">Changes</span>
+            <span class="p-row-value" style="color:var(--t2);">+342 −89</span>
+          </div>
+        </div>
+
+        <!-- Commit -->
+        <div class="p-section">
+          <div style="position:absolute;left:0;top:6px;bottom:6px;width:2px;border-radius:0 1px 1px 0;background:var(--cyan);opacity:0.4;"></div>
+          <div class="p-row">
+            <span class="p-row-label">Last commit</span>
+            <span class="p-row-value" style="color:var(--cyan);">fc3c860</span>
+          </div>
+          <div class="p-row">
+            <span class="p-row-label">Branch</span>
+            <span class="p-row-value" style="color:var(--t2);">feat/gallery-revamp</span>
+          </div>
+          <div class="p-row">
+            <span class="p-row-label">Branches</span>
+            <span class="p-row-value" style="color:var(--t3);">4 total</span>
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="p-section" style="border-bottom:none;">
+          <div class="p-action">↗ Open on GitHub<span class="p-action-kbd">⌘⇧G</span></div>
+          <div class="p-action">⑂ Create Pull Request</div>
+        </div>
+
+        <div class="dd-foot"><button onclick="event.stopPropagation()">Disconnect</button></div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════
+       VERCEL — COMPACT
+       ══════════════════════════════════════════ -->
+  <div class="col">
+    <span class="col-label">Vercel</span>
+    <span class="col-sub">compact → expanded</span>
+    <div class="dd" id="vc" onclick="toggle('vc')">
+      <div class="dd-compact">
+        <div class="dd-top">
+          <div class="dd-top-av" style="background:#000;">
+            <svg width="11" height="9" viewBox="0 0 76 65" fill="white"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z"/></svg>
+          </div>
+          <span class="dd-top-name">claude-canvas</span>
+          <div class="dd-top-status" style="color:var(--green);">
+            <div class="dd-top-dot" style="background:var(--green);"></div>
+            Ready
+          </div>
+        </div>
+
+        <div class="dd-hero">
+          <div class="dd-hero-left">
+            <div class="dd-hero-val" style="color:var(--green);">Production</div>
+            <div class="dd-hero-label">fc3c860 · 12m ago · 2.1s build</div>
+          </div>
+          <div class="dd-hero-right">
+            <span class="tag" style="background:rgba(255,255,255,0.05);color:var(--t2);">Next.js</span>
+          </div>
+        </div>
+
+        <div class="dd-metrics">
+          <div class="dd-metric">
+            <div class="dd-metric-val" style="color:var(--green);">2.1s</div>
+            <div class="dd-metric-label">Build</div>
+          </div>
+          <div class="dd-metric">
+            <div class="dd-metric-val">148</div>
+            <div class="dd-metric-label">Deploys</div>
+          </div>
+          <div class="dd-metric">
+            <div class="dd-metric-val" style="color:var(--green);">4/5</div>
+            <div class="dd-metric-label">Success</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dd-expand-bar">
+        <span class="dd-expand-label">
+          <span class="dd-expand-arrow">▾</span>
+          More
+        </span>
+      </div>
+
+      <div class="dd-panel">
+        <!-- URLs -->
+        <div class="p-section">
+          <div style="position:absolute;left:0;top:6px;bottom:6px;width:2px;border-radius:0 1px 1px 0;background:var(--green);"></div>
+          <div class="p-section-head">
+            <span class="p-section-title">URLs</span>
+          </div>
+          <div class="p-url">
+            <span class="p-url-tag" style="background:var(--green-soft);color:var(--green);">Prod</span>
+            <span class="p-url-text" style="color:var(--green);">claude-canvas.vercel.app</span>
+            <span class="p-url-copy">⎘</span>
+          </div>
+          <div class="p-url">
+            <span class="p-url-tag" style="background:rgba(74,234,255,0.08);color:var(--cyan);">Preview</span>
+            <span class="p-url-text" style="color:var(--cyan);">gallery-revamp-a1b2.vercel.app</span>
+            <span class="p-url-copy">⎘</span>
+          </div>
+        </div>
+
+        <!-- Recent -->
+        <div class="p-section">
+          <div style="position:absolute;left:0;top:6px;bottom:6px;width:2px;border-radius:0 1px 1px 0;background:var(--t4);"></div>
+          <div class="p-section-head">
+            <span class="p-section-title">Recent</span>
+          </div>
+          <div class="p-deploy">
+            <div class="pd-dot" style="background:var(--green);"></div>
+            <span class="pd-msg">feat: complete Plan 2 features</span>
+            <span class="pd-time">12m</span>
+          </div>
+          <div class="p-deploy">
+            <div class="pd-dot" style="background:var(--green);"></div>
+            <span class="pd-msg">refactor: remove dead build-logs</span>
+            <span class="pd-time">2h</span>
+          </div>
+          <div class="p-deploy">
+            <div class="pd-dot" style="background:var(--red);"></div>
+            <span class="pd-msg">feat: add keyboard shortcuts</span>
+            <span class="pd-err" style="background:var(--red-soft);color:var(--red);">Module not found</span>
+            <span class="pd-time">5h</span>
+          </div>
+        </div>
+
+        <!-- Domains -->
+        <div class="p-section">
+          <div style="position:absolute;left:0;top:6px;bottom:6px;width:2px;border-radius:0 1px 1px 0;background:var(--t4);opacity:0.5;"></div>
+          <div class="p-row">
+            <span class="p-row-label">Domain</span>
+            <span class="p-row-value" style="color:var(--t2);">claudecanvas.dev</span>
+          </div>
+          <div class="p-row">
+            <span class="p-row-label">Framework</span>
+            <span class="p-row-value" style="color:var(--t3);">Next.js 15</span>
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="p-section" style="border-bottom:none;">
+          <div class="p-action">⟳ Redeploy</div>
+          <div class="p-action">↗ Open Dashboard<span class="p-action-kbd">⌘⇧V</span></div>
+          <div class="p-action">≡ Build Logs</div>
+        </div>
+
+        <div class="dd-foot"><button onclick="event.stopPropagation()">Disconnect</button></div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════
+       SUPABASE — COMPACT
+       ══════════════════════════════════════════ -->
+  <div class="col">
+    <span class="col-label">Supabase</span>
+    <span class="col-sub">compact → expanded</span>
+    <div class="dd" id="sb" onclick="toggle('sb')">
+      <div class="dd-compact">
+        <div class="dd-top">
+          <div class="dd-top-av" style="background:#1a3a2a;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--sb)" stroke-width="2.5"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          </div>
+          <span class="dd-top-name">canvas-prod</span>
+          <div class="dd-top-status" style="color:var(--sb);">
+            <div class="dd-top-dot" style="background:var(--sb);"></div>
+            Healthy
+          </div>
+        </div>
+
+        <div class="dd-hero">
+          <div class="dd-hero-left">
+            <div class="dd-hero-val" style="color:var(--sb);">1,247</div>
+            <div class="dd-hero-label">users · 42 MB database</div>
+          </div>
+          <div class="dd-hero-right">
+            <span class="tag" style="background:var(--sb-soft);color:var(--sb);">↑ 12%</span>
+          </div>
+        </div>
+
+        <div class="dd-metrics">
+          <div class="dd-metric">
+            <div class="dd-metric-val" style="color:var(--sb);">12</div>
+            <div class="dd-metric-label">Tables</div>
+          </div>
+          <div class="dd-metric">
+            <div class="dd-metric-val" style="color:var(--violet);">5</div>
+            <div class="dd-metric-label">Functions</div>
+          </div>
+          <div class="dd-metric">
+            <div class="dd-metric-val" style="color:var(--amber);">8</div>
+            <div class="dd-metric-label">RLS</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dd-expand-bar">
+        <span class="dd-expand-label">
+          <span class="dd-expand-arrow">▾</span>
+          More
+        </span>
+      </div>
+
+      <div class="dd-panel">
+        <!-- Connection -->
+        <div class="p-section">
+          <div style="position:absolute;left:0;top:6px;bottom:6px;width:2px;border-radius:0 1px 1px 0;background:var(--sb);"></div>
+          <div class="p-section-head">
+            <span class="p-section-title">Connection</span>
+          </div>
+          <div class="p-url">
+            <span class="p-url-tag" style="background:var(--sb-soft);color:var(--sb);">URL</span>
+            <span class="p-url-text" style="color:var(--sb);">xyzcompany.supabase.co</span>
+            <span class="p-url-copy">⎘</span>
+          </div>
+        </div>
+
+        <!-- Usage -->
+        <div class="p-section">
+          <div style="position:absolute;left:0;top:6px;bottom:6px;width:2px;border-radius:0 1px 1px 0;background:var(--sb);opacity:0.5;"></div>
+          <div class="p-section-head">
+            <span class="p-section-title">Usage</span>
+            <span class="p-section-badge">Pro plan</span>
+          </div>
+          <div class="p-usage">
+            <div class="p-usage-head">
+              <span class="p-usage-label">Database</span>
+              <span class="p-usage-val" style="color:var(--sb);">42 MB <span style="color:var(--t4);">/ 8 GB</span></span>
+            </div>
+            <div class="p-usage-track">
+              <div class="p-usage-fill" style="width:0.5%;min-width:4px;background:var(--sb);"></div>
+            </div>
+          </div>
+          <div class="p-usage">
+            <div class="p-usage-head">
+              <span class="p-usage-label">API Requests</span>
+              <span class="p-usage-val" style="color:var(--t2);">8.2k <span style="color:var(--t4);">/ 500k</span></span>
+            </div>
+            <div class="p-usage-track">
+              <div class="p-usage-fill" style="width:1.6%;min-width:4px;background:var(--violet);"></div>
+            </div>
+          </div>
+          <div class="p-usage" style="margin-bottom:0;">
+            <div class="p-usage-head">
+              <span class="p-usage-label">Storage</span>
+              <span class="p-usage-val" style="color:var(--t2);">128 MB <span style="color:var(--t4);">/ 1 GB</span></span>
+            </div>
+            <div class="p-usage-track">
+              <div class="p-usage-fill" style="width:12.8%;background:var(--amber);"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Auth -->
+        <div class="p-section">
+          <div style="position:absolute;left:0;top:6px;bottom:6px;width:2px;border-radius:0 1px 1px 0;background:var(--violet);opacity:0.4;"></div>
+          <div class="p-section-head">
+            <span class="p-section-title">Auth</span>
+          </div>
+          <div class="p-row">
+            <span class="p-row-label">Total users</span>
+            <span class="p-row-value" style="color:var(--sb);">1,247</span>
+          </div>
+          <div class="p-row">
+            <span class="p-row-label">Providers</span>
+            <span class="p-row-value" style="color:var(--t2);">Email · GitHub</span>
+          </div>
+          <div class="p-row">
+            <span class="p-row-label">Last sign-up</span>
+            <span class="p-row-value" style="color:var(--t3);">14m ago</span>
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="p-section" style="border-bottom:none;">
+          <div class="p-action">↗ Open Dashboard</div>
+          <div class="p-action">⊞ SQL Editor</div>
+          <div class="p-action">🔑 Auth Settings</div>
+        </div>
+
+        <div class="dd-foot"><button onclick="event.stopPropagation()">Disconnect</button></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function toggle(id) {
+  document.getElementById(id).classList.toggle('expanded');
+}
+
+// Start with all expanded for review
+document.querySelectorAll('.dd').forEach(dd => dd.classList.add('expanded'));
+</script>
+
+</body>
+</html>

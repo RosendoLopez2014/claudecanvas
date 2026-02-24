@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Terminal, Monitor, GitBranch, Globe, Keyboard, Settings as SettingsIcon, FileKey } from 'lucide-react'
+import { X, Terminal, Monitor, GitBranch, Globe, Keyboard, Settings as SettingsIcon, FileKey, Check } from 'lucide-react'
 import { PermissionManager } from './PermissionManager'
 import { EnvEditor } from './EnvEditor'
 import { useProjectStore } from '@/stores/project'
+import { GIT_PUSH_MODES, type GitPushMode } from '../../../shared/constants'
 
 type SettingsTab = 'general' | 'terminal' | 'canvas' | 'git' | 'env' | 'services' | 'permissions'
 
@@ -81,6 +82,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const [checkpointThreshold, setCheckpointThreshold] = useState(5)
   const [autoGallery, setAutoGallery] = useState(true)
   const [fetchInterval, setFetchInterval] = useState(3)
+  const [pushMode, setPushMode] = useState<GitPushMode>('solo')
 
   // Load settings
   useEffect(() => {
@@ -91,6 +93,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     window.api.settings.get('checkpointThreshold').then((v) => { if (typeof v === 'number') setCheckpointThreshold(v) })
     window.api.settings.get('autoGallery').then((v) => { if (v !== null) setAutoGallery(v !== false) })
     window.api.settings.get('fetchInterval').then((v) => { if (typeof v === 'number') setFetchInterval(v) })
+    window.api.settings.get('gitPushMode').then((v) => { if (v && typeof v === 'string') setPushMode(v as GitPushMode) })
   }, [open])
 
   const saveSetting = useCallback((key: string, value: unknown) => {
@@ -167,6 +170,32 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
                 {tab === 'git' && (
                   <div>
+                    {/* Push workflow mode */}
+                    <div className="mb-4">
+                      <div className="text-xs text-white/60 mb-2">Push Workflow</div>
+                      <div className="space-y-1.5">
+                        {(Object.entries(GIT_PUSH_MODES) as [GitPushMode, typeof GIT_PUSH_MODES[GitPushMode]][]).map(([key, mode]) => (
+                          <button
+                            key={key}
+                            onClick={() => { setPushMode(key); saveSetting('gitPushMode', key) }}
+                            className={`w-full text-left px-3 py-2.5 rounded-lg border transition-colors ${
+                              pushMode === key
+                                ? 'border-[var(--accent-cyan)]/40 bg-[var(--accent-cyan)]/[0.06]'
+                                : 'border-white/5 bg-white/[0.02] hover:border-white/10'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className={`text-xs font-medium ${pushMode === key ? 'text-[var(--accent-cyan)]' : 'text-white/70'}`}>
+                                {mode.label}
+                              </span>
+                              {pushMode === key && <Check size={12} className="text-[var(--accent-cyan)]" />}
+                            </div>
+                            <div className="text-[10px] text-white/30 mt-0.5">{mode.description}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
                     <SettingRow label="Auto-checkpoint" description="Automatically create checkpoints after file changes">
                       <Toggle value={autoCheckpoint} onChange={(v) => { setAutoCheckpoint(v); saveSetting('autoCheckpointEnabled', v) }} />
                     </SettingRow>

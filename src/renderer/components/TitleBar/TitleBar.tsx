@@ -1,10 +1,12 @@
 import { Minus, Square, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { ServiceIcons } from '../ServiceIcons/ServiceIcons'
+import { useProjectStore } from '@/stores/project'
 
 export function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false)
   const platform = window.api.platform
+  const screen = useProjectStore((s) => s.screen)
 
   useEffect(() => {
     window.api.window.isMaximized().then(setIsMaximized)
@@ -24,9 +26,9 @@ export function TitleBar() {
         <span className="text-xs font-medium text-white/50 no-drag">Claude Canvas</span>
       </div>
 
-      {/* Center/Right: Service icons + Windows controls */}
+      {/* Center/Right: Service icons (only in workspace) + Windows controls */}
       <div className="flex items-center gap-2">
-        <ServiceIcons />
+        {screen === 'workspace' && <ServiceIcons />}
       </div>
 
       {/* Right: Windows controls (hidden on macOS) */}

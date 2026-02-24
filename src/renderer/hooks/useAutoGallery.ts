@@ -1,82 +1,66 @@
-import { useEffect } from 'react'
-import { useProjectStore } from '@/stores/project'
-import { useGalleryStore } from '@/stores/gallery'
-import { useCanvasStore } from '@/stores/canvas'
-import { useWorkspaceStore } from '@/stores/workspace'
+import { useEffect, useRef } from 'react'
 import { useTabsStore } from '@/stores/tabs'
-import { useToastStore } from '@/stores/toast'
-
-/** File extensions that can contain React components */
-const COMPONENT_EXTS = /\.(tsx|jsx)$/
-
-/** Paths that indicate a components directory */
-const COMPONENT_DIR = /[/\\](components?|ui|widgets|views)[/\\]/i
+import { useGalleryStore } from '@/stores/gallery'
 
 /**
- * Listens for new component files via the file watcher and
- * auto-adds them to the gallery with a placeholder render.
- *
- * This enables the "auto-render on component creation" workflow:
- * Claude creates a component → it appears in the gallery immediately.
+ * Generate a simple HTML placeholder card for a discovered component.
+ */
+function componentPlaceholderHtml(name: string, relativePath: string): string {
+  return [
+    '<div style="padding:16px;font-family:system-ui,sans-serif;',
+    'background:#1a1a2e;color:#e0e0e0;border-radius:8px;',
+    'border:1px solid rgba(74,234,255,0.15)">',
+    `<h3 style="margin:0 0 4px;color:#4AEAFF">${name}</h3>`,
+    `<p style="margin:0;color:#888;font-size:13px">Component from ${relativePath}</p>`,
+    '</div>',
+  ].join('')
+}
+
+/**
+ * Auto-scan components when the active project changes.
+ * Discovers .tsx/.jsx files in src/components/ and adds them to the gallery
+ * with source='auto-scan' so they can be distinguished from manual variants.
  */
 export function useAutoGallery() {
-  const projectPath = useProjectStore((s) => s.currentProject?.path)
+  const activeTabId = useTabsStore((s) => s.activeTabId)
+  const scannedProjectsRef = useRef(new Set<string>())
 
-  // Scan existing components on project open
   useEffect(() => {
+    const activeTab = useTabsStore.getState().getActiveTab()
+    if (!activeTab) return
+
+    const projectPath = activeTab.project.path
     if (!projectPath) return
 
+    // Only scan each project once per session
+    if (scannedProjectsRef.current.has(projectPath)) return
+    scannedProjectsRef.current.add(projectPath)
+
+    // Scan in the background — don't block rendering
     window.api.component.scan(projectPath).then((components) => {
+      if (!components || components.length === 0) return
+
       const gallery = useGalleryStore.getState()
-      const existing = gallery.variants.map((v) => v.label)
+
+      // Check existing variants to avoid duplicates
+      const existingLabels = new Set(gallery.variants.map((v) => v.label))
 
       for (const comp of components) {
-        if (existing.includes(comp.name)) continue
+        // Skip if a variant with this label already exists
+        if (existingLabels.has(comp.name)) continue
+
         gallery.addVariant({
-          id: `scan-${Date.now()}-${comp.name}`,
+          id: `auto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           label: comp.name,
-          html: `<div style="padding:20px;font-family:system-ui"><h3>${comp.name}</h3><p style="color:#888;font-size:12px">${comp.relativePath}</p></div>`,
+          html: componentPlaceholderHtml(comp.name, comp.relativePath),
+          description: `Auto-discovered from ${comp.relativePath}`,
+          category: 'auto-scan',
+          status: 'proposal',
+          createdAt: Date.now(),
         })
       }
-    }).catch(() => {})
-  }, [projectPath])
-
-  // Listen for new component file adds
-  useEffect(() => {
-    if (!projectPath) return
-
-    const cleanup = window.api.fs.onAdd(async ({ projectPath: eventPath, path: filePath }) => {
-      if (eventPath !== projectPath) return
-      if (!COMPONENT_EXTS.test(filePath)) return
-      if (!COMPONENT_DIR.test(filePath)) return
-
-      const parsed = await window.api.component.parse(filePath)
-      if (!parsed) return
-
-      // Check if already in gallery (avoid duplicates on rapid saves)
-      const existing = useGalleryStore.getState().variants
-      if (existing.some((v) => v.label === parsed.name)) return
-
-      useGalleryStore.getState().addVariant({
-        id: `auto-${Date.now()}-${parsed.name}`,
-        label: parsed.name,
-        html: parsed.renderHtml,
-      })
-
-      // Open canvas to gallery if not already showing
-      if (useWorkspaceStore.getState().mode !== 'terminal-canvas') {
-        useWorkspaceStore.getState().openCanvas()
-      }
-      useCanvasStore.getState().setActiveTab('gallery')
-
-      const activeTab = useTabsStore.getState().getActiveTab()
-      if (activeTab) {
-        useTabsStore.getState().updateTab(activeTab.id, { activeCanvasTab: 'gallery' })
-      }
-
-      useToastStore.getState().addToast(`Added ${parsed.name} to gallery`, 'info')
+    }).catch((err) => {
+      console.warn('[auto-gallery] Failed to scan components:', err)
     })
-
-    return cleanup
-  }, [projectPath])
+  }, [activeTabId])
 }

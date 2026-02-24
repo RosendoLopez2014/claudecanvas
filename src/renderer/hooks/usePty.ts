@@ -96,6 +96,18 @@ export function usePty() {
       if (ptyIdRef.current !== id || claudeLaunchedRef.current) return
       claudeLaunchedRef.current = true
 
+      // MCP is confirmed ready (waitForMcpReady resolved before we get here).
+      // Set per-tab flag so the boot overlay progresses even for tabs opened
+      // after the shared MCP server was already started by the first tab.
+      if (targetTabId) {
+        const t = useTabsStore.getState().tabs.find(tab => tab.id === targetTabId)
+        if (t && !t.boot.mcpReady) {
+          useTabsStore.getState().updateTab(targetTabId, {
+            boot: { ...t.boot, mcpReady: true }
+          })
+        }
+      }
+
       // Ensure output is no longer suppressed
       suppressOutput = false
 

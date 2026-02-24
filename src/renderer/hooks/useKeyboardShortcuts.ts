@@ -3,7 +3,8 @@ import { useCanvasStore } from '@/stores/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useTabsStore } from '@/stores/tabs'
 import { useProjectStore } from '@/stores/project'
-import { destroyTerminal } from '@/services/terminalPool'
+import { useGalleryStore } from '@/stores/gallery'
+import { destroyTerminalsForTab } from '@/services/terminalPool'
 
 interface ShortcutHandlers {
   onQuickActions: () => void
@@ -36,7 +37,7 @@ export function useKeyboardShortcuts({ onQuickActions, onShortcutSheet, onSettin
         e.preventDefault()
         const { activeTabId } = useTabsStore.getState()
         if (!activeTabId) return
-        destroyTerminal(activeTabId)
+        destroyTerminalsForTab(activeTabId)
         useTabsStore.getState().closeTabAsync(activeTabId)
         return
       }
@@ -63,6 +64,35 @@ export function useKeyboardShortcuts({ onQuickActions, onShortcutSheet, onSettin
         const { tabs, activeTabId, setActiveTab: switchTab } = useTabsStore.getState()
         const idx = tabs.findIndex((t) => t.id === activeTabId)
         if (idx > 0) switchTab(tabs[idx - 1].id)
+        return
+      }
+
+      // Cmd+Shift+S — Toggle split view (active project's branches)
+      if (meta && e.shiftKey && e.key === 's') {
+        e.preventDefault()
+        const ws = useWorkspaceStore.getState()
+        if (ws.splitViewActive) {
+          ws.exitSplitView()
+        } else {
+          const { tabs, activeTabId: aid } = useTabsStore.getState()
+          const activeTab = tabs.find((t) => t.id === aid)
+          if (activeTab) {
+            const projectBranches = tabs.filter((t) => t.project.name === activeTab.project.name)
+            if (projectBranches.length >= 2) {
+              ws.enterSplitView('project')
+            }
+          }
+        }
+        return
+      }
+
+      // Cmd+D — Split terminal horizontally
+      if (meta && e.key === 'd' && !e.shiftKey) {
+        e.preventDefault()
+        const { activeTabId } = useTabsStore.getState()
+        if (activeTabId) {
+          useTabsStore.getState().addSplit(activeTabId)
+        }
         return
       }
 
@@ -123,8 +153,71 @@ export function useKeyboardShortcuts({ onQuickActions, onShortcutSheet, onSettin
         return
       }
 
-      // Escape — Close overlays / deactivate inspector
+      // ── Gallery keyboard shortcuts (only when gallery tab is active) ──
+      const canvasActiveTab = useCanvasStore.getState().activeTab
+      const galleryActive = mode === 'terminal-canvas' && canvasActiveTab === 'gallery'
+
+      if (galleryActive && !meta && !e.shiftKey) {
+        const gallery = useGalleryStore.getState()
+        const displayVariants = gallery.activeSessionId
+          ? gallery.variants.filter((v) => v.sessionId === gallery.activeSessionId)
+          : gallery.variants
+        const currentIdx = displayVariants.findIndex((v) => v.id === gallery.selectedId)
+
+        // ArrowLeft / ArrowRight — Navigate between variants
+        if (e.key === 'ArrowLeft' && displayVariants.length > 0) {
+          e.preventDefault()
+          const nextIdx = currentIdx > 0 ? currentIdx - 1 : displayVariants.length - 1
+          gallery.setSelectedId(displayVariants[nextIdx].id)
+          return
+        }
+        if (e.key === 'ArrowRight' && displayVariants.length > 0) {
+          e.preventDefault()
+          const nextIdx = currentIdx < displayVariants.length - 1 ? currentIdx + 1 : 0
+          gallery.setSelectedId(displayVariants[nextIdx].id)
+          return
+        }
+
+        // Enter — Select the focused variant (in session mode)
+        if (e.key === 'Enter' && gallery.selectedId && gallery.viewMode === 'session') {
+          e.preventDefault()
+          gallery.selectVariant(gallery.selectedId)
+          return
+        }
+
+        // C — Toggle compare mode with focused + selected
+        if (e.key === 'c' || e.key === 'C') {
+          e.preventDefault()
+          if (gallery.viewMode === 'compare') {
+            gallery.setViewMode('grid')
+            gallery.setCompareIds(null)
+          } else if (gallery.selectedId && displayVariants.length >= 2) {
+            const other = displayVariants.find((v) => v.id !== gallery.selectedId)
+            if (other) {
+              gallery.setCompareIds([gallery.selectedId, other.id])
+              gallery.setViewMode('compare')
+            }
+          }
+          return
+        }
+
+        // 1-3 — Quick-select variant by position
+        if (e.key >= '1' && e.key <= '3') {
+          const idx = parseInt(e.key) - 1
+          if (idx < displayVariants.length) {
+            e.preventDefault()
+            gallery.setSelectedId(displayVariants[idx].id)
+          }
+          return
+        }
+      }
+
+      // Escape — Exit split view / close overlays / deactivate inspector
       if (e.key === 'Escape') {
+        if (useWorkspaceStore.getState().splitViewActive) {
+          useWorkspaceStore.getState().exitSplitView()
+          return
+        }
         if (inspectorActive) {
           setInspectorActive(false)
         }

@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { GitBranch, FolderPlus, Plus, Loader2, ArrowLeft } from 'lucide-react'
-import { useTabsStore } from '@/stores/tabs'
+import { useTabsStore, selectActiveTab } from '@/stores/tabs'
 import { useProjectStore } from '@/stores/project'
 import { useToastStore } from '@/stores/toast'
 
@@ -10,7 +10,7 @@ interface NewTabMenuProps {
 }
 
 export function NewTabMenu({ onClose }: NewTabMenuProps) {
-  const activeTab = useTabsStore((s) => s.getActiveTab())
+  const activeTab = useTabsStore(selectActiveTab)
   const [mode, setMode] = useState<'menu' | 'new-branch' | 'existing-branch'>('menu')
   const [branchName, setBranchName] = useState('')
   const [branches, setBranches] = useState<string[]>([])
@@ -38,13 +38,22 @@ export function NewTabMenu({ onClose }: NewTabMenuProps) {
     if (!activeTab || !branchName.trim() || loading) return
     setLoading(true)
     const name = branchName.trim().replace(/\s+/g, '-')
-    const targetDir = `${activeTab.project.path}/../${activeTab.project.name}-${name}`
     try {
+      // Derive target dir from main worktree root, not current (possibly worktree) path
+      const worktrees = await window.api.worktree.list(activeTab.project.path)
+      const mainRoot = Array.isArray(worktrees) ? (worktrees[0]?.path || activeTab.project.path) : activeTab.project.path
+      const parentDir = mainRoot.replace(/\/[^/]+$/, '')
+      const targetDir = `${parentDir}/${activeTab.project.name}-${name}`
       const result = await window.api.worktree.create({
         projectPath: activeTab.project.path,
         branchName: name,
         targetDir,
       })
+      if ('error' in result) {
+        useToastStore.getState().addToast(`Failed: ${result.error}`, 'error')
+        setLoading(false)
+        return
+      }
       const tabId = useTabsStore.getState().addTab({
         name: activeTab.project.name,
         path: result.path,
@@ -72,7 +81,11 @@ export function NewTabMenu({ onClose }: NewTabMenuProps) {
     setLoading(true)
     try {
       const result = await window.api.worktree.branches(activeTab.project.path)
-      setBranches(result.branches.filter((b: string) => b !== result.current))
+      if ('error' in result) {
+        useToastStore.getState().addToast(`Failed to list branches: ${result.error}`, 'error')
+      } else {
+        setBranches(result.branches.filter((b: string) => b !== result.current))
+      }
     } catch (err: any) {
       useToastStore.getState().addToast(`Failed to list branches: ${err?.message}`, 'error')
     }
@@ -82,13 +95,43 @@ export function NewTabMenu({ onClose }: NewTabMenuProps) {
   const handleCheckoutBranch = useCallback(async (branch: string) => {
     if (!activeTab || loading) return
     setLoading(true)
-    const targetDir = `${activeTab.project.path}/../${activeTab.project.name}-${branch}`
     try {
+      // Check if a worktree already exists for this branch
+      const worktrees = await window.api.worktree.list(activeTab.project.path)
+      if (Array.isArray(worktrees)) {
+        const existing = worktrees.find((w) => w.branch === branch)
+        if (existing) {
+          const tabId = useTabsStore.getState().addTab({
+            name: activeTab.project.name,
+            path: existing.path,
+          })
+          useTabsStore.getState().updateTab(tabId, {
+            worktreeBranch: existing.branch,
+            worktreePath: existing.path,
+          })
+          window.api.mcp.projectOpened(existing.path).then(({ port }) => {
+            useTabsStore.getState().updateTab(tabId, { mcpReady: true, mcpPort: port })
+          })
+          useToastStore.getState().addToast(`Opened ${branch}`, 'success')
+          onClose()
+          setLoading(false)
+          return
+        }
+      }
+      // Derive target dir from main worktree root, not current (possibly worktree) path
+      const mainRoot = Array.isArray(worktrees) ? (worktrees[0]?.path || activeTab.project.path) : activeTab.project.path
+      const parentDir = mainRoot.replace(/\/[^/]+$/, '')
+      const targetDir = `${parentDir}/${activeTab.project.name}-${branch}`
       const result = await window.api.worktree.checkout({
         projectPath: activeTab.project.path,
         branchName: branch,
         targetDir,
       })
+      if ('error' in result) {
+        useToastStore.getState().addToast(`Failed: ${result.error}`, 'error')
+        setLoading(false)
+        return
+      }
       const tabId = useTabsStore.getState().addTab({
         name: activeTab.project.name,
         path: result.path,

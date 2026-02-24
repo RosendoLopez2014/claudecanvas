@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useCanvasStore } from '@/stores/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { useGalleryStore } from '@/stores/gallery'
+import { useGalleryStore, type GalleryVariant } from '@/stores/gallery'
 import { useProjectStore } from '@/stores/project'
 import { useToastStore } from '@/stores/toast'
 import { useTabsStore } from '@/stores/tabs'
@@ -39,6 +39,13 @@ export function useMcpCommands() {
     /** Returns true if the event's project has no open tab. */
     const shouldSkipEvent = (eventPath?: string): boolean => {
       return !findTargetTab(eventPath)
+    }
+
+    /** Open the canvas panel if it's not already open. */
+    const ensureCanvasOpen = (): void => {
+      if (useWorkspaceStore.getState().mode !== 'terminal-canvas') {
+        useWorkspaceStore.getState().openCanvas()
+      }
     }
 
     // canvas_render — evaluate size, then route to inline or canvas
@@ -88,9 +95,7 @@ export function useMcpCommands() {
           }
         } else {
           // Large component — render in canvas panel
-          if (useWorkspaceStore.getState().mode !== 'terminal-canvas') {
-            useWorkspaceStore.getState().openCanvas()
-          }
+          ensureCanvasOpen()
           useGalleryStore.getState().addVariant({
             id: `render-${Date.now()}`,
             label: 'Live Render',
@@ -109,36 +114,52 @@ export function useMcpCommands() {
         const projectCwd = cwd || useProjectStore.getState().currentProject?.path
         if (!projectCwd) return
 
+        // If no command provided, pre-resolve to check confidence.
+        // Low-confidence plans should not auto-start — show toast instead.
+        // When confidence is OK, let dev:start auto-resolve internally
+        // (it handles subdirectory projects correctly via spawnCwd).
+        if (!command) {
+          try {
+            const resolved = await window.api.dev.resolve(projectCwd)
+            if (!resolved?.plan || resolved.plan.confidence === 'low') {
+              useToastStore.getState().addToast(
+                'Could not auto-detect dev command. Use the Start button to configure.',
+                'info'
+              )
+              return
+            }
+          } catch {
+            useToastStore.getState().addToast('Failed to resolve dev command', 'error')
+            return
+          }
+        }
+
+        useTabsStore.getState().updateDevForProject(projectCwd, { status: 'starting' })
+
         // Listen for dev server output to detect URL
         const removeOutput = window.api.dev.onOutput(({ data }) => {
-          // Match common dev server URL patterns (Vite, Next, CRA, etc.)
-          const urlMatch = data.match(/https?:\/\/localhost:\d+/)
+          const urlMatch = data.match(/https?:\/\/(?:localhost|127\.0\.0\.1):\d+/)
           if (urlMatch) {
             const url = urlMatch[0]
-            useCanvasStore.getState().setPreviewUrl(url)
-            useProjectStore.getState().setDevServerRunning(true)
-            if (useWorkspaceStore.getState().mode !== 'terminal-canvas') {
-              useWorkspaceStore.getState().openCanvas()
-            }
-            useCanvasStore.getState().setActiveTab('preview')
-            updateTargetTab(eventPath, { previewUrl: url, isDevServerRunning: true, activeCanvasTab: 'preview' })
+            useTabsStore.getState().updateDevForProject(projectCwd, { status: 'running', url })
+            useTabsStore.getState().updateTabsByProject(projectCwd, { previewUrl: url, activeCanvasTab: 'preview' })
+            ensureCanvasOpen()
             useToastStore.getState().addToast(`Preview loaded: ${url}`, 'success')
           }
         })
         cleanups.push(removeOutput)
 
-        const result = await window.api.dev.start(projectCwd, command)
+        // Pass command only when MCP explicitly provided one;
+        // otherwise let dev:start auto-resolve (handles subdirectories)
+        const result = await window.api.dev.start(projectCwd, command || undefined)
 
-        // If port was detected immediately, set the URL
-        if (result?.port) {
-          const url = result.url || `http://localhost:${result.port}`
-          useCanvasStore.getState().setPreviewUrl(url)
-          useProjectStore.getState().setDevServerRunning(true)
-          if (useWorkspaceStore.getState().mode !== 'terminal-canvas') {
-            useWorkspaceStore.getState().openCanvas()
-          }
-          useCanvasStore.getState().setActiveTab('preview')
-          updateTargetTab(eventPath, { previewUrl: url, isDevServerRunning: true, activeCanvasTab: 'preview' })
+        if (result?.url) {
+          const url = result.url
+          useTabsStore.getState().updateDevForProject(projectCwd, { status: 'running', url, pid: result.pid ?? null })
+          useTabsStore.getState().updateTabsByProject(projectCwd, { previewUrl: url, activeCanvasTab: 'preview' })
+          ensureCanvasOpen()
+        } else if (result?.error) {
+          useTabsStore.getState().updateDevForProject(projectCwd, { status: 'error', lastError: result.error })
         }
       })
     )
@@ -147,10 +168,13 @@ export function useMcpCommands() {
     cleanups.push(
       window.api.mcp.onStopPreview(async ({ projectPath: eventPath }) => {
         if (shouldSkipEvent(eventPath)) return
-        const projectCwd = useProjectStore.getState().currentProject?.path
-        await window.api.dev.stop(projectCwd)
-        useProjectStore.getState().setDevServerRunning(false)
-        updateTargetTab(eventPath, { isDevServerRunning: false, previewUrl: null })
+        const projectCwd = findTargetTab(eventPath)?.project.path
+          || useProjectStore.getState().currentProject?.path
+        if (projectCwd) {
+          await window.api.dev.stop(projectCwd)
+          useTabsStore.getState().updateDevForProject(projectCwd, { status: 'stopped', url: null, pid: null })
+          useTabsStore.getState().updateTabsByProject(projectCwd, { previewUrl: null })
+        }
         useWorkspaceStore.getState().closeCanvas()
       })
     )
@@ -159,11 +183,7 @@ export function useMcpCommands() {
     cleanups.push(
       window.api.mcp.onSetPreviewUrl(({ projectPath: eventPath, url }) => {
         if (shouldSkipEvent(eventPath)) return
-        useCanvasStore.getState().setPreviewUrl(url)
-        if (useWorkspaceStore.getState().mode !== 'terminal-canvas') {
-          useWorkspaceStore.getState().openCanvas()
-        }
-        useCanvasStore.getState().setActiveTab('preview')
+        ensureCanvasOpen()
         updateTargetTab(eventPath, { previewUrl: url, activeCanvasTab: 'preview' })
       })
     )
@@ -172,9 +192,7 @@ export function useMcpCommands() {
     cleanups.push(
       window.api.mcp.onOpenTab(({ projectPath: eventPath, tab }) => {
         if (shouldSkipEvent(eventPath)) return
-        if (useWorkspaceStore.getState().mode !== 'terminal-canvas') {
-          useWorkspaceStore.getState().openCanvas()
-        }
+        ensureCanvasOpen()
         useCanvasStore.getState().setActiveTab(tab as any)
         updateTargetTab(eventPath, { activeCanvasTab: tab })
       })
@@ -182,18 +200,87 @@ export function useMcpCommands() {
 
     // canvas_add_to_gallery
     cleanups.push(
-      window.api.mcp.onAddToGallery(({ projectPath: eventPath, label, html, css }) => {
+      window.api.mcp.onAddToGallery(({ projectPath: eventPath, label, html, css, description, category, pros, cons, annotations, sessionId, order }) => {
         if (shouldSkipEvent(eventPath)) return
-        useGalleryStore.getState().addVariant({
-          id: `gallery-${Date.now()}`,
+        const variant: GalleryVariant = {
+          id: `gallery-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           label,
-          html: css ? `<style>${css}</style>${html}` : html
-        })
-        if (useWorkspaceStore.getState().mode !== 'terminal-canvas') {
-          useWorkspaceStore.getState().openCanvas()
+          html: css ? `<style>${css}</style>${html}` : html,
+          css,
+          description,
+          category,
+          pros,
+          cons,
+          annotations,
+          sessionId,
+          order,
+          status: 'proposal',
+          createdAt: Date.now(),
         }
+        if (sessionId) {
+          useGalleryStore.getState().addVariantToSession(sessionId, variant)
+        } else {
+          useGalleryStore.getState().addVariant(variant)
+        }
+        ensureCanvasOpen()
         useCanvasStore.getState().setActiveTab('gallery')
         updateTargetTab(eventPath, { activeCanvasTab: 'gallery' })
+      })
+    )
+
+    // canvas_design_session
+    cleanups.push(
+      window.api.mcp.onDesignSession(({ projectPath: eventPath, action, sessionId, title, prompt, variantId }) => {
+        if (shouldSkipEvent(eventPath)) return
+        const gallery = useGalleryStore.getState()
+
+        if (action === 'start' && sessionId) {
+          gallery.startSession({
+            id: sessionId,
+            title: title || 'Design Session',
+            projectPath: eventPath || '',
+            createdAt: Date.now(),
+            variants: [],
+            prompt,
+          })
+          gallery.setViewMode('session')
+          ensureCanvasOpen()
+          useCanvasStore.getState().setActiveTab('gallery')
+          updateTargetTab(eventPath, { activeCanvasTab: 'gallery' })
+        }
+
+        if (action === 'end') {
+          gallery.endSession(gallery.activeSessionId || '')
+        }
+
+        if (action === 'select' && variantId) {
+          gallery.selectVariant(variantId)
+        }
+      })
+    )
+
+    // Expose gallery state on window for MCP get_status tool
+    const unsub = useGalleryStore.subscribe((state) => {
+      const activeSession = state.sessions.find((s) => s.id === state.activeSessionId)
+      ;(window as any).__galleryState = {
+        activeSessionId: state.activeSessionId,
+        viewMode: state.viewMode,
+        sessionTitle: activeSession?.title || null,
+        variantCount: activeSession ? activeSession.variants.length : state.variants.length,
+        selectedId: state.selectedId,
+        variants: (activeSession
+          ? state.variants.filter((v) => activeSession.variants.includes(v.id))
+          : state.variants
+        ).map((v) => ({ id: v.id, label: v.label, status: v.status || 'proposal' })),
+      }
+    })
+    cleanups.push(unsub)
+
+    // canvas_update_variant
+    cleanups.push(
+      window.api.mcp.onUpdateVariant(({ projectPath: eventPath, variantId, ...updates }) => {
+        if (shouldSkipEvent(eventPath)) return
+        useGalleryStore.getState().updateVariant(variantId, updates)
       })
     )
 
@@ -207,17 +294,20 @@ export function useMcpCommands() {
         if (result?.hash) {
           await window.api.screenshot.captureCheckpoint(result.hash, project.path)
 
-          // Auto-open diff tab with this checkpoint's changes
-          const parentHash = result.hash + '~1'
-          useCanvasStore.getState().setDiffHashes(parentHash, result.hash)
-          updateTargetTab(eventPath, {
-            diffBeforeHash: parentHash,
-            diffAfterHash: result.hash,
-            activeCanvasTab: 'diff',
-          })
-          useCanvasStore.getState().setActiveTab('diff')
-          if (useWorkspaceStore.getState().mode !== 'terminal-canvas') {
-            useWorkspaceStore.getState().openCanvas()
+          // Resolve the actual parent commit hash (not `hash~1` string which
+          // breaks screenshot lookup and timeline badge matching)
+          const log = await window.api.git.log(project.path, 2) as { hash: string }[]
+          const parentHash = log[1]?.hash || null
+
+          if (parentHash) {
+            useCanvasStore.getState().setDiffHashes(parentHash, result.hash)
+            updateTargetTab(eventPath, {
+              diffBeforeHash: parentHash,
+              diffAfterHash: result.hash,
+              activeCanvasTab: 'diff',
+            })
+            useCanvasStore.getState().setActiveTab('diff')
+            ensureCanvasOpen()
           }
         }
       })
@@ -231,16 +321,34 @@ export function useMcpCommands() {
       })
     )
 
-    // Auto-close canvas when dev server exits
+    // Listen for dev:status 'ready' events (backup URL detection path)
     cleanups.push(
-      window.api.dev.onExit(({ cwd: _cwd }) => {
-        useCanvasStore.getState().setPreviewUrl(null)
-        const activeTab = useTabsStore.getState().getActiveTab()
-        if (activeTab) {
-          useTabsStore.getState().updateTab(activeTab.id, { isDevServerRunning: false, previewUrl: null })
+      window.api.dev.onStatus(({ stage, url, cwd }) => {
+        if (stage !== 'ready' || !url) return
+        const projectPath = cwd || useProjectStore.getState().currentProject?.path
+        if (!projectPath) return
+        // Only set if not already set (avoid duplicate updates)
+        const matchingTab = useTabsStore.getState().tabs.find(
+          (t) => t.project.path === projectPath && !t.previewUrl
+        )
+        if (!matchingTab) return
+        useTabsStore.getState().updateDevForProject(projectPath, { status: 'running', url })
+        useTabsStore.getState().updateTabsByProject(projectPath, { previewUrl: url, activeCanvasTab: 'preview' })
+        ensureCanvasOpen()
+        useToastStore.getState().addToast(`Preview loaded: ${url}`, 'success')
+      })
+    )
+
+    // Auto-close canvas when dev server exits — filtered by cwd
+    cleanups.push(
+      window.api.dev.onExit(({ cwd }) => {
+        useTabsStore.getState().updateDevForProject(cwd, { status: 'stopped', url: null, pid: null })
+        useTabsStore.getState().updateTabsByProject(cwd, { previewUrl: null })
+        // Only close canvas if the exited server belongs to the active tab
+        const active = useTabsStore.getState().getActiveTab()
+        if (active?.project.path === cwd) {
+          useWorkspaceStore.getState().closeCanvas()
         }
-        useWorkspaceStore.getState().closeCanvas()
-        useToastStore.getState().addToast('Dev server stopped', 'info')
       })
     )
 

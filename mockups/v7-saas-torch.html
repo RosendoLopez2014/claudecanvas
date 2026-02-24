@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>V7 — SaaS Gauge Tray</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-0: #09090b;
+    --bg-1: #111113;
+    --bg-2: #161618;
+    --bg-3: #1b1b1f;
+    --bg-4: #222226;
+    --border: rgba(255,255,255,0.06);
+    --border-h: rgba(255,255,255,0.10);
+    --t1: #ededf0;
+    --t2: rgba(255,255,255,0.50);
+    --t3: rgba(255,255,255,0.28);
+    --t4: rgba(255,255,255,0.12);
+    --cyan: #4AEAFF;
+    --cyan-d: rgba(74,234,255,0.08);
+    --green: #34D399;
+    --green-d: rgba(52,211,153,0.06);
+    --amber: #FBBF24;
+    --amber-d: rgba(251,191,36,0.08);
+    --red: #F87171;
+    --red-d: rgba(248,113,113,0.06);
+    --sb: #3ECF8E;
+    --sb-d: rgba(62,207,142,0.06);
+    --violet: #A78BFA;
+    --violet-d: rgba(167,139,250,0.06);
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Plus Jakarta Sans', sans-serif;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg-0); color:var(--t1); font-family:var(--sans); min-height:100vh; }
+
+  .page-header {
+    padding: 40px 48px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .page-header h1 {
+    font-family: var(--mono);
+    font-size: 11px; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--cyan);
+  }
+  .page-header .sub { font-family: var(--mono); font-size: 11px; color: var(--t3); margin-top: 4px; }
+  .page-header .desc { font-size: 13px; color: var(--t2); margin-top: 12px; max-width: 640px; line-height: 1.6; }
+
+  .row { display: flex; gap: 44px; padding: 48px; flex-wrap: wrap; justify-content: center; }
+  .col { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .col-label { font-family: var(--mono); font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--t3); }
+
+  /* ══════════════════════════════════════
+     TRAY SHELL
+     ══════════════════════════════════════ */
+  .dd {
+    width: 320px;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+
+  /* ── Clean profile row ── */
+  .dd-prof {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .dd-av {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .dd-prof-text { flex: 1; min-width: 0; }
+  .dd-prof-name { font-size: 14px; font-weight: 700; }
+  .dd-prof-sub { font-family: var(--mono); font-size: 10px; color: var(--t3); }
+  .dd-prof-badge {
+    font-family: var(--mono); font-size: 9px; font-weight: 600;
+    padding: 3px 10px; border-radius: 100px; flex-shrink: 0;
+  }
+
+  /* ── Section ── */
+  .dd-sec {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .dd-sec:last-child { border-bottom: none; }
+  .dd-sec-label {
+    font-family: var(--mono);
+    font-size: 9px; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--t3); margin-bottom: 10px;
+  }
+
+  /* ══════════════════════════════════════
+     GAUGES — SVG ring gauges
+     ══════════════════════════════════════ */
+  .gauge-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    padding: 16px 0 8px;
+  }
+  .gauge {
+    position: relative;
+    width: 80px; height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .gauge svg {
+    position: absolute;
+    top: 0; left: 0;
+    transform: rotate(-90deg);
+  }
+  .gauge-center {
+    text-align: center;
+    position: relative;
+    z-index: 1;
+  }
+  .gauge-val {
+    font-family: var(--mono);
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .gauge-label {
+    font-size: 9px;
+    color: var(--t3);
+    margin-top: 2px;
+  }
+
+  /* Small gauge */
+  .gauge-sm {
+    width: 56px; height: 56px;
+  }
+  .gauge-sm .gauge-val { font-size: 12px; }
+  .gauge-sm .gauge-label { font-size: 8px; }
+
+  /* Gauge grid for Supabase */
+  .gauge-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    text-align: center;
+  }
+  .gauge-grid-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px 4px;
+    border-radius: 10px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    transition: all 0.12s;
+    cursor: pointer;
+  }
+  .gauge-grid-item:hover {
+    border-color: var(--border-h);
+    background: var(--bg-3);
+  }
+
+  /* ── Status tile (compact metric) ── */
+  .tile-row {
+    display: flex;
+    gap: 8px;
+  }
+  .tile {
+    flex: 1;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    text-align: center;
+    transition: all 0.12s;
+    cursor: pointer;
+  }
+  .tile:hover { border-color: var(--border-h); background: var(--bg-3); }
+  .tile-val {
+    font-family: var(--mono);
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: 3px;
+  }
+  .tile-label { font-size: 10px; color: var(--t3); }
+
+  /* ── CI inline pills ── */
+  .ci-row {
+    display: flex;
+    gap: 6px;
+  }
+  .ci-pill {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 600;
+    flex: 1;
+    justify-content: center;
+    transition: all 0.12s;
+  }
+  .ci-pill:hover { border-color: var(--border-h); }
+  .ci-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ── PR card ── */
+  .pr-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .pr-card:hover { border-color: var(--border-h); background: var(--bg-3); }
+  .pr-num { font-size: 15px; font-weight: 800; flex-shrink: 0; }
+  .pr-text { flex: 1; min-width: 0; }
+  .pr-title { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pr-meta { font-family: var(--mono); font-size: 9px; color: var(--t3); }
+  .pr-review {
+    display: flex; align-items: center; gap: 3px; flex-shrink: 0;
+  }
+  .pr-r-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+  /* ── URL card ── */
+  .url-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-family: var(--mono); font-size: 10px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    transition: all 0.12s;
+    cursor: pointer;
+  }
+  .url-card:hover { border-color: var(--border-h); }
+  .url-card + .url-card { margin-top: 6px; }
+  .url-badge {
+    font-size: 8px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 2px 7px; border-radius: 4px; flex-shrink: 0;
+  }
+  .url-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .url-copy { opacity: 0.3; cursor: pointer; flex-shrink: 0; }
+  .url-copy:hover { opacity: 1; }
+
+  /* ── Deploy row ── */
+  .deploy-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 0; cursor: pointer;
+  }
+  .deploy-row:hover .dep-msg { color: var(--t1); }
+  .dep-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .dep-msg { font-size: 11px; color: var(--t2); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.1s; }
+  .dep-tag {
+    font-family: var(--mono); font-size: 8px; font-weight: 600;
+    padding: 2px 6px; border-radius: 4px; flex-shrink: 0;
+  }
+  .dep-time { font-family: var(--mono); font-size: 9px; color: var(--t4); flex-shrink: 0; }
+
+  /* ── Action row ── */
+  .dd-actions { padding: 4px 8px; border-bottom: 1px solid var(--border); }
+  .dd-act {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 8px;
+    font-size: 12px; font-weight: 500; color: var(--t2);
+    cursor: pointer; transition: all 0.12s;
+  }
+  .dd-act:hover { background: rgba(255,255,255,0.04); color: var(--t1); }
+  .dd-act .a-icon {
+    width: 20px; height: 20px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; background: var(--bg-3); flex-shrink: 0;
+  }
+  .dd-act .a-kbd {
+    margin-left: auto; font-family: var(--mono); font-size: 9px; color: var(--t4);
+    background: var(--bg-2); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border);
+  }
+
+  /* ── Primary button ── */
+  .tray-btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    margin: 8px 14px 10px; padding: 10px 16px;
+    border-radius: 10px; border: none;
+    font-family: var(--sans); font-size: 13px; font-weight: 700;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .tray-btn:hover { transform: translateY(-1px); }
+  .tray-btn-cyan {
+    background: var(--cyan); color: #000;
+    box-shadow: 0 2px 12px rgba(74,234,255,0.15);
+  }
+  .tray-btn-cyan:hover { box-shadow: 0 4px 20px rgba(74,234,255,0.25); }
+
+  /* ── Footer ── */
+  .dd-foot {
+    padding: 6px 16px 8px; text-align: center;
+    border-top: 1px solid var(--border);
+  }
+  .dd-foot button {
+    font-family: var(--mono); font-size: 10px;
+    color: var(--t4); background: none; border: none; cursor: pointer;
+  }
+  .dd-foot button:hover { color: var(--red); }
+
+  /* ── Info pair ── */
+  .info-pair {
+    display: flex; align-items: center; justify-content: space-between; padding: 4px 0;
+  }
+  .ip-label { font-size: 12px; color: var(--t2); }
+  .ip-value { font-family: var(--mono); font-size: 11px; font-weight: 500; }
+
+  /* ── Commit row ── */
+  .commit-row {
+    display: flex; align-items: center; gap: 8px; padding: 6px 0;
+  }
+  .commit-sha {
+    font-family: var(--mono); font-size: 10px;
+    padding: 2px 8px; border-radius: 5px; flex-shrink: 0;
+  }
+  .commit-msg { font-size: 11px; color: var(--t2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>V7 — SaaS Gauge Tray</h1>
+  <div class="sub">SVG ring gauges · clean tray UI · modern dashboard tiles</div>
+  <div class="desc">Clean system-tray aesthetic with circular SVG gauges as hero elements. Tile-based metric cards, no heavy gradients. Inspired by macOS Control Center and Stripe dashboards. Gauges communicate at-a-glance health for each service.</div>
+</div>
+
+<div class="row">
+
+  <!-- ══════════════════════════════════════════
+       GITHUB
+       ══════════════════════════════════════════ -->
+  <div class="col">
+    <span class="col-label">GitHub</span>
+    <div class="dd">
+      <div class="dd-prof">
+        <div class="dd-av" style="background:#161b22;border:1px solid rgba(255,255,255,0.08);">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="rgba(255,255,255,0.7)"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        </div>
+        <div class="dd-prof-text">
+          <div class="dd-prof-name">rosendolopez</div>
+          <div class="dd-prof-sub">claude-canvas · Private</div>
+        </div>
+        <span class="dd-prof-badge" style="background:var(--green-d);color:var(--green);border:1px solid rgba(52,211,153,0.1);">● Live</span>
+      </div>
+
+      <!-- Sync gauge: center = big ring showing sync state -->
+      <div class="dd-sec" style="text-align:center;">
+        <div class="gauge-row">
+          <div class="gauge">
+            <svg width="80" height="80" viewBox="0 0 80 80">
+              <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="5"/>
+              <!-- Full ring = synced. Partial = ahead/behind -->
+              <circle cx="40" cy="40" r="34" fill="none" stroke="var(--cyan)" stroke-width="5"
+                stroke-dasharray="213.6" stroke-dashoffset="53.4"
+                stroke-linecap="round" opacity="0.9"/>
+            </svg>
+            <div class="gauge-center">
+              <div class="gauge-val" style="color:var(--cyan);">3↑</div>
+              <div class="gauge-label">ahead</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="commit-row" style="justify-content:center;">
+          <span class="commit-sha" style="background:var(--cyan-d);color:var(--cyan);">fc3c860</span>
+          <span class="commit-msg">feat: complete Plan 2 features</span>
+        </div>
+      </div>
+
+      <button class="tray-btn tray-btn-cyan">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+        Push 3 commits
+      </button>
+
+      <!-- CI tiles -->
+      <div class="dd-sec">
+        <div class="dd-sec-label">CI Pipeline</div>
+        <div class="ci-row">
+          <div class="ci-pill" style="color:var(--green);">
+            <div class="ci-dot" style="background:var(--green);"></div>
+            Build ✓
+          </div>
+          <div class="ci-pill" style="color:var(--green);">
+            <div class="ci-dot" style="background:var(--green);"></div>
+            Lint ✓
+          </div>
+          <div class="ci-pill" style="color:var(--green);">
+            <div class="ci-dot" style="background:var(--green);"></div>
+            Tests ✓
+          </div>
+        </div>
+      </div>
+
+      <!-- PR card -->
+      <div class="dd-sec">
+        <div class="dd-sec-label">Pull Request</div>
+        <div class="pr-card">
+          <span class="pr-num" style="color:var(--green);">#42</span>
+          <div class="pr-text">
+            <div class="pr-title">Add gallery view</div>
+            <div class="pr-meta">Open · +342 −89</div>
+          </div>
+          <div class="pr-review">
+            <div class="pr-r-dot" style="background:var(--green);"></div>
+            <div class="pr-r-dot" style="background:var(--t4);"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Branch info -->
+      <div class="dd-sec">
+        <div class="info-pair">
+          <span class="ip-label">Branch</span>
+          <span class="ip-value" style="color:var(--cyan);">feat/gallery-revamp</span>
+        </div>
+        <div class="info-pair">
+          <span class="ip-label">Branches</span>
+          <span class="ip-value" style="color:var(--t3);">4</span>
+        </div>
+      </div>
+
+      <div class="dd-actions">
+        <div class="dd-act">
+          <div class="a-icon">↗</div>Open on GitHub<span class="a-kbd">⌘⇧G</span>
+        </div>
+        <div class="dd-act">
+          <div class="a-icon">⑂</div>Create Pull Request
+        </div>
+      </div>
+      <div class="dd-foot"><button>Disconnect</button></div>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════
+       VERCEL
+       ══════════════════════════════════════════ -->
+  <div class="col">
+    <span class="col-label">Vercel</span>
+    <div class="dd">
+      <div class="dd-prof">
+        <div class="dd-av" style="background:#000;border:1px solid rgba(255,255,255,0.1);">
+          <svg width="12" height="10" viewBox="0 0 76 65" fill="white"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z"/></svg>
+        </div>
+        <div class="dd-prof-text">
+          <div class="dd-prof-name">claude-canvas</div>
+          <div class="dd-prof-sub">rosendolopez · Next.js</div>
+        </div>
+        <span class="dd-prof-badge" style="background:rgba(255,255,255,0.05);color:var(--t2);border:1px solid var(--border);">Pro</span>
+      </div>
+
+      <!-- Deploy gauge: full ring = ready, partial = building, empty = error -->
+      <div class="dd-sec" style="text-align:center;">
+        <div class="gauge-row">
+          <!-- Build health gauge -->
+          <div class="gauge">
+            <svg width="80" height="80" viewBox="0 0 80 80">
+              <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="5"/>
+              <circle cx="40" cy="40" r="34" fill="none" stroke="var(--green)" stroke-width="5"
+                stroke-dasharray="213.6" stroke-dashoffset="0"
+                stroke-linecap="round"/>
+            </svg>
+            <div class="gauge-center">
+              <div class="gauge-val" style="color:var(--green);">✓</div>
+              <div class="gauge-label">Ready</div>
+            </div>
+          </div>
+
+          <!-- Build time gauge (2.1s out of ~10s max) -->
+          <div class="gauge-sm">
+            <svg width="56" height="56" viewBox="0 0 56 56">
+              <circle cx="28" cy="28" r="23" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="4"/>
+              <circle cx="28" cy="28" r="23" fill="none" stroke="var(--cyan)" stroke-width="4"
+                stroke-dasharray="144.5" stroke-dashoffset="114"
+                stroke-linecap="round"/>
+            </svg>
+            <div class="gauge-center">
+              <div class="gauge-val" style="color:var(--cyan);font-size:11px;">2.1s</div>
+              <div class="gauge-label">Build</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="font-family:var(--mono);font-size:10px;color:var(--t3);margin-top:2px;">
+          fc3c860 · 12m ago
+        </div>
+      </div>
+
+      <!-- URLs -->
+      <div class="dd-sec">
+        <div class="url-card" style="border-color:rgba(52,211,153,0.08);">
+          <span class="url-badge" style="background:var(--green-d);color:var(--green);">Prod</span>
+          <span class="url-text" style="color:var(--green);">claude-canvas.vercel.app</span>
+          <span class="url-copy">⎘</span>
+        </div>
+        <div class="url-card" style="border-color:rgba(74,234,255,0.08);">
+          <span class="url-badge" style="background:var(--cyan-d);color:var(--cyan);">Preview</span>
+          <span class="url-text" style="color:var(--cyan);">gallery-revamp-a1b2.vercel.app</span>
+          <span class="url-copy">⎘</span>
+        </div>
+      </div>
+
+      <!-- Metric tiles -->
+      <div class="dd-sec">
+        <div class="tile-row">
+          <div class="tile">
+            <div class="tile-val" style="color:var(--green);">148</div>
+            <div class="tile-label">Deploys</div>
+          </div>
+          <div class="tile">
+            <div class="tile-val">2.1s</div>
+            <div class="tile-label">Avg Build</div>
+          </div>
+          <div class="tile">
+            <div class="tile-val" style="color:var(--green);">4/5</div>
+            <div class="tile-label">Success</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent -->
+      <div class="dd-sec">
+        <div class="dd-sec-label">Recent</div>
+        <div class="deploy-row">
+          <div class="dep-dot" style="background:var(--green);"></div>
+          <span class="dep-msg">feat: complete Plan 2 features</span>
+          <span class="dep-time">12m</span>
+        </div>
+        <div class="deploy-row">
+          <div class="dep-dot" style="background:var(--green);"></div>
+          <span class="dep-msg">refactor: remove dead build-logs</span>
+          <span class="dep-time">2h</span>
+        </div>
+        <div class="deploy-row">
+          <div class="dep-dot" style="background:var(--red);"></div>
+          <span class="dep-msg">feat: add keyboard shortcuts</span>
+          <span class="dep-tag" style="background:var(--red-d);color:var(--red);">Module not found</span>
+          <span class="dep-time">5h</span>
+        </div>
+      </div>
+
+      <div class="dd-actions">
+        <div class="dd-act">
+          <div class="a-icon">⟳</div>Redeploy
+        </div>
+        <div class="dd-act">
+          <div class="a-icon">↗</div>Open Dashboard<span class="a-kbd">⌘⇧V</span>
+        </div>
+        <div class="dd-act">
+          <div class="a-icon">≡</div>Build Logs
+        </div>
+      </div>
+      <div class="dd-foot"><button>Disconnect</button></div>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════
+       SUPABASE
+       ══════════════════════════════════════════ -->
+  <div class="col">
+    <span class="col-label">Supabase</span>
+    <div class="dd">
+      <div class="dd-prof">
+        <div class="dd-av" style="background:#1a3a2a;border:1px solid rgba(62,207,142,0.15);">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--sb)" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        </div>
+        <div class="dd-prof-text">
+          <div class="dd-prof-name">canvas-prod</div>
+          <div class="dd-prof-sub">us-east-1 · Pro</div>
+        </div>
+        <span class="dd-prof-badge" style="background:var(--sb-d);color:var(--sb);border:1px solid rgba(62,207,142,0.1);">● Healthy</span>
+      </div>
+
+      <!-- Usage gauges: DB, requests, storage as 3 ring gauges -->
+      <div class="dd-sec" style="text-align:center;">
+        <div class="gauge-grid">
+          <div class="gauge-grid-item">
+            <div class="gauge-sm" style="margin-bottom:4px;">
+              <svg width="56" height="56" viewBox="0 0 56 56">
+                <circle cx="28" cy="28" r="23" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="4"/>
+                <circle cx="28" cy="28" r="23" fill="none" stroke="var(--sb)" stroke-width="4"
+                  stroke-dasharray="144.5" stroke-dashoffset="143.8"
+                  stroke-linecap="round" style="min-stroke-dashoffset:2;"/>
+              </svg>
+              <div class="gauge-center">
+                <div class="gauge-val" style="color:var(--sb);font-size:10px;">42M</div>
+                <div class="gauge-label" style="font-size:7px;">/ 8 GB</div>
+              </div>
+            </div>
+            <div style="font-size:9px;color:var(--t3);">Database</div>
+          </div>
+
+          <div class="gauge-grid-item">
+            <div class="gauge-sm" style="margin-bottom:4px;">
+              <svg width="56" height="56" viewBox="0 0 56 56">
+                <circle cx="28" cy="28" r="23" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="4"/>
+                <circle cx="28" cy="28" r="23" fill="none" stroke="var(--violet)" stroke-width="4"
+                  stroke-dasharray="144.5" stroke-dashoffset="142.2"
+                  stroke-linecap="round"/>
+              </svg>
+              <div class="gauge-center">
+                <div class="gauge-val" style="color:var(--violet);font-size:10px;">8.2k</div>
+                <div class="gauge-label" style="font-size:7px;">/ 500k</div>
+              </div>
+            </div>
+            <div style="font-size:9px;color:var(--t3);">Requests</div>
+          </div>
+
+          <div class="gauge-grid-item">
+            <div class="gauge-sm" style="margin-bottom:4px;">
+              <svg width="56" height="56" viewBox="0 0 56 56">
+                <circle cx="28" cy="28" r="23" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="4"/>
+                <circle cx="28" cy="28" r="23" fill="none" stroke="var(--amber)" stroke-width="4"
+                  stroke-dasharray="144.5" stroke-dashoffset="126.0"
+                  stroke-linecap="round"/>
+              </svg>
+              <div class="gauge-center">
+                <div class="gauge-val" style="color:var(--amber);font-size:10px;">128M</div>
+                <div class="gauge-label" style="font-size:7px;">/ 1 GB</div>
+              </div>
+            </div>
+            <div style="font-size:9px;color:var(--t3);">Storage</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Connection URL -->
+      <div class="dd-sec">
+        <div class="url-card" style="border-color:rgba(62,207,142,0.08);">
+          <span class="url-badge" style="background:var(--sb-d);color:var(--sb);">URL</span>
+          <span class="url-text" style="color:var(--sb);">xyzcompany.supabase.co</span>
+          <span class="url-copy">⎘</span>
+        </div>
+      </div>
+
+      <!-- Resource tiles -->
+      <div class="dd-sec">
+        <div class="dd-sec-label">Resources</div>
+        <div class="tile-row">
+          <div class="tile">
+            <div class="tile-val" style="color:var(--sb);">12</div>
+            <div class="tile-label">Tables</div>
+          </div>
+          <div class="tile">
+            <div class="tile-val" style="color:var(--violet);">5</div>
+            <div class="tile-label">Functions</div>
+          </div>
+          <div class="tile">
+            <div class="tile-val" style="color:var(--amber);">8</div>
+            <div class="tile-label">RLS</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Auth stats -->
+      <div class="dd-sec">
+        <div class="dd-sec-label">Auth</div>
+        <div class="info-pair">
+          <span class="ip-label">Users</span>
+          <span class="ip-value" style="color:var(--sb);">1,247</span>
+        </div>
+        <div class="info-pair">
+          <span class="ip-label">Providers</span>
+          <span class="ip-value" style="color:var(--t2);">Email · GitHub</span>
+        </div>
+        <div class="info-pair">
+          <span class="ip-label">Last sign-up</span>
+          <span class="ip-value" style="color:var(--t3);">14m ago</span>
+        </div>
+      </div>
+
+      <div class="dd-actions">
+        <div class="dd-act">
+          <div class="a-icon">↗</div>Open Dashboard
+        </div>
+        <div class="dd-act">
+          <div class="a-icon">⊞</div>SQL Editor
+        </div>
+        <div class="dd-act">
+          <div class="a-icon">🔑</div>Auth Settings
+        </div>
+      </div>
+      <div class="dd-foot"><button>Disconnect</button></div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useTabsStore } from '@/stores/tabs'
+import { useTabsStore, selectActiveTab } from '@/stores/tabs'
 import { Zap } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -24,7 +24,7 @@ function getBarColor(ratio: number): string {
 }
 
 export function TokenGauge() {
-  const activeTab = useTabsStore((s) => s.getActiveTab())
+  const activeTab = useTabsStore(selectActiveTab)
   const tokenUsage = activeTab?.tokenUsage
   const [expanded, setExpanded] = useState(false)
 

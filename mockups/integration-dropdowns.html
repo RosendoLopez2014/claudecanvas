@@ -1,0 +1,1623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Integration Dropdowns — Design Review</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep: #0a0a0c;
+    --bg-primary: #111114;
+    --bg-secondary: #18181c;
+    --bg-tertiary: #1e1e24;
+    --bg-elevated: #24242c;
+    --border-subtle: rgba(255,255,255,0.06);
+    --border-medium: rgba(255,255,255,0.10);
+    --border-strong: rgba(255,255,255,0.16);
+    --text-primary: rgba(255,255,255,0.92);
+    --text-secondary: rgba(255,255,255,0.55);
+    --text-tertiary: rgba(255,255,255,0.30);
+    --accent-cyan: #4AEAFF;
+    --accent-cyan-dim: rgba(74,234,255,0.12);
+    --accent-cyan-glow: rgba(74,234,255,0.25);
+    --accent-coral: #FF6B4A;
+    --accent-coral-dim: rgba(255,107,74,0.12);
+    --github-green: #238636;
+    --github-green-dim: rgba(35,134,54,0.15);
+    --vercel-white: #ffffff;
+    --supabase-green: #3ECF8E;
+    --supabase-green-dim: rgba(62,207,142,0.12);
+    --status-green: #34D399;
+    --status-amber: #FBBF24;
+    --status-red: #F87171;
+    --font-mono: 'JetBrains Mono', monospace;
+    --font-sans: 'DM Sans', system-ui, sans-serif;
+    --dropdown-width: 320px;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Noise texture overlay ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* ── Page Layout ── */
+  .review-header {
+    padding: 48px 48px 32px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .review-header h1 {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent-cyan);
+    margin-bottom: 6px;
+  }
+  .review-header p {
+    font-size: 13px;
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+    font-weight: 300;
+  }
+
+  .state-bar {
+    padding: 16px 48px;
+    display: flex;
+    gap: 8px;
+    border-bottom: 1px solid var(--border-subtle);
+    flex-wrap: wrap;
+  }
+  .state-btn {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 6px 14px;
+    border-radius: 100px;
+    border: 1px solid var(--border-medium);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .state-btn:hover {
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+    background: rgba(255,255,255,0.03);
+  }
+  .state-btn.active {
+    border-color: var(--accent-cyan);
+    color: var(--accent-cyan);
+    background: var(--accent-cyan-dim);
+  }
+
+  .dropdowns-row {
+    display: flex;
+    gap: 48px;
+    padding: 48px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .dropdown-column {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+  .dropdown-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+  }
+
+  /* ══════════════════════════════════════════════
+     SHARED DROPDOWN STYLES
+     ══════════════════════════════════════════════ */
+  .dropdown {
+    width: var(--dropdown-width);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-medium);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px rgba(0,0,0,0.3),
+      0 8px 32px rgba(0,0,0,0.5),
+      0 2px 8px rgba(0,0,0,0.3);
+    animation: dropIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+  }
+  .dropdown::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  }
+
+  @keyframes dropIn {
+    from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* ── Section styles ── */
+  .dd-section {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .dd-section:last-child { border-bottom: none; }
+
+  .dd-section-header {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .dd-section-header .count {
+    font-size: 9px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    background: rgba(255,255,255,0.04);
+    padding: 1px 6px;
+    border-radius: 100px;
+  }
+
+  /* ── Profile header ── */
+  .dd-profile {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: rgba(255,255,255,0.015);
+  }
+  .dd-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 14px;
+  }
+  .dd-profile-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .dd-profile-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .dd-profile-sub {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .dd-profile-badge {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 100px;
+    letter-spacing: 0.04em;
+  }
+
+  /* ── Action rows ── */
+  .dd-action {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background 0.12s;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .dd-action:hover {
+    background: rgba(255,255,255,0.04);
+    color: var(--text-primary);
+  }
+  .dd-action .icon {
+    width: 16px;
+    height: 16px;
+    opacity: 0.5;
+    flex-shrink: 0;
+  }
+  .dd-action .kbd {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-tertiary);
+    background: rgba(255,255,255,0.04);
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border-subtle);
+  }
+  .dd-action .arrow {
+    margin-left: auto;
+    opacity: 0.3;
+  }
+
+  /* ── Primary action button ── */
+  .dd-primary-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 16px;
+    border-radius: var(--radius-sm);
+    border: none;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  /* ── Status indicator ── */
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .status-dot.green { background: var(--status-green); }
+  .status-dot.amber { background: var(--status-amber); }
+  .status-dot.red { background: var(--status-red); }
+  .status-dot.pulse::after {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: 50%;
+    background: inherit;
+    opacity: 0.3;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 0.3; }
+    50% { transform: scale(1.5); opacity: 0; }
+  }
+
+  /* ── Empty state ── */
+  .dd-empty {
+    padding: 28px 20px;
+    text-align: center;
+  }
+  .dd-empty-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    margin: 0 auto 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+  }
+  .dd-empty h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+  }
+  .dd-empty p {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    line-height: 1.5;
+    margin-bottom: 18px;
+  }
+
+  /* ── Disconnect footer ── */
+  .dd-footer {
+    padding: 10px 16px;
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    justify-content: center;
+  }
+  .dd-footer button {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-tertiary);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.12s;
+  }
+  .dd-footer button:hover {
+    color: var(--status-red);
+    background: rgba(248,113,113,0.08);
+  }
+
+  /* ── Scrollbar ── */
+  .dd-scroll {
+    max-height: 160px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.08) transparent;
+  }
+  .dd-scroll::-webkit-scrollbar { width: 4px; }
+  .dd-scroll::-webkit-scrollbar-track { background: transparent; }
+  .dd-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+
+  /* ══════════════════════════════════════════════
+     GITHUB DROPDOWN
+     ══════════════════════════════════════════════ */
+  .gh-avatar { background: #161b22; border: 1px solid rgba(255,255,255,0.08); }
+
+  .gh-sync-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .gh-sync-visual {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+  }
+  .gh-sync-track {
+    flex: 1;
+    height: 3px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 2px;
+    position: relative;
+    overflow: hidden;
+  }
+  .gh-sync-fill {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.3s;
+  }
+  .gh-sync-fill.ahead {
+    left: 50%;
+    background: var(--accent-cyan);
+    box-shadow: 0 0 8px var(--accent-cyan-glow);
+  }
+  .gh-sync-fill.behind {
+    right: 50%;
+    background: var(--status-amber);
+  }
+  .gh-sync-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--bg-secondary);
+    border: 2px solid rgba(255,255,255,0.15);
+  }
+  .gh-sync-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .gh-sync-label.ahead { color: var(--accent-cyan); }
+  .gh-sync-label.behind { color: var(--status-amber); }
+  .gh-sync-label.synced { color: var(--text-tertiary); }
+
+  .gh-push-btn {
+    background: var(--accent-cyan);
+    color: #000;
+  }
+  .gh-push-btn:hover {
+    background: #5cf0ff;
+    box-shadow: 0 0 20px var(--accent-cyan-glow);
+  }
+
+  .gh-pull-btn {
+    background: rgba(251,191,36,0.15);
+    color: var(--status-amber);
+    border: 1px solid rgba(251,191,36,0.2);
+  }
+  .gh-pull-btn:hover {
+    background: rgba(251,191,36,0.2);
+  }
+
+  .gh-connect-btn {
+    background: var(--github-green);
+    color: #fff;
+  }
+  .gh-connect-btn:hover {
+    background: #2ea043;
+    box-shadow: 0 0 20px rgba(35,134,54,0.3);
+  }
+
+  .gh-repo-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.02);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+  }
+  .gh-repo-card .repo-icon {
+    color: var(--text-tertiary);
+    font-size: 14px;
+  }
+  .gh-repo-card .repo-name {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+  .gh-repo-card .repo-vis {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-tertiary);
+    background: rgba(255,255,255,0.04);
+    padding: 1px 6px;
+    border-radius: 100px;
+    margin-left: auto;
+  }
+
+  .gh-branch-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .gh-branch-item:hover { background: rgba(255,255,255,0.03); }
+  .gh-branch-item .branch-icon {
+    width: 14px;
+    height: 14px;
+    opacity: 0.4;
+  }
+  .gh-branch-item.current .branch-icon { opacity: 1; color: var(--accent-cyan); }
+  .gh-branch-item.current { color: var(--accent-cyan); }
+  .gh-branch-current-badge {
+    font-size: 9px;
+    background: var(--accent-cyan-dim);
+    color: var(--accent-cyan);
+    padding: 1px 6px;
+    border-radius: 100px;
+    margin-left: auto;
+  }
+
+  .gh-pr-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--github-green-dim);
+    border: 1px solid rgba(35,134,54,0.2);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--status-green);
+    cursor: pointer;
+    transition: all 0.12s;
+    margin-bottom: 6px;
+  }
+  .gh-pr-link:hover {
+    background: rgba(35,134,54,0.2);
+    border-color: rgba(35,134,54,0.3);
+  }
+
+  /* ══════════════════════════════════════════════
+     VERCEL DROPDOWN
+     ══════════════════════════════════════════════ */
+  .vc-avatar { background: #000; border: 1px solid rgba(255,255,255,0.12); }
+
+  .vc-deploy-card {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .vc-deploy-main {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .vc-deploy-status-ring {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .vc-deploy-status-ring svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
+  .vc-deploy-status-ring .inner-icon {
+    font-size: 14px;
+    position: relative;
+    z-index: 1;
+  }
+  .vc-deploy-info { flex: 1; }
+  .vc-deploy-env {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+  .vc-deploy-msg {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+    margin-bottom: 4px;
+    line-height: 1.3;
+  }
+  .vc-deploy-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-tertiary);
+  }
+  .vc-deploy-meta .sep { opacity: 0.3; }
+
+  .vc-url-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    margin-top: 10px;
+    background: rgba(255,255,255,0.02);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+  }
+  .vc-url-row .url {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--accent-cyan);
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .vc-url-row .copy-btn {
+    color: var(--text-tertiary);
+    cursor: pointer;
+    font-size: 12px;
+    flex-shrink: 0;
+    transition: color 0.12s;
+  }
+  .vc-url-row .copy-btn:hover { color: var(--accent-cyan); }
+
+  .vc-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .vc-timeline-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.1s;
+    position: relative;
+  }
+  .vc-timeline-item:hover { background: rgba(255,255,255,0.03); }
+  .vc-timeline-item::before {
+    content: '';
+    position: absolute;
+    left: 14px;
+    top: 100%;
+    width: 1px;
+    height: 7px;
+    background: var(--border-subtle);
+  }
+  .vc-timeline-item:last-child::before { display: none; }
+  .vc-timeline-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .vc-timeline-dot.ready { background: var(--status-green); }
+  .vc-timeline-dot.building { background: var(--status-amber); animation: pulse-amber 1.5s infinite; }
+  .vc-timeline-dot.error { background: var(--status-red); }
+  .vc-timeline-dot.canceled { background: var(--text-tertiary); }
+  @keyframes pulse-amber {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(251,191,36,0.3); }
+    50% { box-shadow: 0 0 0 4px rgba(251,191,36,0); }
+  }
+  .vc-timeline-msg {
+    font-size: 12px;
+    color: var(--text-secondary);
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .vc-timeline-time {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+  }
+
+  .vc-redeploy-btn {
+    background: #fff;
+    color: #000;
+  }
+  .vc-redeploy-btn:hover {
+    background: #e5e5e5;
+  }
+
+  .vc-connect-btn {
+    background: #fff;
+    color: #000;
+  }
+  .vc-connect-btn:hover {
+    background: #e5e5e5;
+    box-shadow: 0 0 20px rgba(255,255,255,0.1);
+  }
+
+  .vc-domain-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .vc-domain-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+  .vc-domain-item .globe { opacity: 0.3; font-size: 12px; }
+  .vc-domain-item .primary-badge {
+    font-size: 9px;
+    background: rgba(255,255,255,0.06);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--text-tertiary);
+    margin-left: auto;
+  }
+
+  /* Build metrics mini row */
+  .vc-metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .vc-metric {
+    text-align: center;
+  }
+  .vc-metric-value {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .vc-metric-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* ══════════════════════════════════════════════
+     SUPABASE DROPDOWN
+     ══════════════════════════════════════════════ */
+  .sb-avatar { background: #1a3a2a; border: 1px solid rgba(62,207,142,0.15); }
+
+  .sb-project-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(62,207,142,0.04);
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(62,207,142,0.08);
+  }
+  .sb-project-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: rgba(62,207,142,0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--supabase-green);
+    font-size: 14px;
+  }
+  .sb-project-info { flex: 1; min-width: 0; }
+  .sb-project-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .sb-project-region {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-tertiary);
+  }
+
+  .sb-resource-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .sb-resource-card {
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.02);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .sb-resource-card:hover {
+    background: rgba(255,255,255,0.04);
+    border-color: var(--border-medium);
+  }
+  .sb-resource-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .sb-resource-icon {
+    font-size: 13px;
+    opacity: 0.4;
+  }
+  .sb-resource-count {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1;
+  }
+  .sb-resource-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .sb-conn-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(255,255,255,0.02);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+  }
+  .sb-conn-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+  }
+  .sb-conn-url {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--accent-cyan);
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    direction: rtl;
+    text-align: left;
+  }
+  .sb-conn-copy {
+    color: var(--text-tertiary);
+    cursor: pointer;
+    font-size: 12px;
+    flex-shrink: 0;
+    transition: color 0.12s;
+  }
+  .sb-conn-copy:hover { color: var(--accent-cyan); }
+
+  .sb-connect-btn {
+    background: var(--supabase-green);
+    color: #000;
+    font-weight: 700;
+  }
+  .sb-connect-btn:hover {
+    background: #4dd99b;
+    box-shadow: 0 0 20px rgba(62,207,142,0.3);
+  }
+
+  .sb-rls-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(62,207,142,0.04);
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(62,207,142,0.08);
+  }
+  .sb-rls-icon {
+    color: var(--supabase-green);
+    font-size: 14px;
+  }
+  .sb-rls-text {
+    font-size: 12px;
+    color: var(--text-secondary);
+    flex: 1;
+  }
+  .sb-rls-count {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--supabase-green);
+  }
+
+  /* ── Table preview ── */
+  .sb-table-list { display: flex; flex-direction: column; gap: 2px; }
+  .sb-table-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .sb-table-item:hover { background: rgba(255,255,255,0.03); }
+  .sb-table-item .t-icon { opacity: 0.3; font-size: 11px; }
+  .sb-table-item .t-cols {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--text-tertiary);
+  }
+
+  /* ══════════════════════════════════════════════
+     STATE VISIBILITY
+     ══════════════════════════════════════════════ */
+  .state-connected, .state-disconnected, .state-unlinked { display: none; }
+  [data-state="connected"] .state-connected { display: block; }
+  [data-state="disconnected"] .state-disconnected { display: block; }
+  [data-state="unlinked"] .state-unlinked { display: block; }
+
+  /* ── Trigger buttons (mini preview) ── */
+  .trigger-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 4px 4px 4px;
+    border-radius: 8px;
+    border: 1px solid var(--border-medium);
+    background: rgba(255,255,255,0.03);
+    cursor: pointer;
+    transition: all 0.12s;
+    margin-bottom: 12px;
+  }
+  .trigger-btn:hover {
+    background: rgba(255,255,255,0.06);
+    border-color: var(--border-strong);
+  }
+  .trigger-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .trigger-text {
+    display: flex;
+    flex-direction: column;
+    padding-right: 8px;
+  }
+  .trigger-text .t-label {
+    font-family: var(--font-mono);
+    font-size: 8px;
+    color: var(--text-tertiary);
+    line-height: 1.2;
+  }
+  .trigger-text .t-value {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-primary);
+    line-height: 1.2;
+  }
+  .trigger-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--status-green);
+    margin-left: -3px;
+  }
+
+  /* ── Annotations ── */
+  .annotation {
+    position: absolute;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--accent-coral);
+    pointer-events: none;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+
+<div class="review-header">
+  <h1>Integration Dropdowns — Revamp</h1>
+  <p>claude canvas · design review · feb 2026</p>
+</div>
+
+<div class="state-bar">
+  <button class="state-btn active" onclick="setState('connected')">Connected</button>
+  <button class="state-btn" onclick="setState('disconnected')">Disconnected</button>
+  <button class="state-btn" onclick="setState('unlinked')">Connected · No Project</button>
+</div>
+
+<div class="dropdowns-row">
+
+  <!-- ════════════════════════════════════════════
+       GITHUB
+       ════════════════════════════════════════════ -->
+  <div class="dropdown-column">
+    <span class="dropdown-label">GitHub</span>
+
+    <!-- Trigger button preview -->
+    <div class="trigger-btn">
+      <div class="trigger-icon gh-avatar">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="color:rgba(255,255,255,0.7)">
+          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+        </svg>
+      </div>
+      <div class="trigger-dot"></div>
+      <div class="trigger-text">
+        <span class="t-label">rosendolopez</span>
+        <span class="t-value">claude-canvas</span>
+      </div>
+    </div>
+
+    <div class="dropdown" id="gh-dropdown" data-state="connected">
+
+      <!-- ── CONNECTED STATE ── -->
+      <div class="state-connected">
+        <!-- Profile -->
+        <div class="dd-profile">
+          <div class="dd-avatar gh-avatar">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="color:rgba(255,255,255,0.7)">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+          </div>
+          <div class="dd-profile-info">
+            <div class="dd-profile-name">rosendolopez</div>
+            <div class="dd-profile-sub">github.com</div>
+          </div>
+          <span class="dd-profile-badge" style="background:var(--github-green-dim);color:var(--status-green);">Connected</span>
+        </div>
+
+        <!-- Sync status bar -->
+        <div class="gh-sync-bar">
+          <div class="gh-sync-visual">
+            <span class="gh-sync-label ahead" style="font-size:10px;">LOCAL</span>
+            <div class="gh-sync-track">
+              <div class="gh-sync-fill ahead" style="width:35%;"></div>
+              <div class="gh-sync-center"></div>
+            </div>
+            <span class="gh-sync-label" style="font-size:10px;color:var(--text-tertiary);">REMOTE</span>
+          </div>
+          <span class="gh-sync-label ahead">3 ahead</span>
+        </div>
+
+        <!-- Primary action -->
+        <div class="dd-section" style="padding-top:12px;padding-bottom:12px;">
+          <button class="dd-primary-btn gh-push-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+            Push 3 commits
+          </button>
+        </div>
+
+        <!-- PR link -->
+        <div class="dd-section">
+          <div class="gh-pr-link">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
+            PR #42 — Add gallery view
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left:auto;opacity:0.5;"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </div>
+
+          <!-- Quick actions -->
+          <div class="dd-action">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            Open on GitHub
+            <span class="kbd">⌘⇧G</span>
+          </div>
+          <div class="dd-action">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            View Issues
+            <span class="arrow">›</span>
+          </div>
+        </div>
+
+        <!-- Repo -->
+        <div class="dd-section">
+          <div class="dd-section-header">Repository</div>
+          <div class="gh-repo-card">
+            <span class="repo-icon">📦</span>
+            <span class="repo-name">rosendolopez/claude-canvas</span>
+            <span class="repo-vis">Private</span>
+          </div>
+        </div>
+
+        <!-- Branches -->
+        <div class="dd-section">
+          <div class="dd-section-header">
+            Branches
+            <span class="count">4</span>
+          </div>
+          <div class="dd-scroll">
+            <div class="gh-branch-item current">
+              <svg class="branch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 01-9 9"/></svg>
+              feat/gallery-revamp
+              <span class="gh-branch-current-badge">current</span>
+            </div>
+            <div class="gh-branch-item">
+              <svg class="branch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 01-9 9"/></svg>
+              main
+            </div>
+            <div class="gh-branch-item">
+              <svg class="branch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 01-9 9"/></svg>
+              fix/pty-lifecycle
+            </div>
+            <div class="gh-branch-item">
+              <svg class="branch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 01-9 9"/></svg>
+              feat/oauth-flow
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="dd-footer">
+          <button>Disconnect</button>
+        </div>
+      </div>
+
+      <!-- ── DISCONNECTED STATE ── -->
+      <div class="state-disconnected">
+        <div class="dd-empty">
+          <div class="dd-empty-icon" style="background:rgba(255,255,255,0.04);border:1px solid var(--border-subtle);">
+            <svg width="22" height="22" viewBox="0 0 16 16" fill="currentColor" style="color:rgba(255,255,255,0.2)">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+          </div>
+          <h3>Connect GitHub</h3>
+          <p>Push code, create pull requests, and collaborate with your team — all from the terminal.</p>
+          <button class="dd-primary-btn gh-connect-btn" style="width:auto;display:inline-flex;padding:10px 24px;">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+            Sign in with GitHub
+          </button>
+        </div>
+      </div>
+
+      <!-- ── UNLINKED STATE ── -->
+      <div class="state-unlinked">
+        <div class="dd-profile">
+          <div class="dd-avatar gh-avatar">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="color:rgba(255,255,255,0.7)">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+          </div>
+          <div class="dd-profile-info">
+            <div class="dd-profile-name">rosendolopez</div>
+            <div class="dd-profile-sub">github.com</div>
+          </div>
+        </div>
+        <div class="dd-empty" style="padding-top:20px;">
+          <div class="dd-empty-icon" style="background:rgba(255,255,255,0.03);border:1px dashed var(--border-medium);">
+            <span style="font-size:18px;opacity:0.3;">📦</span>
+          </div>
+          <h3>No repository linked</h3>
+          <p>Connect a repo to push, pull, and create PRs directly from the terminal.</p>
+          <div style="display:flex;gap:8px;justify-content:center;">
+            <button class="dd-primary-btn" style="width:auto;padding:8px 16px;background:rgba(255,255,255,0.06);color:var(--text-secondary);font-size:12px;">
+              Link Existing
+            </button>
+            <button class="dd-primary-btn gh-push-btn" style="width:auto;padding:8px 16px;font-size:12px;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Create New
+            </button>
+          </div>
+        </div>
+        <div class="dd-footer">
+          <button>Disconnect</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ════════════════════════════════════════════
+       VERCEL
+       ════════════════════════════════════════════ -->
+  <div class="dropdown-column">
+    <span class="dropdown-label">Vercel</span>
+
+    <!-- Trigger button preview -->
+    <div class="trigger-btn">
+      <div class="trigger-icon vc-avatar">
+        <svg width="13" height="12" viewBox="0 0 76 65" fill="white"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z"/></svg>
+      </div>
+      <div class="trigger-dot"></div>
+      <div class="trigger-text">
+        <span class="t-label">rosendolopez</span>
+        <span class="t-value">claude-canvas</span>
+      </div>
+    </div>
+
+    <div class="dropdown" id="vc-dropdown" data-state="connected">
+
+      <!-- ── CONNECTED STATE ── -->
+      <div class="state-connected">
+        <!-- Profile -->
+        <div class="dd-profile">
+          <div class="dd-avatar vc-avatar">
+            <svg width="14" height="12" viewBox="0 0 76 65" fill="white"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z"/></svg>
+          </div>
+          <div class="dd-profile-info">
+            <div class="dd-profile-name">Rosendo Lopez</div>
+            <div class="dd-profile-sub">@rosendolopez</div>
+          </div>
+          <span class="dd-profile-badge" style="background:rgba(255,255,255,0.06);color:var(--text-secondary);">Pro</span>
+        </div>
+
+        <!-- Deployment status card -->
+        <div class="vc-deploy-card">
+          <div class="vc-deploy-main">
+            <!-- Status ring with SVG arc -->
+            <div class="vc-deploy-status-ring">
+              <svg width="36" height="36" viewBox="0 0 36 36">
+                <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="2.5"/>
+                <circle cx="18" cy="18" r="15" fill="none" stroke="var(--status-green)" stroke-width="2.5"
+                  stroke-dasharray="94.2" stroke-dashoffset="0"
+                  transform="rotate(-90 18 18)" stroke-linecap="round"/>
+              </svg>
+              <span class="inner-icon">✓</span>
+            </div>
+            <div class="vc-deploy-info">
+              <div class="vc-deploy-env" style="color:var(--status-green);">Production</div>
+              <div class="vc-deploy-msg">feat: complete Plan 2 features</div>
+              <div class="vc-deploy-meta">
+                <span>Ready</span>
+                <span class="sep">·</span>
+                <span>12m ago</span>
+                <span class="sep">·</span>
+                <span>2.1s build</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- URL row -->
+          <div class="vc-url-row">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
+            <span class="url">claude-canvas.vercel.app</span>
+            <span class="copy-btn">⎘</span>
+          </div>
+        </div>
+
+        <!-- Build metrics -->
+        <div class="vc-metrics">
+          <div class="vc-metric">
+            <div class="vc-metric-value">2.1s</div>
+            <div class="vc-metric-label">Build</div>
+          </div>
+          <div class="vc-metric">
+            <div class="vc-metric-value">148</div>
+            <div class="vc-metric-label">Deploys</div>
+          </div>
+          <div class="vc-metric">
+            <div class="vc-metric-value">99.9%</div>
+            <div class="vc-metric-label">Uptime</div>
+          </div>
+        </div>
+
+        <!-- Quick actions -->
+        <div class="dd-section">
+          <div class="dd-action">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+            Redeploy
+            <span class="arrow">›</span>
+          </div>
+          <div class="dd-action">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            Open Dashboard
+            <span class="kbd">⌘⇧V</span>
+          </div>
+          <div class="dd-action">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
+            Manage Domains
+            <span class="arrow">›</span>
+          </div>
+          <div class="dd-action">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            View Build Logs
+            <span class="arrow">›</span>
+          </div>
+        </div>
+
+        <!-- Recent deployments -->
+        <div class="dd-section">
+          <div class="dd-section-header">
+            Recent
+            <span class="count">3</span>
+          </div>
+          <div class="vc-timeline dd-scroll">
+            <div class="vc-timeline-item">
+              <div class="vc-timeline-dot ready"></div>
+              <span class="vc-timeline-msg">feat: complete Plan 2 features</span>
+              <span class="vc-timeline-time">12m</span>
+            </div>
+            <div class="vc-timeline-item">
+              <div class="vc-timeline-dot ready"></div>
+              <span class="vc-timeline-msg">refactor: remove dead build-logs state</span>
+              <span class="vc-timeline-time">2h</span>
+            </div>
+            <div class="vc-timeline-item">
+              <div class="vc-timeline-dot error"></div>
+              <span class="vc-timeline-msg">feat: add keyboard shortcuts</span>
+              <span class="vc-timeline-time">5h</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Domains -->
+        <div class="dd-section">
+          <div class="dd-section-header">Domains</div>
+          <div class="vc-domain-list">
+            <div class="vc-domain-item">
+              <span class="globe">🌐</span>
+              claude-canvas.vercel.app
+              <span class="primary-badge">primary</span>
+            </div>
+            <div class="vc-domain-item">
+              <span class="globe">🌐</span>
+              claudecanvas.dev
+            </div>
+          </div>
+        </div>
+
+        <div class="dd-footer">
+          <button>Disconnect</button>
+        </div>
+      </div>
+
+      <!-- ── DISCONNECTED STATE ── -->
+      <div class="state-disconnected">
+        <div class="dd-empty">
+          <div class="dd-empty-icon" style="background:rgba(255,255,255,0.04);border:1px solid var(--border-subtle);">
+            <svg width="22" height="20" viewBox="0 0 76 65" fill="currentColor" style="color:rgba(255,255,255,0.2)"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z"/></svg>
+          </div>
+          <h3>Connect Vercel</h3>
+          <p>Deploy instantly, manage domains, and monitor your production builds — all from the terminal.</p>
+          <button class="dd-primary-btn vc-connect-btn" style="width:auto;display:inline-flex;padding:10px 24px;">
+            <svg width="13" height="12" viewBox="0 0 76 65" fill="currentColor"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z"/></svg>
+            Sign in with Vercel
+          </button>
+        </div>
+      </div>
+
+      <!-- ── UNLINKED STATE ── -->
+      <div class="state-unlinked">
+        <div class="dd-profile">
+          <div class="dd-avatar vc-avatar">
+            <svg width="14" height="12" viewBox="0 0 76 65" fill="white"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z"/></svg>
+          </div>
+          <div class="dd-profile-info">
+            <div class="dd-profile-name">Rosendo Lopez</div>
+            <div class="dd-profile-sub">@rosendolopez</div>
+          </div>
+        </div>
+        <div class="dd-empty" style="padding-top:20px;">
+          <div class="dd-empty-icon" style="background:rgba(255,255,255,0.03);border:1px dashed var(--border-medium);">
+            <svg width="18" height="16" viewBox="0 0 76 65" fill="currentColor" style="color:rgba(255,255,255,0.15)"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z"/></svg>
+          </div>
+          <h3>No project linked</h3>
+          <p>Import or link a Vercel project to deploy directly from your terminal.</p>
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:center;">
+            <button class="dd-primary-btn" style="width:auto;padding:8px 20px;background:var(--accent-cyan);color:#000;font-size:12px;font-weight:600;">
+              Import claude-canvas
+            </button>
+            <button class="dd-primary-btn" style="width:auto;padding:8px 16px;background:rgba(255,255,255,0.06);color:var(--text-secondary);font-size:12px;">
+              Link Existing Project
+            </button>
+          </div>
+        </div>
+        <div class="dd-footer">
+          <button>Disconnect</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ════════════════════════════════════════════
+       SUPABASE
+       ════════════════════════════════════════════ -->
+  <div class="dropdown-column">
+    <span class="dropdown-label">Supabase</span>
+
+    <!-- Trigger button preview -->
+    <div class="trigger-btn">
+      <div class="trigger-icon sb-avatar">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--supabase-green)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+      </div>
+      <div class="trigger-dot"></div>
+      <div class="trigger-text">
+        <span class="t-label">rosendolopez</span>
+        <span class="t-value">canvas-prod</span>
+      </div>
+    </div>
+
+    <div class="dropdown" id="sb-dropdown" data-state="connected">
+
+      <!-- ── CONNECTED STATE ── -->
+      <div class="state-connected">
+        <!-- Profile -->
+        <div class="dd-profile">
+          <div class="dd-avatar sb-avatar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--supabase-green)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          </div>
+          <div class="dd-profile-info">
+            <div class="dd-profile-name">Rosendo Lopez</div>
+            <div class="dd-profile-sub">rosendo@example.com</div>
+          </div>
+          <span class="dd-profile-badge" style="background:var(--supabase-green-dim);color:var(--supabase-green);">Pro</span>
+        </div>
+
+        <!-- Project card -->
+        <div class="dd-section">
+          <div class="dd-section-header">Project</div>
+          <div class="sb-project-card">
+            <div class="sb-project-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+            </div>
+            <div class="sb-project-info">
+              <div class="sb-project-name">canvas-prod</div>
+              <div class="sb-project-region">
+                <span class="status-dot green" style="display:inline-block;width:5px;height:5px;vertical-align:middle;margin-right:4px;"></span>
+                us-east-1 · Healthy
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Resource grid -->
+        <div class="dd-section">
+          <div class="dd-section-header">Resources</div>
+          <div class="sb-resource-grid">
+            <div class="sb-resource-card">
+              <div class="sb-resource-header">
+                <span class="sb-resource-icon">⊞</span>
+              </div>
+              <div class="sb-resource-count">12</div>
+              <div class="sb-resource-label">Tables</div>
+            </div>
+            <div class="sb-resource-card">
+              <div class="sb-resource-header">
+                <span class="sb-resource-icon">ƒ</span>
+              </div>
+              <div class="sb-resource-count">5</div>
+              <div class="sb-resource-label">Functions</div>
+            </div>
+            <div class="sb-resource-card">
+              <div class="sb-resource-header">
+                <span class="sb-resource-icon">◫</span>
+              </div>
+              <div class="sb-resource-count">3</div>
+              <div class="sb-resource-label">Buckets</div>
+            </div>
+            <div class="sb-resource-card">
+              <div class="sb-resource-header">
+                <span class="sb-resource-icon">◈</span>
+              </div>
+              <div class="sb-resource-count">8</div>
+              <div class="sb-resource-label">Policies</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RLS indicator -->
+        <div class="dd-section">
+          <div class="sb-rls-bar">
+            <span class="sb-rls-icon">🛡</span>
+            <span class="sb-rls-text">Row Level Security</span>
+            <span class="sb-rls-count">8 policies active</span>
+          </div>
+        </div>
+
+        <!-- Connection URL -->
+        <div class="dd-section">
+          <div class="dd-section-header">Connection</div>
+          <div class="sb-conn-row">
+            <span class="sb-conn-label">URL</span>
+            <span class="sb-conn-url">xyzcompany.supabase.co</span>
+            <span class="sb-conn-copy" title="Copy">⎘</span>
+          </div>
+        </div>
+
+        <!-- Table preview -->
+        <div class="dd-section">
+          <div class="dd-section-header">
+            Tables
+            <span class="count">12</span>
+          </div>
+          <div class="sb-table-list dd-scroll">
+            <div class="sb-table-item">
+              <span class="t-icon">⊞</span>
+              public.users
+              <span class="t-cols">8 cols</span>
+            </div>
+            <div class="sb-table-item">
+              <span class="t-icon">⊞</span>
+              public.projects
+              <span class="t-cols">12 cols</span>
+            </div>
+            <div class="sb-table-item">
+              <span class="t-icon">⊞</span>
+              public.deployments
+              <span class="t-cols">9 cols</span>
+            </div>
+            <div class="sb-table-item">
+              <span class="t-icon">⊞</span>
+              public.sessions
+              <span class="t-cols">6 cols</span>
+            </div>
+            <div class="sb-table-item">
+              <span class="t-icon">⊞</span>
+              public.api_keys
+              <span class="t-cols">5 cols</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick actions -->
+        <div class="dd-section">
+          <div class="dd-action">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            Open Dashboard
+            <span class="arrow">›</span>
+          </div>
+          <div class="dd-action">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+            SQL Editor
+            <span class="arrow">›</span>
+          </div>
+          <div class="dd-action">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            Auth Settings
+            <span class="arrow">›</span>
+          </div>
+        </div>
+
+        <div class="dd-footer">
+          <button>Disconnect</button>
+        </div>
+      </div>
+
+      <!-- ── DISCONNECTED STATE ── -->
+      <div class="state-disconnected">
+        <div class="dd-empty">
+          <div class="dd-empty-icon" style="background:rgba(62,207,142,0.06);border:1px solid rgba(62,207,142,0.1);">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(62,207,142,0.3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          </div>
+          <h3>Connect Supabase</h3>
+          <p>Auth, database, storage, and edge functions — managed from your terminal workflow.</p>
+          <button class="dd-primary-btn sb-connect-btn" style="width:auto;display:inline-flex;padding:10px 24px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+            Sign in with Supabase
+          </button>
+        </div>
+      </div>
+
+      <!-- ── UNLINKED STATE ── -->
+      <div class="state-unlinked">
+        <div class="dd-profile">
+          <div class="dd-avatar sb-avatar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--supabase-green)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          </div>
+          <div class="dd-profile-info">
+            <div class="dd-profile-name">Rosendo Lopez</div>
+            <div class="dd-profile-sub">rosendo@example.com</div>
+          </div>
+        </div>
+        <div class="dd-empty" style="padding-top:20px;">
+          <div class="dd-empty-icon" style="background:rgba(62,207,142,0.04);border:1px dashed rgba(62,207,142,0.15);">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(62,207,142,0.2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          </div>
+          <h3>No project linked</h3>
+          <p>Link a Supabase project for auth, database, and storage integration.</p>
+          <button class="dd-primary-btn sb-connect-btn" style="width:auto;padding:8px 20px;font-size:12px;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Link Project
+          </button>
+        </div>
+        <div class="dd-footer">
+          <button>Disconnect</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  function setState(state) {
+    // Update buttons
+    document.querySelectorAll('.state-btn').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+
+    // Update dropdowns
+    document.querySelectorAll('.dropdown').forEach(dd => {
+      dd.setAttribute('data-state', state);
+    });
+  }
+</script>
+
+</body>
+</html>

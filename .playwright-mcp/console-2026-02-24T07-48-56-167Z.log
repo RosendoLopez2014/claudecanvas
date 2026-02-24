@@ -1,0 +1,5 @@
+[     995ms] [ERROR] Framing 'https://a.claude.ai/' violates the following Content Security Policy directive: "frame-ancestors https://claude.ai https://*.claude.ai https://anthropic.com https://*.anthropic.com https://*.ant.dev". The request has been blocked.
+ @ :0
+[    1850ms] [ERROR] Framing 'https://a.claude.ai/' violates the following Content Security Policy directive: "frame-ancestors https://claude.ai https://*.claude.ai https://anthropic.com https://*.anthropic.com https://*.ant.dev". The request has been blocked.
+ @ :0
+[    4071ms] [WARNING] [Intercom] The App ID in your code snippet has not been set. Set it to your App ID found in settings to complete installation: https://app.intercom.com/a/apps/_/settings/web @ https://js.intercomcdn.com/frame-modern.6c85f17b.js:0

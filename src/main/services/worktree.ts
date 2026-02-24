@@ -1,11 +1,18 @@
 import { ipcMain } from 'electron'
-import simpleGit from 'simple-git'
+import { getGit, withEbadfRetry, enqueue } from './git'
 
 export function setupWorktreeHandlers(): void {
   ipcMain.handle('worktree:list', async (_event, projectPath: string) => {
-    const git = simpleGit(projectPath)
-    const raw = await git.raw(['worktree', 'list', '--porcelain'])
-    return parseWorktreeList(raw)
+    return enqueue(projectPath, async () => {
+      try {
+        const git = getGit(projectPath)
+        const raw = await withEbadfRetry(() => git.raw(['worktree', 'list', '--porcelain']), 3, 'worktree:list')
+        return parseWorktreeList(raw)
+      } catch (err: any) {
+        console.error('[worktree] list failed:', err?.message)
+        return { error: err?.message || 'Failed to list worktrees' }
+      }
+    })
   })
 
   ipcMain.handle(
@@ -18,9 +25,19 @@ export function setupWorktreeHandlers(): void {
         targetDir: string
       }
     ) => {
-      const git = simpleGit(opts.projectPath)
-      await git.raw(['worktree', 'add', opts.targetDir, '-b', opts.branchName])
-      return { path: opts.targetDir, branch: opts.branchName }
+      return enqueue(opts.projectPath, async () => {
+        try {
+          const git = getGit(opts.projectPath)
+          await withEbadfRetry(() =>
+            git.raw(['worktree', 'add', opts.targetDir, '-b', opts.branchName]),
+            3, 'worktree:create'
+          )
+          return { path: opts.targetDir, branch: opts.branchName }
+        } catch (err: any) {
+          console.error('[worktree] create failed:', err?.message)
+          return { error: err?.message || 'Failed to create worktree' }
+        }
+      })
     }
   )
 
@@ -34,9 +51,19 @@ export function setupWorktreeHandlers(): void {
         targetDir: string
       }
     ) => {
-      const git = simpleGit(opts.projectPath)
-      await git.raw(['worktree', 'add', opts.targetDir, opts.branchName])
-      return { path: opts.targetDir, branch: opts.branchName }
+      return enqueue(opts.projectPath, async () => {
+        try {
+          const git = getGit(opts.projectPath)
+          await withEbadfRetry(() =>
+            git.raw(['worktree', 'add', opts.targetDir, opts.branchName]),
+            3, 'worktree:checkout'
+          )
+          return { path: opts.targetDir, branch: opts.branchName }
+        } catch (err: any) {
+          console.error('[worktree] checkout failed:', err?.message)
+          return { error: err?.message || 'Failed to checkout worktree' }
+        }
+      })
     }
   )
 
@@ -49,16 +76,33 @@ export function setupWorktreeHandlers(): void {
         worktreePath: string
       }
     ) => {
-      const git = simpleGit(opts.projectPath)
-      await git.raw(['worktree', 'remove', opts.worktreePath])
-      return { ok: true }
+      return enqueue(opts.projectPath, async () => {
+        try {
+          const git = getGit(opts.projectPath)
+          await withEbadfRetry(() =>
+            git.raw(['worktree', 'remove', opts.worktreePath]),
+            3, 'worktree:remove'
+          )
+          return { ok: true }
+        } catch (err: any) {
+          console.error('[worktree] remove failed:', err?.message)
+          return { error: err?.message || 'Failed to remove worktree' }
+        }
+      })
     }
   )
 
   ipcMain.handle('worktree:branches', async (_event, projectPath: string) => {
-    const git = simpleGit(projectPath)
-    const summary = await git.branchLocal()
-    return { current: summary.current, branches: summary.all }
+    return enqueue(projectPath, async () => {
+      try {
+        const git = getGit(projectPath)
+        const summary = await withEbadfRetry(() => git.branchLocal(), 3, 'worktree:branches')
+        return { current: summary.current, branches: summary.all }
+      } catch (err: any) {
+        console.error('[worktree] branches failed:', err?.message)
+        return { error: err?.message || 'Failed to list branches' }
+      }
+    })
   })
 }
 

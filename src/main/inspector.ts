@@ -209,118 +209,320 @@ const OVERLAY_JS = `(function() {
     'border:2px solid #4AEAFF;background:rgba(74,234,255,0.08);border-radius:2px;display:none;';
   container.appendChild(highlight);
 
-  // Layout overlay elements (margin/padding box model + flex/grid indicators)
-  var marginOverlay = document.createElement('div');
-  marginOverlay.style.cssText = 'position:fixed;pointer-events:none;display:none;' +
-    'border:1px dashed rgba(255,107,74,0.4);background:rgba(255,107,74,0.05);';
-  container.appendChild(marginOverlay);
+  // ── Layout Visualization Container ────────────────────────────
+  // Holds all layout overlay elements: box model, flex/grid indicators
+  var layoutContainer = document.createElement('div');
+  layoutContainer.id = '__claude_layout_overlay';
+  layoutContainer.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999998;';
+  container.appendChild(layoutContainer);
 
-  var paddingOverlay = document.createElement('div');
-  paddingOverlay.style.cssText = 'position:fixed;pointer-events:none;display:none;' +
-    'border:1px dashed rgba(74,222,128,0.4);background:rgba(74,222,128,0.05);';
-  container.appendChild(paddingOverlay);
+  // Common label style for box-model pixel values and layout info
+  var LAYOUT_LABEL_STYLE = "position:fixed;pointer-events:none;background:rgba(0,0,0,0.75);color:#4AEAFF;font-size:10px;padding:1px 4px;border-radius:2px;font-family:'JetBrains Mono',monospace;white-space:nowrap;z-index:999999;";
 
-  var layoutLabel = document.createElement('div');
-  layoutLabel.style.cssText = 'position:fixed;pointer-events:none;display:none;' +
-    'background:rgba(192,132,252,0.9);color:#fff;padding:1px 5px;font-size:9px;' +
-    "border-radius:2px;font-family:'JetBrains Mono',monospace;white-space:nowrap;";
-  container.appendChild(layoutLabel);
+  // Dynamic elements created per hover — tracked for cleanup
+  var layoutElements = [];
 
-  // Gap visualization lines for flex/grid containers
-  var gapLines = [];
-
-  function clearGapLines() {
-    gapLines.forEach(function(l) { l.remove(); });
-    gapLines = [];
+  function clearLayoutElements() {
+    layoutElements.forEach(function(el) { el.remove(); });
+    layoutElements = [];
   }
 
-  function showLayoutOverlay(el) {
-    var computed = getComputedStyle(el);
-    var rect = el.getBoundingClientRect();
+  function createLayoutDiv(css) {
+    var d = document.createElement('div');
+    d.style.cssText = css;
+    layoutContainer.appendChild(d);
+    layoutElements.push(d);
+    return d;
+  }
 
-    // Margin overlay
+  function createLayoutLabel(text, top, left) {
+    var lbl = createLayoutDiv(LAYOUT_LABEL_STYLE);
+    lbl.textContent = text;
+    lbl.style.top = top + 'px';
+    lbl.style.left = left + 'px';
+    return lbl;
+  }
+
+  // ── Box Model Overlay (shown for ALL elements) ──────────────
+  function showBoxModelOverlay(el, computed, rect) {
     var mt = parseFloat(computed.marginTop) || 0;
     var mr = parseFloat(computed.marginRight) || 0;
     var mb = parseFloat(computed.marginBottom) || 0;
     var ml = parseFloat(computed.marginLeft) || 0;
-    if (mt || mr || mb || ml) {
-      marginOverlay.style.top = (rect.top - mt) + 'px';
-      marginOverlay.style.left = (rect.left - ml) + 'px';
-      marginOverlay.style.width = (rect.width + ml + mr) + 'px';
-      marginOverlay.style.height = (rect.height + mt + mb) + 'px';
-      marginOverlay.style.display = 'block';
-    } else {
-      marginOverlay.style.display = 'none';
-    }
 
-    // Padding overlay (inner box)
     var pt = parseFloat(computed.paddingTop) || 0;
     var pr = parseFloat(computed.paddingRight) || 0;
     var pb = parseFloat(computed.paddingBottom) || 0;
     var pl = parseFloat(computed.paddingLeft) || 0;
-    if (pt || pr || pb || pl) {
-      paddingOverlay.style.top = (rect.top + pt) + 'px';
-      paddingOverlay.style.left = (rect.left + pl) + 'px';
-      paddingOverlay.style.width = (rect.width - pl - pr) + 'px';
-      paddingOverlay.style.height = (rect.height - pt - pb) + 'px';
-      paddingOverlay.style.display = 'block';
-    } else {
-      paddingOverlay.style.display = 'none';
+
+    var hasMargin = mt || mr || mb || ml;
+    var hasPadding = pt || pr || pb || pl;
+
+    // Margin area — orange semi-transparent outer region
+    if (hasMargin) {
+      // Top margin strip
+      if (mt > 0) {
+        createLayoutDiv('position:fixed;pointer-events:none;background:rgba(255,155,0,0.15);' +
+          'top:' + (rect.top - mt) + 'px;left:' + (rect.left - ml) + 'px;' +
+          'width:' + (rect.width + ml + mr) + 'px;height:' + mt + 'px;');
+      }
+      // Bottom margin strip
+      if (mb > 0) {
+        createLayoutDiv('position:fixed;pointer-events:none;background:rgba(255,155,0,0.15);' +
+          'top:' + rect.bottom + 'px;left:' + (rect.left - ml) + 'px;' +
+          'width:' + (rect.width + ml + mr) + 'px;height:' + mb + 'px;');
+      }
+      // Left margin strip
+      if (ml > 0) {
+        createLayoutDiv('position:fixed;pointer-events:none;background:rgba(255,155,0,0.15);' +
+          'top:' + rect.top + 'px;left:' + (rect.left - ml) + 'px;' +
+          'width:' + ml + 'px;height:' + rect.height + 'px;');
+      }
+      // Right margin strip
+      if (mr > 0) {
+        createLayoutDiv('position:fixed;pointer-events:none;background:rgba(255,155,0,0.15);' +
+          'top:' + rect.top + 'px;left:' + rect.right + 'px;' +
+          'width:' + mr + 'px;height:' + rect.height + 'px;');
+      }
+
+      // Margin pixel labels (show non-zero values)
+      if (mt > 0) createLayoutLabel(Math.round(mt) + '', rect.top - mt / 2 - 6, rect.left + rect.width / 2 - 8);
+      if (mb > 0) createLayoutLabel(Math.round(mb) + '', rect.bottom + mb / 2 - 6, rect.left + rect.width / 2 - 8);
+      if (ml > 0) createLayoutLabel(Math.round(ml) + '', rect.top + rect.height / 2 - 6, rect.left - ml / 2 - 8);
+      if (mr > 0) createLayoutLabel(Math.round(mr) + '', rect.top + rect.height / 2 - 6, rect.right + mr / 2 - 8);
     }
 
-    // Flex/Grid layout label
-    var display = computed.display;
-    clearGapLines();
-    if (display === 'flex' || display === 'inline-flex') {
-      var dir = computed.flexDirection;
-      var justify = computed.justifyContent;
-      var align = computed.alignItems;
-      var gap = computed.gap;
-      layoutLabel.textContent = 'flex ' + dir + ' | ' + justify + ' | ' + align + (gap !== 'normal' && gap !== '0px' ? ' | gap:' + gap : '');
-      layoutLabel.style.top = (rect.bottom + 2) + 'px';
-      layoutLabel.style.left = rect.left + 'px';
-      layoutLabel.style.display = 'block';
+    // Padding area — green semi-transparent inner region
+    if (hasPadding) {
+      // Top padding strip
+      if (pt > 0) {
+        createLayoutDiv('position:fixed;pointer-events:none;background:rgba(0,200,100,0.15);' +
+          'top:' + rect.top + 'px;left:' + rect.left + 'px;' +
+          'width:' + rect.width + 'px;height:' + pt + 'px;');
+      }
+      // Bottom padding strip
+      if (pb > 0) {
+        createLayoutDiv('position:fixed;pointer-events:none;background:rgba(0,200,100,0.15);' +
+          'top:' + (rect.bottom - pb) + 'px;left:' + rect.left + 'px;' +
+          'width:' + rect.width + 'px;height:' + pb + 'px;');
+      }
+      // Left padding strip
+      if (pl > 0) {
+        createLayoutDiv('position:fixed;pointer-events:none;background:rgba(0,200,100,0.15);' +
+          'top:' + (rect.top + pt) + 'px;left:' + rect.left + 'px;' +
+          'width:' + pl + 'px;height:' + (rect.height - pt - pb) + 'px;');
+      }
+      // Right padding strip
+      if (pr > 0) {
+        createLayoutDiv('position:fixed;pointer-events:none;background:rgba(0,200,100,0.15);' +
+          'top:' + (rect.top + pt) + 'px;left:' + (rect.right - pr) + 'px;' +
+          'width:' + pr + 'px;height:' + (rect.height - pt - pb) + 'px;');
+      }
 
-      // Show gap lines between children
-      if (gap && gap !== 'normal' && gap !== '0px') {
-        var children = el.children;
-        for (var ci = 0; ci < children.length - 1; ci++) {
-          var childRect = children[ci].getBoundingClientRect();
-          var nextRect = children[ci + 1].getBoundingClientRect();
-          var line = document.createElement('div');
-          line.style.cssText = 'position:fixed;pointer-events:none;background:rgba(192,132,252,0.3);';
-          if (dir === 'row' || dir === 'row-reverse') {
-            line.style.top = rect.top + 'px';
-            line.style.left = childRect.right + 'px';
-            line.style.width = Math.max(0, nextRect.left - childRect.right) + 'px';
-            line.style.height = rect.height + 'px';
-          } else {
-            line.style.top = childRect.bottom + 'px';
-            line.style.left = rect.left + 'px';
-            line.style.width = rect.width + 'px';
-            line.style.height = Math.max(0, nextRect.top - childRect.bottom) + 'px';
+      // Padding pixel labels (show non-zero values)
+      if (pt > 0) createLayoutLabel(Math.round(pt) + '', rect.top + pt / 2 - 6, rect.left + rect.width / 2 - 8);
+      if (pb > 0) createLayoutLabel(Math.round(pb) + '', rect.bottom - pb / 2 - 6, rect.left + rect.width / 2 - 8);
+      if (pl > 0) createLayoutLabel(Math.round(pl) + '', rect.top + rect.height / 2 - 6, rect.left + pl / 2 - 8);
+      if (pr > 0) createLayoutLabel(Math.round(pr) + '', rect.top + rect.height / 2 - 6, rect.right - pr / 2 - 8);
+    }
+
+    // Content area — 1px cyan border around the actual content box
+    var contentTop = rect.top + pt;
+    var contentLeft = rect.left + pl;
+    var contentWidth = rect.width - pl - pr;
+    var contentHeight = rect.height - pt - pb;
+    if (contentWidth > 0 && contentHeight > 0) {
+      createLayoutDiv('position:fixed;pointer-events:none;' +
+        'border:1px solid rgba(74,234,255,0.4);background:rgba(74,234,255,0.1);' +
+        'top:' + contentTop + 'px;left:' + contentLeft + 'px;' +
+        'width:' + contentWidth + 'px;height:' + contentHeight + 'px;');
+    }
+  }
+
+  // ── Flex Container Overlay ────────────────────────────────────
+  function showFlexOverlay(el, computed, rect) {
+    var dir = computed.flexDirection;
+    var justify = computed.justifyContent;
+    var align = computed.alignItems;
+    var gap = computed.gap;
+
+    // Direction arrow overlay — large centered arrow showing flex direction
+    var arrowMap = { row: '\u2192', column: '\u2193', 'row-reverse': '\u2190', 'column-reverse': '\u2191' };
+    var arrow = arrowMap[dir] || '\u2192';
+    var arrowEl = createLayoutDiv(
+      'position:fixed;pointer-events:none;display:flex;align-items:center;justify-content:center;' +
+      'color:rgba(74,234,255,0.5);font-size:28px;font-weight:bold;' +
+      'top:' + rect.top + 'px;left:' + rect.left + 'px;' +
+      'width:' + rect.width + 'px;height:' + rect.height + 'px;'
+    );
+    arrowEl.textContent = arrow;
+
+    // Semi-transparent flex container tint
+    createLayoutDiv('position:fixed;pointer-events:none;' +
+      'background:rgba(74,234,255,0.05);border:1px dashed rgba(74,234,255,0.3);' +
+      'top:' + rect.top + 'px;left:' + rect.left + 'px;' +
+      'width:' + rect.width + 'px;height:' + rect.height + 'px;');
+
+    // Justify-content label (positioned at top-left of element)
+    var justifyLabel = createLayoutDiv(LAYOUT_LABEL_STYLE);
+    justifyLabel.textContent = 'justify: ' + justify;
+    justifyLabel.style.top = (rect.bottom + 2) + 'px';
+    justifyLabel.style.left = rect.left + 'px';
+
+    // Align-items label (positioned next to justify)
+    var alignLabel = createLayoutDiv(LAYOUT_LABEL_STYLE);
+    alignLabel.textContent = 'align: ' + align;
+    alignLabel.style.top = (rect.bottom + 2) + 'px';
+    // Offset to the right of justify label — estimate width
+    alignLabel.style.left = (rect.left + (justify.length + 10) * 6.5) + 'px';
+
+    // Gap label if present
+    if (gap && gap !== 'normal' && gap !== '0px') {
+      var gapLabel = createLayoutDiv(LAYOUT_LABEL_STYLE);
+      gapLabel.textContent = 'gap: ' + gap;
+      gapLabel.style.top = (rect.bottom + 16) + 'px';
+      gapLabel.style.left = rect.left + 'px';
+    }
+
+    // Visualize gap as dotted-line regions between flex children
+    if (gap && gap !== 'normal' && gap !== '0px') {
+      var children = el.children;
+      for (var ci = 0; ci < children.length - 1; ci++) {
+        var childRect = children[ci].getBoundingClientRect();
+        var nextRect = children[ci + 1].getBoundingClientRect();
+        var gapDiv;
+        if (dir === 'row' || dir === 'row-reverse') {
+          var gapLeft = childRect.right;
+          var gapWidth = Math.max(0, nextRect.left - childRect.right);
+          if (gapWidth > 0) {
+            gapDiv = createLayoutDiv(
+              'position:fixed;pointer-events:none;' +
+              'background:repeating-linear-gradient(90deg,rgba(74,234,255,0.2) 0px,rgba(74,234,255,0.2) 2px,transparent 2px,transparent 5px);' +
+              'border-left:1px dotted rgba(74,234,255,0.4);border-right:1px dotted rgba(74,234,255,0.4);' +
+              'top:' + rect.top + 'px;left:' + gapLeft + 'px;' +
+              'width:' + gapWidth + 'px;height:' + rect.height + 'px;'
+            );
           }
-          container.appendChild(line);
-          gapLines.push(line);
+        } else {
+          var gapTop = childRect.bottom;
+          var gapHeight = Math.max(0, nextRect.top - childRect.bottom);
+          if (gapHeight > 0) {
+            gapDiv = createLayoutDiv(
+              'position:fixed;pointer-events:none;' +
+              'background:repeating-linear-gradient(0deg,rgba(74,234,255,0.2) 0px,rgba(74,234,255,0.2) 2px,transparent 2px,transparent 5px);' +
+              'border-top:1px dotted rgba(74,234,255,0.4);border-bottom:1px dotted rgba(74,234,255,0.4);' +
+              'top:' + gapTop + 'px;left:' + rect.left + 'px;' +
+              'width:' + rect.width + 'px;height:' + gapHeight + 'px;'
+            );
+          }
         }
       }
+    }
+  }
+
+  // ── Grid Container Overlay ────────────────────────────────────
+  function showGridOverlay(el, computed, rect) {
+    var colsRaw = computed.gridTemplateColumns;
+    var rowsRaw = computed.gridTemplateRows;
+    var gap = computed.gap;
+    var rowGap = computed.rowGap;
+    var colGap = computed.columnGap;
+
+    // Parse track sizes from computed style (e.g. "200px 200px 200px")
+    var colSizes = colsRaw && colsRaw !== 'none' ? colsRaw.split(/\\s+/).map(parseFloat).filter(function(n) { return !isNaN(n); }) : [];
+    var rowSizes = rowsRaw && rowsRaw !== 'none' ? rowsRaw.split(/\\s+/).map(parseFloat).filter(function(n) { return !isNaN(n); }) : [];
+
+    var numCols = colSizes.length || 1;
+    var numRows = rowSizes.length || 1;
+
+    // Semi-transparent grid container tint
+    createLayoutDiv('position:fixed;pointer-events:none;' +
+      'background:rgba(74,234,255,0.05);border:1px dashed rgba(74,234,255,0.3);' +
+      'top:' + rect.top + 'px;left:' + rect.left + 'px;' +
+      'width:' + rect.width + 'px;height:' + rect.height + 'px;');
+
+    // Grid badge: "3x2 grid"
+    var badge = createLayoutDiv(LAYOUT_LABEL_STYLE);
+    badge.style.top = (rect.bottom + 2) + 'px';
+    badge.style.left = rect.left + 'px';
+    badge.textContent = numCols + '\\u00d7' + numRows + ' grid';
+
+    // Gap label if present
+    var effectiveGap = gap && gap !== 'normal' && gap !== '0px' ? gap : null;
+    if (effectiveGap) {
+      var gapBadge = createLayoutDiv(LAYOUT_LABEL_STYLE);
+      gapBadge.style.top = (rect.bottom + 16) + 'px';
+      gapBadge.style.left = rect.left + 'px';
+      gapBadge.textContent = 'gap: ' + effectiveGap;
+    }
+
+    // Parse gap values for track line positioning
+    var rGap = parseFloat(rowGap) || 0;
+    var cGap = parseFloat(colGap) || 0;
+
+    // Draw vertical column track lines (dashed cyan at 20% opacity)
+    if (colSizes.length > 1) {
+      var xOffset = rect.left;
+      for (var ci = 0; ci < colSizes.length - 1; ci++) {
+        xOffset += colSizes[ci];
+        // Draw line at this position
+        createLayoutDiv('position:fixed;pointer-events:none;' +
+          'border-left:1px dashed rgba(74,234,255,0.2);' +
+          'top:' + rect.top + 'px;left:' + xOffset + 'px;' +
+          'width:0px;height:' + rect.height + 'px;');
+        // Visualize column gap as highlighted space
+        if (cGap > 0) {
+          createLayoutDiv('position:fixed;pointer-events:none;' +
+            'background:rgba(74,234,255,0.1);' +
+            'top:' + rect.top + 'px;left:' + xOffset + 'px;' +
+            'width:' + cGap + 'px;height:' + rect.height + 'px;');
+          xOffset += cGap;
+        }
+      }
+    }
+
+    // Draw horizontal row track lines (dashed cyan at 20% opacity)
+    if (rowSizes.length > 1) {
+      var yOffset = rect.top;
+      for (var ri = 0; ri < rowSizes.length - 1; ri++) {
+        yOffset += rowSizes[ri];
+        // Draw line at this position
+        createLayoutDiv('position:fixed;pointer-events:none;' +
+          'border-top:1px dashed rgba(74,234,255,0.2);' +
+          'top:' + yOffset + 'px;left:' + rect.left + 'px;' +
+          'width:' + rect.width + 'px;height:0px;');
+        // Visualize row gap as highlighted space
+        if (rGap > 0) {
+          createLayoutDiv('position:fixed;pointer-events:none;' +
+            'background:rgba(74,234,255,0.1);' +
+            'top:' + yOffset + 'px;left:' + rect.left + 'px;' +
+            'width:' + rect.width + 'px;height:' + rGap + 'px;');
+          yOffset += rGap;
+        }
+      }
+    }
+  }
+
+  // ── Main Layout Overlay Dispatcher ────────────────────────────
+  function showLayoutOverlay(el) {
+    clearLayoutElements();
+    var computed = getComputedStyle(el);
+    var rect = el.getBoundingClientRect();
+
+    // Box model is always shown for any element
+    showBoxModelOverlay(el, computed, rect);
+
+    // Flex/grid overlays on top
+    var display = computed.display;
+    if (display === 'flex' || display === 'inline-flex') {
+      showFlexOverlay(el, computed, rect);
     } else if (display === 'grid' || display === 'inline-grid') {
-      var cols = computed.gridTemplateColumns;
-      var rows = computed.gridTemplateRows;
-      layoutLabel.textContent = 'grid | cols:' + (cols || 'auto') + ' | rows:' + (rows || 'auto');
-      layoutLabel.style.top = (rect.bottom + 2) + 'px';
-      layoutLabel.style.left = rect.left + 'px';
-      layoutLabel.style.display = 'block';
-    } else {
-      layoutLabel.style.display = 'none';
+      showGridOverlay(el, computed, rect);
     }
   }
 
   function hideLayoutOverlay() {
-    marginOverlay.style.display = 'none';
-    paddingOverlay.style.display = 'none';
-    layoutLabel.style.display = 'none';
-    clearGapLines();
+    clearLayoutElements();
   }
 
   var tooltip = document.createElement('div');

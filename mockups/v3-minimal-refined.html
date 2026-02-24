@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>V3 — Minimal Refined</title>
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500;600&family=Geist:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #09090b;
+    --surface: #0f0f12;
+    --border: rgba(255,255,255,0.06);
+    --t1: rgba(255,255,255,0.88);
+    --t2: rgba(255,255,255,0.45);
+    --t3: rgba(255,255,255,0.20);
+    --cyan: #4AEAFF;
+    --green: #22c55e;
+    --amber: #eab308;
+    --red: #ef4444;
+    --sb: #3ECF8E;
+    --mono: 'Geist Mono', monospace;
+    --sans: 'Geist', system-ui, sans-serif;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--t1); font-family:var(--sans); min-height:100vh; }
+
+  .page-header {
+    padding: 40px 48px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .page-header h1 {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--cyan);
+  }
+  .page-header .sub { font-size: 11px; color: var(--t3); margin-top: 4px; }
+  .page-header .desc { font-size: 13px; color: var(--t2); margin-top: 12px; max-width: 600px; line-height: 1.6; }
+
+  .row { display: flex; gap: 40px; padding: 48px; flex-wrap: wrap; justify-content: center; }
+  .col { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .col-label { font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--t3); font-family: var(--mono); }
+
+  /* ── Ultra-clean dropdown ── */
+  .dd {
+    width: 296px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+  }
+
+  /* ── Minimal profile ── */
+  .dd-prof {
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .dd-prof-av {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .dd-prof-name { font-size: 14px; font-weight: 500; }
+  .dd-prof-sub { font-size: 11px; color: var(--t3); }
+  .dd-prof-dot {
+    margin-left: auto;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* ── Divider ── */
+  .dd-div { height: 1px; background: var(--border); margin: 0 20px; }
+
+  /* ── Content section ── */
+  .dd-s { padding: 12px 20px; }
+  .dd-s-head {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--t3);
+    margin-bottom: 8px;
+    letter-spacing: 0.02em;
+  }
+
+  /* ── Flat info row ── */
+  .info-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 0;
+  }
+  .info-row .ir-label { font-size: 13px; color: var(--t2); }
+  .info-row .ir-value { font-family: var(--mono); font-size: 12px; color: var(--t1); }
+  .info-row .ir-tag {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--t3);
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+
+  /* ── Minimal action ── */
+  .m-action {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 0;
+    font-size: 13px;
+    color: var(--t2);
+    cursor: pointer;
+    transition: color 0.1s;
+  }
+  .m-action:hover { color: var(--t1); }
+  .m-action .m-dot {
+    width: 4px; height: 4px;
+    border-radius: 50%;
+    background: var(--t3);
+  }
+  .m-action .m-kbd {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--t3);
+  }
+
+  /* ── Minimal button ── */
+  .m-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: transparent;
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--t1);
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .m-btn:hover { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.12); }
+  .m-btn-fill {
+    background: var(--t1);
+    color: var(--bg);
+    border-color: transparent;
+  }
+  .m-btn-fill:hover { opacity: 0.9; background: var(--t1); }
+  .m-btn-cyan {
+    background: var(--cyan);
+    color: #000;
+    border-color: transparent;
+    font-weight: 600;
+  }
+  .m-btn-cyan:hover { opacity: 0.9; background: var(--cyan); }
+
+  /* ── Number strip ── */
+  .num-strip {
+    display: flex;
+    gap: 0;
+  }
+  .num-item {
+    flex: 1;
+    text-align: center;
+    padding: 12px 0;
+    border-right: 1px solid var(--border);
+  }
+  .num-item:last-child { border-right: none; }
+  .num-val { font-family: var(--mono); font-size: 16px; font-weight: 600; }
+  .num-label { font-size: 10px; color: var(--t3); margin-top: 2px; }
+
+  /* ── Deploy line ── */
+  .dep-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+  }
+  .dep-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+  .dep-msg { font-size: 12px; color: var(--t2); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dep-time { font-family: var(--mono); font-size: 10px; color: var(--t3); }
+
+  /* ── URL line ── */
+  .url-line {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--cyan);
+    padding: 8px 12px;
+    background: rgba(74,234,255,0.04);
+    border-radius: 6px;
+    border: 1px solid rgba(74,234,255,0.08);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .url-line .u-copy { margin-left: auto; color: var(--t3); cursor: pointer; }
+
+  /* ── Footer ── */
+  .dd-foot {
+    padding: 8px 20px;
+    text-align: center;
+  }
+  .dd-foot button { font-size: 11px; color: var(--t3); background: none; border: none; cursor: pointer; }
+  .dd-foot button:hover { color: var(--red); }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>V3 — Minimal Refined</h1>
+  <div class="sub">Geist typography · negative space · restrained luxury</div>
+  <div class="desc">Ultra-clean with generous whitespace. No visual noise — every element breathes. Information hierarchy through weight and opacity alone, not boxes or borders. Feels like Linear or Vercel's own design system.</div>
+</div>
+
+<div class="row">
+
+  <!-- ═══ GITHUB ═══ -->
+  <div class="col">
+    <span class="col-label">GitHub</span>
+    <div class="dd">
+      <div class="dd-prof">
+        <div class="dd-prof-av" style="background:#161b22;">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="rgba(255,255,255,0.7)"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        </div>
+        <div>
+          <div class="dd-prof-name">rosendolopez</div>
+          <div class="dd-prof-sub">claude-canvas · Private</div>
+        </div>
+        <div class="dd-prof-dot" style="background:var(--green);"></div>
+      </div>
+
+      <div class="dd-div"></div>
+
+      <div class="dd-s">
+        <div class="info-row">
+          <span class="ir-label">Branch</span>
+          <span class="ir-value" style="color:var(--cyan);">feat/gallery-revamp</span>
+        </div>
+        <div class="info-row">
+          <span class="ir-label">Status</span>
+          <span class="ir-value" style="color:var(--cyan);">3 ahead</span>
+        </div>
+      </div>
+
+      <div class="dd-s" style="padding-top:0;">
+        <button class="m-btn m-btn-cyan">Push 3 commits</button>
+      </div>
+
+      <div class="dd-div"></div>
+
+      <div class="dd-s">
+        <div class="info-row">
+          <span class="ir-label" style="color:var(--green);">PR #42</span>
+          <span class="ir-tag">Open</span>
+        </div>
+      </div>
+
+      <div class="dd-div"></div>
+
+      <div class="dd-s">
+        <div class="m-action">
+          <span class="m-dot"></span>Open on GitHub<span class="m-kbd">⌘⇧G</span>
+        </div>
+        <div class="m-action">
+          <span class="m-dot"></span>View Issues
+        </div>
+        <div class="m-action">
+          <span class="m-dot"></span>Create Pull Request
+        </div>
+      </div>
+
+      <div class="dd-div"></div>
+      <div class="dd-foot"><button>Disconnect</button></div>
+    </div>
+  </div>
+
+  <!-- ═══ VERCEL ═══ -->
+  <div class="col">
+    <span class="col-label">Vercel</span>
+    <div class="dd">
+      <div class="dd-prof">
+        <div class="dd-prof-av" style="background:#000;">
+          <svg width="13" height="11" viewBox="0 0 76 65" fill="white"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z"/></svg>
+        </div>
+        <div>
+          <div class="dd-prof-name">claude-canvas</div>
+          <div class="dd-prof-sub">rosendolopez · Pro</div>
+        </div>
+        <div class="dd-prof-dot" style="background:var(--green);"></div>
+      </div>
+
+      <div style="background:var(--border);height:1px;"></div>
+
+      <div class="num-strip">
+        <div class="num-item">
+          <div class="num-val" style="color:var(--green);">●</div>
+          <div class="num-label">Ready</div>
+        </div>
+        <div class="num-item">
+          <div class="num-val">2.1s</div>
+          <div class="num-label">Build</div>
+        </div>
+        <div class="num-item">
+          <div class="num-val">148</div>
+          <div class="num-label">Deploys</div>
+        </div>
+      </div>
+
+      <div style="background:var(--border);height:1px;"></div>
+
+      <div class="dd-s">
+        <div class="url-line">
+          🌐 claude-canvas.vercel.app
+          <span class="u-copy">⎘</span>
+        </div>
+      </div>
+
+      <div class="dd-s" style="padding-top:0;">
+        <div class="dd-s-head">Recent</div>
+        <div class="dep-line">
+          <div class="dep-dot" style="background:var(--green);"></div>
+          <span class="dep-msg">feat: complete Plan 2 features</span>
+          <span class="dep-time">12m</span>
+        </div>
+        <div class="dep-line">
+          <div class="dep-dot" style="background:var(--green);"></div>
+          <span class="dep-msg">refactor: remove dead build-logs state</span>
+          <span class="dep-time">2h</span>
+        </div>
+        <div class="dep-line">
+          <div class="dep-dot" style="background:var(--red);"></div>
+          <span class="dep-msg">feat: add keyboard shortcuts</span>
+          <span class="dep-time">5h</span>
+        </div>
+      </div>
+
+      <div class="dd-div"></div>
+
+      <div class="dd-s">
+        <div class="m-action">
+          <span class="m-dot"></span>Redeploy
+        </div>
+        <div class="m-action">
+          <span class="m-dot"></span>Open Dashboard<span class="m-kbd">⌘⇧V</span>
+        </div>
+        <div class="m-action">
+          <span class="m-dot"></span>Manage Domains
+        </div>
+      </div>
+
+      <div class="dd-div"></div>
+      <div class="dd-foot"><button>Disconnect</button></div>
+    </div>
+  </div>
+
+  <!-- ═══ SUPABASE ═══ -->
+  <div class="col">
+    <span class="col-label">Supabase</span>
+    <div class="dd">
+      <div class="dd-prof">
+        <div class="dd-prof-av" style="background:#1a3a2a;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--sb)" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        </div>
+        <div>
+          <div class="dd-prof-name">canvas-prod</div>
+          <div class="dd-prof-sub">us-east-1 · Healthy</div>
+        </div>
+        <div class="dd-prof-dot" style="background:var(--sb);"></div>
+      </div>
+
+      <div style="background:var(--border);height:1px;"></div>
+
+      <div class="num-strip">
+        <div class="num-item">
+          <div class="num-val">12</div>
+          <div class="num-label">Tables</div>
+        </div>
+        <div class="num-item">
+          <div class="num-val">5</div>
+          <div class="num-label">Functions</div>
+        </div>
+        <div class="num-item">
+          <div class="num-val">3</div>
+          <div class="num-label">Buckets</div>
+        </div>
+        <div class="num-item">
+          <div class="num-val">8</div>
+          <div class="num-label">RLS</div>
+        </div>
+      </div>
+
+      <div style="background:var(--border);height:1px;"></div>
+
+      <div class="dd-s">
+        <div class="url-line" style="background:rgba(62,207,142,0.04);border-color:rgba(62,207,142,0.08);">
+          🔗 xyzcompany.supabase.co
+          <span class="u-copy">⎘</span>
+        </div>
+      </div>
+
+      <div class="dd-s" style="padding-top:0;">
+        <div class="info-row">
+          <span class="ir-label">🛡 RLS</span>
+          <span class="ir-value" style="color:var(--sb);">8 policies active</span>
+        </div>
+        <div class="info-row">
+          <span class="ir-label">Auth</span>
+          <span class="ir-tag">2 providers</span>
+        </div>
+      </div>
+
+      <div class="dd-div"></div>
+
+      <div class="dd-s">
+        <div class="m-action">
+          <span class="m-dot"></span>Open Dashboard
+        </div>
+        <div class="m-action">
+          <span class="m-dot"></span>SQL Editor
+        </div>
+        <div class="m-action">
+          <span class="m-dot"></span>Auth Settings
+        </div>
+      </div>
+
+      <div class="dd-div"></div>
+      <div class="dd-foot"><button>Disconnect</button></div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

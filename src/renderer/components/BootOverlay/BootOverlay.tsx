@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTabsStore } from '@/stores/tabs'
 import { Terminal, Radio, Sparkles, Check, Loader2 } from 'lucide-react'
@@ -23,21 +23,34 @@ export function BootOverlay({ tabId, projectName }: BootOverlayProps) {
     return tab?.boot ?? { ptyReady: false, mcpReady: false, claudeReady: false }
   })
 
-  const [dismissed, setDismissed] = useState(false)
+  const allDone = boot.ptyReady && boot.mcpReady && boot.claudeReady
+
+  // Start dismissed if boot already completed (e.g. tab switch back)
+  const [dismissed, setDismissed] = useState(allDone)
   const [showReady, setShowReady] = useState(false)
 
-  const allDone = boot.ptyReady && boot.mcpReady && boot.claudeReady
+  const dismiss = useCallback(() => setDismissed(true), [])
 
   // When all steps complete, show "Ready" briefly then dismiss
   useEffect(() => {
     if (!allDone) return
     const readyTimer = setTimeout(() => setShowReady(true), 200)
-    const dismissTimer = setTimeout(() => setDismissed(true), 800)
+    const dismissTimer = setTimeout(dismiss, 800)
     return () => {
       clearTimeout(readyTimer)
       clearTimeout(dismissTimer)
     }
-  }, [allDone])
+  }, [allDone, dismiss])
+
+  // Escape key or click to dismiss early
+  useEffect(() => {
+    if (dismissed) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') dismiss()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [dismissed, dismiss])
 
   const steps: BootStep[] = useMemo(() => [
     {
@@ -72,10 +85,14 @@ export function BootOverlay({ tabId, projectName }: BootOverlayProps) {
           initial={{ opacity: 1 }}
           exit={{ opacity: 0, y: -20 }}
           transition={{ duration: 0.5, ease: 'easeOut' }}
-          className="absolute inset-0 z-20 flex items-center justify-center"
+          className="absolute inset-0 z-20 flex items-center justify-center cursor-pointer"
           style={{ backgroundColor: 'var(--bg-primary)' }}
+          onClick={dismiss}
         >
-          <div className="flex flex-col items-center gap-8 w-[320px]">
+          <div
+            className="flex flex-col items-center gap-8 w-[320px]"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Logo */}
             <div className="text-center">
               <h1 className="text-xl font-bold bg-gradient-to-r from-[var(--accent-cyan)] to-[var(--accent-coral)] bg-clip-text text-transparent">
@@ -211,6 +228,17 @@ export function BootOverlay({ tabId, projectName }: BootOverlayProps) {
                 </motion.span>
               ))}
             </div>
+
+            {/* Skip hint */}
+            <motion.button
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 1.5, duration: 0.5 }}
+              onClick={dismiss}
+              className="text-[10px] text-white/15 hover:text-white/40 transition-colors font-mono"
+            >
+              press esc to skip
+            </motion.button>
           </div>
         </motion.div>
       )}

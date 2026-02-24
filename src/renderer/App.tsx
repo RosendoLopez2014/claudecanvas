@@ -6,7 +6,6 @@ import { OnboardingWizard } from './components/Onboarding/Wizard'
 import { ProjectPicker } from './components/Onboarding/ProjectPicker'
 import { QuickActions } from './components/QuickActions/QuickActions'
 import { ToastContainer } from './components/Toast/Toast'
-import { useWorkspaceStore } from './stores/workspace'
 import { useProjectStore } from './stores/project'
 import { useTabsStore } from './stores/tabs'
 import { useToastStore } from './stores/toast'
@@ -25,7 +24,6 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 
 export default function App() {
   const { screen, setScreen, currentProject } = useProjectStore()
-  const splitViewActive = useWorkspaceStore((s) => s.splitViewActive)
   const [quickActionsOpen, setQuickActionsOpen] = useState(false)
   const [shortcutSheetOpen, setShortcutSheetOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -137,7 +135,7 @@ export default function App() {
   return (
     <div className="h-screen w-screen flex flex-col bg-[var(--bg-primary)]">
       <TitleBar />
-      {screen === 'workspace' && !splitViewActive && <TabBar />}
+      {screen === 'workspace' && <TabBar />}
       <div className="flex-1 overflow-hidden relative">
         {screen === 'onboarding' && <OnboardingWizard />}
         {/* Workspace in normal flow so flex layout works (TabBar/StatusBar get their space).

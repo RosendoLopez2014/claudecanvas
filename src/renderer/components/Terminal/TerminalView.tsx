@@ -8,14 +8,13 @@ import { SearchAddon } from '@xterm/addon-search'
 import '@xterm/xterm/css/xterm.css'
 import { usePty } from '@/hooks/usePty'
 import { useTerminalStore } from '@/stores/terminal'
+import { useTabsStore } from '@/stores/tabs'
 import {
   getOrCreateTerminal,
   setTerminalContainer,
-  showTerminal,
   setSearchAddon,
   getSearchAddon,
-  destroyTerminal,
-  hasTerminal
+  destroyTerminal
 } from '@/services/terminalPool'
 import { X, Plus, ChevronDown, Terminal as TerminalIcon } from 'lucide-react'
 
@@ -58,25 +57,31 @@ interface TerminalViewProps {
   cwd?: string
   tabId?: string
   autoLaunchClaude?: boolean
+  isTabActive?: boolean
 }
 
 /** A single terminal pane within a split layout */
 function SplitPane({
   poolKey,
+  tabId,
   cwd,
   autoLaunchClaude,
   onClose,
-  showClose
+  showClose,
+  visible
 }: {
   poolKey: string
+  tabId: string
   cwd?: string
   autoLaunchClaude: boolean
   onClose?: () => void
   showClose: boolean
+  visible: boolean
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const initializedRef = useRef(false)
+  const webglRef = useRef<WebglAddon | null>(null)
   const { connect, resize } = usePty()
 
   useEffect(() => {
@@ -99,39 +104,68 @@ function SplitPane({
     terminal.open(container)
 
     try {
-      terminal.loadAddon(new WebglAddon())
+      const webgl = new WebglAddon()
+      webgl.onContextLoss(() => {
+        webgl.dispose()
+        webglRef.current = null
+      })
+      terminal.loadAddon(webgl)
+      webglRef.current = webgl
     } catch {
       console.warn('WebGL addon failed to load, using canvas renderer')
     }
 
     fitAddon.fit()
-    connect(terminal, cwd, { autoLaunchClaude })
+    connect(terminal, cwd, { autoLaunchClaude, tabId })
     useTerminalStore.getState().setFocusFn(() => terminal.focus())
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Track terminal dimensions to avoid redundant fit()/resize() calls
+  const lastDimsRef = useRef<{ cols: number; rows: number } | null>(null)
+
+  const doFit = useCallback(() => {
+    if (!fitAddonRef.current) return
+    const t0 = performance.now()
+    const terminal = getOrCreateTerminal(poolKey, TERMINAL_OPTIONS)
+    const prevCols = terminal.cols
+    const prevRows = terminal.rows
+    fitAddonRef.current.fit()
+    const newCols = terminal.cols
+    const newRows = terminal.rows
+    // Only send IPC resize if dimensions actually changed
+    if (newCols !== prevCols || newRows !== prevRows) {
+      resize(newCols, newRows)
+      lastDimsRef.current = { cols: newCols, rows: newRows }
+      console.log(`[TAB-DEBUG] fit: ${prevCols}x${prevRows} → ${newCols}x${newRows} (${(performance.now() - t0).toFixed(1)}ms)`)
+    }
+  }, [poolKey, resize])
+
+  // Observe container resize — only when visible, heavily debounced
   useEffect(() => {
+    if (!visible || !containerRef.current) return
+
     let timer: ReturnType<typeof setTimeout> | null = null
 
     const observer = new ResizeObserver(() => {
       if (timer) clearTimeout(timer)
-      timer = setTimeout(() => {
-        timer = null
-        if (!fitAddonRef.current) return
-        const terminal = getOrCreateTerminal(poolKey, TERMINAL_OPTIONS)
-        fitAddonRef.current.fit()
-        resize(terminal.cols, terminal.rows)
-      }, 320)
+      timer = setTimeout(doFit, 150)
     })
 
-    if (containerRef.current) {
-      observer.observe(containerRef.current)
-    }
+    // Defer initial fit slightly to let the layout settle after tab switch
+    const fitTimer = setTimeout(doFit, 100)
+
+    observer.observe(containerRef.current)
 
     return () => {
       observer.disconnect()
       if (timer) clearTimeout(timer)
+      clearTimeout(fitTimer)
     }
-  }, [poolKey, resize])
+  }, [visible, doFit])
+
+  // WebGL stays alive on hidden terminals — disposing/recreating GPU contexts on
+  // every tab switch is expensive and causes multi-second freezes after rapid switching.
+  // CSS visibility:hidden already prevents rendering; idle WebGL is nearly zero cost.
 
   return (
     <div className="w-full h-full relative group/split">
@@ -167,44 +201,35 @@ function TerminalContent({
   autoLaunchClaude: boolean
   visible: boolean
 }) {
-  const splits = useTerminalStore((s) => s.getSplits(tabId))
-  const addSplit = useTerminalStore((s) => s.addSplit)
-  const removeSplit = useTerminalStore((s) => s.removeSplit)
+  const splits = useTabsStore((s) => {
+    const tab = s.tabs.find((t) => t.id === tabId)
+    return tab?.splits ?? ['main']
+  })
 
   const mainKey = `${tabId}:${instanceId}`
-  const allPanes = [
-    { key: mainKey, isMain: true },
-    ...splits.map((s) => ({ key: `${tabId}:${instanceId}:${s.id}`, isMain: false }))
-  ]
+  const allPanes = splits.map((splitId, idx) => ({
+    key: idx === 0 ? mainKey : `${tabId}:${instanceId}:${splitId}`,
+    splitId,
+    isMain: idx === 0
+  }))
 
   const handleCloseSplit = useCallback((splitId: string) => {
     const poolKey = `${tabId}:${instanceId}:${splitId}`
     destroyTerminal(poolKey)
-    removeSplit(tabId, splitId)
-  }, [tabId, instanceId, removeSplit])
-
-  // Cmd+D to add split
-  useEffect(() => {
-    if (!visible) return
-    const handler = (e: KeyboardEvent) => {
-      if (e.metaKey && e.key === 'd' && !e.shiftKey && !e.ctrlKey) {
-        e.preventDefault()
-        addSplit(tabId)
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [visible, tabId, addSplit])
+    useTabsStore.getState().removeSplit(tabId, splitId)
+  }, [tabId, instanceId])
 
   return (
-    <div className="w-full h-full" style={{ display: visible ? 'block' : 'none' }}>
+    <div className="absolute inset-0" style={{ visibility: visible ? 'visible' : 'hidden' }}>
       {allPanes.length === 1 ? (
         <SplitPane
           key={allPanes[0].key}
           poolKey={allPanes[0].key}
+          tabId={tabId}
           cwd={cwd}
           autoLaunchClaude={autoLaunchClaude}
           showClose={false}
+          visible={visible}
         />
       ) : (
         <Allotment>
@@ -212,13 +237,12 @@ function TerminalContent({
             <Allotment.Pane key={pane.key}>
               <SplitPane
                 poolKey={pane.key}
+                tabId={tabId}
                 cwd={cwd}
                 autoLaunchClaude={pane.isMain ? autoLaunchClaude : false}
-                onClose={pane.isMain ? undefined : () => {
-                  const splitId = pane.key.split(':').pop()
-                  if (splitId) handleCloseSplit(splitId)
-                }}
+                onClose={pane.isMain ? undefined : () => handleCloseSplit(pane.splitId)}
                 showClose={!pane.isMain}
+                visible={visible}
               />
             </Allotment.Pane>
           ))}
@@ -228,13 +252,10 @@ function TerminalContent({
   )
 }
 
-export function TerminalView({ cwd, tabId, autoLaunchClaude = true }: TerminalViewProps) {
-  const ensureDefaultInstance = useTerminalStore((s) => s.ensureDefaultInstance)
-  const addInstance = useTerminalStore((s) => s.addInstance)
-  const removeInstance = useTerminalStore((s) => s.removeInstance)
-  const setActiveInstance = useTerminalStore((s) => s.setActiveInstance)
-  const instances = useTerminalStore((s) => tabId ? s.getInstances(tabId) : [])
-  const activeInstanceId = useTerminalStore((s) => tabId ? s.getActiveInstance(tabId) : '')
+export function TerminalView({ cwd, tabId, autoLaunchClaude = true, isTabActive = true }: TerminalViewProps) {
+  const instancesRaw = useTerminalStore((s) => tabId ? s.instances[tabId] : undefined)
+  const instances = instancesRaw || []
+  const activeInstanceId = useTerminalStore((s) => tabId ? (s.activeInstance[tabId] || '') : '')
 
   const [selectorOpen, setSelectorOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -244,28 +265,27 @@ export function TerminalView({ cwd, tabId, autoLaunchClaude = true }: TerminalVi
   // Ensure at least one terminal instance exists for this tab
   useEffect(() => {
     if (!tabId) return
-    ensureDefaultInstance(tabId)
-  }, [tabId, ensureDefaultInstance])
+    useTerminalStore.getState().ensureDefaultInstance(tabId)
+  }, [tabId])
 
   const handleAddTerminal = useCallback(() => {
     if (!tabId) return
-    addInstance(tabId)
+    useTerminalStore.getState().addInstance(tabId)
     setSelectorOpen(false)
-  }, [tabId, addInstance])
+  }, [tabId])
 
   const handleRemoveTerminal = useCallback((instanceId: string) => {
     if (!tabId) return
-    // Destroy all pool entries for this instance (main + splits)
     destroyTerminal(`${tabId}:${instanceId}`)
-    removeInstance(tabId, instanceId)
+    useTerminalStore.getState().removeInstance(tabId, instanceId)
     setSelectorOpen(false)
-  }, [tabId, removeInstance])
+  }, [tabId])
 
   const handleSelectTerminal = useCallback((instanceId: string) => {
     if (!tabId) return
-    setActiveInstance(tabId, instanceId)
+    useTerminalStore.getState().setActiveInstance(tabId, instanceId)
     setSelectorOpen(false)
-  }, [tabId, setActiveInstance])
+  }, [tabId])
 
   // Ctrl+F search
   useEffect(() => {
@@ -380,8 +400,8 @@ export function TerminalView({ cwd, tabId, autoLaunchClaude = true }: TerminalVi
         </div>
       )}
 
-      {/* Terminal content area */}
-      <div className="flex-1 min-h-0">
+      {/* Terminal content area — relative so absolute-positioned instances stack */}
+      <div className="flex-1 min-h-0 relative">
         {instances.map((inst, idx) => (
           <TerminalContent
             key={inst.id}
@@ -389,7 +409,7 @@ export function TerminalView({ cwd, tabId, autoLaunchClaude = true }: TerminalVi
             instanceId={inst.id}
             cwd={cwd}
             autoLaunchClaude={idx === 0 ? autoLaunchClaude : false}
-            visible={inst.id === activeInstanceId}
+            visible={isTabActive && inst.id === activeInstanceId}
           />
         ))}
       </div>

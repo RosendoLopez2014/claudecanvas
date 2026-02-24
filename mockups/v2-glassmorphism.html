@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>V2 — Glassmorphism</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0c0c10;
+    --glass: rgba(255,255,255,0.03);
+    --glass-border: rgba(255,255,255,0.08);
+    --glass-hover: rgba(255,255,255,0.06);
+    --t1: rgba(255,255,255,0.92);
+    --t2: rgba(255,255,255,0.55);
+    --t3: rgba(255,255,255,0.28);
+    --cyan: #4AEAFF;
+    --cyan-g: rgba(74,234,255,0.15);
+    --coral: #FF6B4A;
+    --green: #34D399;
+    --amber: #FBBF24;
+    --red: #F87171;
+    --sb: #3ECF8E;
+    --mono: 'Fira Code', monospace;
+    --sans: 'Inter', sans-serif;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: var(--bg);
+    color: var(--t1);
+    font-family: var(--sans);
+    min-height: 100vh;
+    position: relative;
+    overflow-x: hidden;
+  }
+  /* Ambient glow blobs */
+  body::before, body::after {
+    content: '';
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(120px);
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::before {
+    width: 400px; height: 400px;
+    background: rgba(74,234,255,0.06);
+    top: -100px; left: -100px;
+  }
+  body::after {
+    width: 350px; height: 350px;
+    background: rgba(255,107,74,0.04);
+    bottom: -80px; right: -80px;
+  }
+
+  .page-header {
+    position: relative;
+    z-index: 1;
+    padding: 40px 48px 24px;
+    border-bottom: 1px solid var(--glass-border);
+  }
+  .page-header h1 {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--cyan);
+  }
+  .page-header .sub {
+    font-size: 11px;
+    color: var(--t3);
+    margin-top: 4px;
+  }
+  .page-header .desc {
+    font-size: 13px;
+    color: var(--t2);
+    margin-top: 12px;
+    max-width: 600px;
+    line-height: 1.6;
+  }
+
+  .row {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    gap: 40px;
+    padding: 48px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+  .col-label {
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--t3);
+  }
+
+  /* ── Glass dropdown ── */
+  .dd {
+    width: 300px;
+    background: rgba(18,18,24,0.85);
+    backdrop-filter: blur(24px) saturate(1.2);
+    -webkit-backdrop-filter: blur(24px) saturate(1.2);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.04) inset,
+      0 20px 60px rgba(0,0,0,0.5),
+      0 0 40px rgba(74,234,255,0.03);
+  }
+
+  /* ── Glass inner shine ── */
+  .dd::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent 10%, rgba(255,255,255,0.12) 50%, transparent 90%);
+  }
+
+  /* ── Profile ── */
+  .dd-profile {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 18px;
+    position: relative;
+  }
+  .dd-profile::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 18px; right: 18px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--glass-border), transparent);
+  }
+  .dd-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .dd-avatar::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .dd-name { font-size: 14px; font-weight: 600; }
+  .dd-sub { font-size: 11px; color: var(--t3); }
+  .dd-connected {
+    margin-left: auto;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px rgba(52,211,153,0.4);
+  }
+
+  /* ── Glass sections ── */
+  .dd-sec {
+    padding: 14px 18px;
+    position: relative;
+  }
+  .dd-sec + .dd-sec::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 18px; right: 18px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--glass-border), transparent);
+  }
+  .dd-sec-title {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--t3);
+    margin-bottom: 10px;
+  }
+
+  /* ── Glass cards ── */
+  .g-card {
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    transition: all 0.15s;
+  }
+  .g-card:hover {
+    background: var(--glass-hover);
+    border-color: rgba(255,255,255,0.12);
+  }
+
+  .g-card-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .g-card-icon {
+    width: 28px; height: 28px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  .g-card-title { font-size: 13px; font-weight: 500; }
+  .g-card-sub { font-size: 10px; color: var(--t3); font-family: var(--mono); }
+
+  /* ── Action rows ── */
+  .g-action {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--t2);
+    cursor: pointer;
+    transition: all 0.12s;
+    margin: 0 -4px;
+  }
+  .g-action:hover {
+    background: var(--glass-hover);
+    color: var(--t1);
+  }
+  .g-action .g-icon { opacity: 0.4; width: 16px; text-align: center; }
+  .g-action .g-kbd {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--t3);
+    background: rgba(255,255,255,0.04);
+    padding: 2px 6px;
+    border-radius: 5px;
+    border: 1px solid var(--glass-border);
+  }
+
+  /* ── Stat grid ── */
+  .g-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .g-stat-card {
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    padding: 12px;
+    text-align: center;
+    transition: all 0.15s;
+    cursor: pointer;
+  }
+  .g-stat-card:hover {
+    background: var(--glass-hover);
+    border-color: rgba(255,255,255,0.12);
+    transform: translateY(-1px);
+  }
+  .g-stat-val {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--t1);
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .g-stat-label {
+    font-size: 10px;
+    color: var(--t3);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  /* ── Primary btn ── */
+  .g-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px;
+    border-radius: 10px;
+    border: none;
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .g-btn-cyan {
+    background: linear-gradient(135deg, var(--cyan), #2ad4f0);
+    color: #000;
+    box-shadow: 0 4px 16px rgba(74,234,255,0.2);
+  }
+  .g-btn-cyan:hover {
+    box-shadow: 0 6px 24px rgba(74,234,255,0.35);
+    transform: translateY(-1px);
+  }
+
+  /* ── URL row ── */
+  .g-url {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--cyan);
+  }
+  .g-url .copy { color: var(--t3); cursor: pointer; margin-left: auto; }
+  .g-url .copy:hover { color: var(--cyan); }
+
+  /* ── Deploy timeline ── */
+  .g-deploy {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .g-deploy:hover { background: var(--glass-hover); }
+  .g-deploy-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .g-deploy-msg { flex: 1; font-size: 12px; color: var(--t2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .g-deploy-time { font-family: var(--mono); font-size: 10px; color: var(--t3); }
+
+  /* ── Footer ── */
+  .dd-foot {
+    padding: 8px 18px 10px;
+    text-align: center;
+    position: relative;
+  }
+  .dd-foot::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 18px; right: 18px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--glass-border), transparent);
+  }
+  .dd-foot button {
+    font-size: 11px;
+    color: var(--t3);
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+  .dd-foot button:hover { color: var(--red); }
+
+  /* ── Sync pill ── */
+  .sync-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 100px;
+    background: var(--cyan-g);
+    border: 1px solid rgba(74,234,255,0.15);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--cyan);
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>V2 — Glassmorphism</h1>
+  <div class="sub">Frosted glass · ambient glow · depth layers</div>
+  <div class="desc">Layered transparency with backdrop blur. Ambient light blobs create subtle color zones. Glass cards with inner borders. Designed to feel like floating UI elements in a 3D space.</div>
+</div>
+
+<div class="row">
+
+  <!-- ═══ GITHUB ═══ -->
+  <div class="col">
+    <span class="col-label">GitHub</span>
+    <div class="dd">
+      <div class="dd-profile">
+        <div class="dd-avatar" style="background:#161b22;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="rgba(255,255,255,0.7)"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        </div>
+        <div>
+          <div class="dd-name">rosendolopez</div>
+          <div class="dd-sub">github.com</div>
+        </div>
+        <div class="dd-connected"></div>
+      </div>
+
+      <div class="dd-sec">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <div class="sync-pill">↑ 3 ahead</div>
+        </div>
+        <button class="g-btn g-btn-cyan">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+          Push 3 commits
+        </button>
+      </div>
+
+      <div class="dd-sec">
+        <div class="g-card" style="margin-bottom:10px;">
+          <div class="g-card-row">
+            <div class="g-card-icon" style="background:rgba(35,134,54,0.12);color:var(--green);">⑂</div>
+            <div>
+              <div class="g-card-title" style="color:var(--green);">PR #42</div>
+              <div class="g-card-sub">Add gallery view · Open</div>
+            </div>
+          </div>
+        </div>
+        <div class="g-card">
+          <div class="g-card-row">
+            <div class="g-card-icon" style="background:rgba(255,255,255,0.04);">📦</div>
+            <div>
+              <div class="g-card-title">claude-canvas</div>
+              <div class="g-card-sub">feat/gallery-revamp · Private</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dd-sec">
+        <div class="g-action">
+          <span class="g-icon">↗</span>Open on GitHub<span class="g-kbd">⌘⇧G</span>
+        </div>
+        <div class="g-action">
+          <span class="g-icon">◉</span>View Issues
+        </div>
+        <div class="g-action">
+          <span class="g-icon">⑂</span>Create Pull Request
+        </div>
+      </div>
+
+      <div class="dd-foot"><button>Disconnect</button></div>
+    </div>
+  </div>
+
+  <!-- ═══ VERCEL ═══ -->
+  <div class="col">
+    <span class="col-label">Vercel</span>
+    <div class="dd">
+      <div class="dd-profile">
+        <div class="dd-avatar" style="background:#000;">
+          <svg width="14" height="12" viewBox="0 0 76 65" fill="white"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z"/></svg>
+        </div>
+        <div>
+          <div class="dd-name">Rosendo Lopez</div>
+          <div class="dd-sub">@rosendolopez · Pro</div>
+        </div>
+        <div class="dd-connected"></div>
+      </div>
+
+      <div class="dd-sec">
+        <div class="g-card">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <div style="width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px rgba(52,211,153,0.4);"></div>
+            <span style="font-size:12px;font-weight:600;color:var(--green);">Production · Ready</span>
+            <span style="font-family:var(--mono);font-size:10px;color:var(--t3);margin-left:auto;">12m ago</span>
+          </div>
+          <div style="font-size:13px;color:var(--t1);margin-bottom:8px;">feat: complete Plan 2 features</div>
+          <div class="g-url">
+            <span>🌐</span>
+            claude-canvas.vercel.app
+            <span class="copy">⎘</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="dd-sec">
+        <div class="g-stats">
+          <div class="g-stat-card">
+            <div class="g-stat-val">2.1s</div>
+            <div class="g-stat-label">Build</div>
+          </div>
+          <div class="g-stat-card">
+            <div class="g-stat-val">148</div>
+            <div class="g-stat-label">Deploys</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dd-sec">
+        <div class="dd-sec-title">Recent</div>
+        <div class="g-deploy">
+          <div class="g-deploy-dot" style="background:var(--green);"></div>
+          <span class="g-deploy-msg">feat: complete Plan 2 features</span>
+          <span class="g-deploy-time">12m</span>
+        </div>
+        <div class="g-deploy">
+          <div class="g-deploy-dot" style="background:var(--green);"></div>
+          <span class="g-deploy-msg">refactor: remove dead build-logs state</span>
+          <span class="g-deploy-time">2h</span>
+        </div>
+        <div class="g-deploy">
+          <div class="g-deploy-dot" style="background:var(--red);"></div>
+          <span class="g-deploy-msg">feat: add keyboard shortcuts</span>
+          <span class="g-deploy-time">5h</span>
+        </div>
+      </div>
+
+      <div class="dd-sec">
+        <div class="g-action">
+          <span class="g-icon">⟳</span>Redeploy
+        </div>
+        <div class="g-action">
+          <span class="g-icon">↗</span>Open Dashboard<span class="g-kbd">⌘⇧V</span>
+        </div>
+        <div class="g-action">
+          <span class="g-icon">🌐</span>Manage Domains
+        </div>
+      </div>
+
+      <div class="dd-foot"><button>Disconnect</button></div>
+    </div>
+  </div>
+
+  <!-- ═══ SUPABASE ═══ -->
+  <div class="col">
+    <span class="col-label">Supabase</span>
+    <div class="dd">
+      <div class="dd-profile">
+        <div class="dd-avatar" style="background:#1a3a2a;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--sb)" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        </div>
+        <div>
+          <div class="dd-name">canvas-prod</div>
+          <div class="dd-sub">us-east-1 · Healthy</div>
+        </div>
+        <div class="dd-connected" style="background:var(--sb);box-shadow:0 0 8px rgba(62,207,142,0.4);"></div>
+      </div>
+
+      <div class="dd-sec">
+        <div class="g-stats">
+          <div class="g-stat-card">
+            <div class="g-stat-val" style="color:var(--sb);">12</div>
+            <div class="g-stat-label">Tables</div>
+          </div>
+          <div class="g-stat-card">
+            <div class="g-stat-val" style="color:var(--sb);">5</div>
+            <div class="g-stat-label">Functions</div>
+          </div>
+          <div class="g-stat-card">
+            <div class="g-stat-val" style="color:var(--sb);">3</div>
+            <div class="g-stat-label">Buckets</div>
+          </div>
+          <div class="g-stat-card">
+            <div class="g-stat-val" style="color:var(--sb);">8</div>
+            <div class="g-stat-label">RLS</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dd-sec">
+        <div class="dd-sec-title">Connection</div>
+        <div class="g-url">
+          <span>🔗</span>
+          xyzcompany.supabase.co
+          <span class="copy">⎘</span>
+        </div>
+      </div>
+
+      <div class="dd-sec">
+        <div class="g-card" style="padding:10px 14px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:13px;">🛡</span>
+            <span style="font-size:12px;color:var(--t2);flex:1;">Row Level Security</span>
+            <span style="font-family:var(--mono);font-size:11px;color:var(--sb);font-weight:500;">8 active</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="dd-sec">
+        <div class="g-action">
+          <span class="g-icon">↗</span>Open Dashboard
+        </div>
+        <div class="g-action">
+          <span class="g-icon">⊞</span>SQL Editor
+        </div>
+        <div class="g-action">
+          <span class="g-icon">🔑</span>Auth Settings
+        </div>
+      </div>
+
+      <div class="dd-foot"><button>Disconnect</button></div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

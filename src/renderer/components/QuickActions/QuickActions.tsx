@@ -4,7 +4,7 @@ import {
   Eye, Image, Clock, ArrowLeftRight, PanelRight, Save, Command,
   Play, Square, RotateCw, GitBranch, ArrowUp, ArrowDown, Camera,
   FolderOpen, Settings, Search, Terminal, Rocket, Zap, Keyboard,
-  Monitor, Trash2
+  Monitor, Trash2, Pencil
 } from 'lucide-react'
 import { useCanvasStore } from '@/stores/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -30,7 +30,9 @@ export function QuickActions({ open, onClose }: QuickActionsProps) {
   const [search, setSearch] = useState('')
   const { inspectorActive, setInspectorActive, setActiveTab, setScreenshotMode, clearPreviewErrors, clearConsoleLogs } = useCanvasStore()
   const { mode, openCanvas, closeCanvas } = useWorkspaceStore()
-  const { currentProject, isDevServerRunning } = useProjectStore()
+  const { currentProject } = useProjectStore()
+  const activeTabDev = useTabsStore(s => s.getActiveTab()?.dev)
+  const isDevServerRunning = activeTabDev?.status === 'running'
 
   const actions: QuickAction[] = useMemo(
     () => [
@@ -40,9 +42,10 @@ export function QuickActions({ open, onClose }: QuickActionsProps) {
         label: 'Start Dev Server',
         category: 'Dev',
         icon: Play,
-        action: async () => {
+        action: () => {
           if (!currentProject?.path || isDevServerRunning) return
-          await window.api.dev.start(currentProject.path, currentProject.devCommand)
+          // Delegate to StatusBar's start logic which handles command resolution
+          window.dispatchEvent(new CustomEvent('dev:request-start'))
           onClose()
         }
       },
@@ -64,7 +67,30 @@ export function QuickActions({ open, onClose }: QuickActionsProps) {
         action: async () => {
           if (!currentProject?.path) return
           await window.api.dev.stop(currentProject.path)
-          await window.api.dev.start(currentProject.path, currentProject.devCommand)
+          // Delegate to StatusBar's start logic which handles command resolution
+          window.dispatchEvent(new CustomEvent('dev:request-start'))
+          onClose()
+        }
+      },
+      {
+        id: 'change-dev-command',
+        label: currentProject?.devCommand
+          ? `Change Command (${currentProject.devCommand})`
+          : 'Set Dev Command',
+        category: 'Dev',
+        icon: Pencil,
+        action: () => {
+          // Clear both the in-memory command and the persisted override
+          if (currentProject) {
+            window.api.dev.clearOverride(currentProject.path)
+            useProjectStore.getState().setCurrentProject({ ...currentProject, devCommand: undefined })
+            const tab = useTabsStore.getState().getActiveTab()
+            if (tab) {
+              useTabsStore.getState().updateProjectInfo(tab.id, { devCommand: undefined })
+            }
+          }
+          // Trigger start which will now show the picker
+          window.dispatchEvent(new CustomEvent('dev:request-start'))
           onClose()
         }
       },

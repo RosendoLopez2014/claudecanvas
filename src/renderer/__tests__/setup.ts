@@ -24,9 +24,6 @@ const mockApi = {
   dialog: {
     selectDirectory: vi.fn().mockResolvedValue(null)
   },
-  framework: {
-    detect: vi.fn().mockResolvedValue(null),
-  },
   component: {
     scan: vi.fn().mockResolvedValue([]),
     parse: vi.fn().mockResolvedValue(null),
@@ -98,12 +95,22 @@ const mockApi = {
       listFunctions: vi.fn().mockResolvedValue([]),
       listBuckets: vi.fn().mockResolvedValue([]),
       listPolicies: vi.fn().mockResolvedValue([]),
-      getConnectionInfo: vi.fn().mockResolvedValue({ error: 'Not connected' })
+      getConnectionInfo: vi.fn().mockResolvedValue({ error: 'Not connected' }),
+      onExpired: vi.fn().mockReturnValue(vi.fn())
     }
   },
   dev: {
     start: vi.fn().mockResolvedValue({ port: 3000, pid: 12345 }),
     stop: vi.fn().mockResolvedValue(undefined),
+    status: vi.fn().mockResolvedValue({ running: false, url: null }),
+    clearCrashHistory: vi.fn().mockResolvedValue(undefined),
+    resolve: vi.fn().mockResolvedValue({
+      plan: { cwd: '/tmp/test', manager: 'npm', command: { bin: 'npm', args: ['run', 'dev'] }, confidence: 'high', reasons: [], detection: {} },
+      needsVerification: false,
+    }),
+    setOverride: vi.fn().mockResolvedValue({ ok: true }),
+    clearOverride: vi.fn().mockResolvedValue(undefined),
+    getConfig: vi.fn().mockResolvedValue(null),
     onOutput: vi.fn().mockReturnValue(vi.fn()),
     onExit: vi.fn().mockReturnValue(vi.fn()),
     onStatus: vi.fn().mockReturnValue(vi.fn())
@@ -118,7 +125,10 @@ const mockApi = {
     onOpenTab: vi.fn().mockReturnValue(() => {}),
     onAddToGallery: vi.fn().mockReturnValue(() => {}),
     onCheckpoint: vi.fn().mockReturnValue(() => {}),
-    onNotify: vi.fn().mockReturnValue(() => {})
+    onNotify: vi.fn().mockReturnValue(() => {}),
+    onDesignSession: vi.fn().mockReturnValue(() => {}),
+    onUpdateVariant: vi.fn().mockReturnValue(() => {}),
+    gallerySelect: vi.fn()
   }
 }
 

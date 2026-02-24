@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>V8 — Widget Panel</title>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-0: #09090b;
+    --bg-1: #111113;
+    --bg-2: #18181b;
+    --bg-3: #1e1e22;
+    --bg-4: #27272a;
+    --border: rgba(255,255,255,0.06);
+    --border-h: rgba(255,255,255,0.10);
+    --t1: #f4f4f5;
+    --t2: rgba(255,255,255,0.52);
+    --t3: rgba(255,255,255,0.28);
+    --t4: rgba(255,255,255,0.12);
+    --cyan: #4AEAFF;
+    --cyan-d: rgba(74,234,255,0.07);
+    --green: #34D399;
+    --green-d: rgba(52,211,153,0.07);
+    --amber: #FBBF24;
+    --amber-d: rgba(251,191,36,0.07);
+    --red: #F87171;
+    --red-d: rgba(248,113,113,0.07);
+    --sb: #3ECF8E;
+    --sb-d: rgba(62,207,142,0.07);
+    --violet: #A78BFA;
+    --violet-d: rgba(167,139,250,0.07);
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Manrope', sans-serif;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg-0); color:var(--t1); font-family:var(--sans); min-height:100vh; }
+
+  .page-header {
+    padding: 40px 48px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .page-header h1 { font-family:var(--mono); font-size:11px; font-weight:600; letter-spacing:0.1em; text-transform:uppercase; color:var(--cyan); }
+  .page-header .sub { font-family:var(--mono); font-size:11px; color:var(--t3); margin-top:4px; }
+  .page-header .desc { font-size:13px; color:var(--t2); margin-top:12px; max-width:640px; line-height:1.6; }
+
+  .row { display:flex; gap:44px; padding:48px; flex-wrap:wrap; justify-content:center; }
+  .col { display:flex; flex-direction:column; align-items:center; gap:14px; }
+  .col-label { font-family:var(--mono); font-size:9px; letter-spacing:0.15em; text-transform:uppercase; color:var(--t3); }
+
+  /* ══════════════════════════════════════
+     PANEL SHELL
+     ══════════════════════════════════════ */
+  .dd {
+    width: 312px;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+  }
+
+  /* ── Compact header ── */
+  .dd-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .dd-head-av {
+    width: 28px; height: 28px;
+    border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .dd-head-name { font-size: 13px; font-weight: 700; flex: 1; }
+  .dd-head-tag {
+    font-family: var(--mono); font-size: 8px; font-weight: 600;
+    padding: 2px 8px; border-radius: 100px; flex-shrink: 0;
+    text-transform: uppercase; letter-spacing: 0.03em;
+  }
+
+  /* ── Widget card ── */
+  .widget {
+    margin: 8px;
+    border-radius: 12px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    transition: border-color 0.12s;
+  }
+  .widget:hover { border-color: var(--border-h); }
+  .widget + .widget { margin-top: 0; }
+  .widget-pad { padding: 14px; }
+  .widget-pad-sm { padding: 10px 14px; }
+
+  /* ── Widget header ── */
+  .w-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .w-icon {
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; flex-shrink: 0;
+  }
+  .w-title { font-size: 11px; font-weight: 700; color: var(--t2); text-transform: uppercase; letter-spacing: 0.04em; }
+  .w-badge {
+    margin-left: auto;
+    font-family: var(--mono); font-size: 9px; font-weight: 600;
+    padding: 2px 7px; border-radius: 100px; flex-shrink: 0;
+  }
+
+  /* ══════════════════════════════════════
+     SEMI-ARC GAUGE
+     ══════════════════════════════════════ */
+  .arc-gauge {
+    position: relative;
+    width: 120px; height: 68px;
+    margin: 0 auto;
+    overflow: hidden;
+  }
+  .arc-gauge svg {
+    position: absolute;
+    top: 0; left: 0;
+  }
+  .arc-gauge-center {
+    position: absolute;
+    bottom: 4px; left: 0; right: 0;
+    text-align: center;
+  }
+  .arc-val {
+    font-family: var(--mono);
+    font-size: 20px;
+    font-weight: 800;
+    line-height: 1;
+  }
+  .arc-label {
+    font-size: 10px;
+    color: var(--t3);
+    margin-top: 1px;
+  }
+
+  /* Small arc */
+  .arc-sm {
+    width: 72px; height: 42px;
+  }
+  .arc-sm .arc-val { font-size: 13px; }
+  .arc-sm .arc-label { font-size: 8px; }
+
+  /* ── Mini gauge row ── */
+  .mini-gauges {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+  }
+  .mini-gauge-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* ── Metric row ── */
+  .metric-row {
+    display: flex;
+    gap: 6px;
+  }
+  .metric-card {
+    flex: 1;
+    padding: 10px;
+    border-radius: 8px;
+    background: var(--bg-3);
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .metric-card:hover { background: var(--bg-4); }
+  .metric-val {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: 2px;
+  }
+  .metric-label { font-size: 9px; color: var(--t3); }
+
+  /* ── Status row (inline) ── */
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--bg-3);
+  }
+  .status-dot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  }
+  .status-text { font-size: 12px; font-weight: 600; flex: 1; }
+  .status-meta { font-family: var(--mono); font-size: 9px; color: var(--t3); flex-shrink: 0; }
+
+  /* ── CI badges (horizontal) ── */
+  .ci-badges {
+    display: flex;
+    gap: 4px;
+  }
+  .ci-badge {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: var(--bg-3);
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .ci-badge-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ── PR strip ── */
+  .pr-strip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--bg-3);
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .pr-strip:hover { background: var(--bg-4); }
+  .pr-strip-num { font-size: 13px; font-weight: 800; flex-shrink: 0; }
+  .pr-strip-text { flex: 1; min-width: 0; }
+  .pr-strip-title { font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pr-strip-meta { font-family: var(--mono); font-size: 9px; color: var(--t3); }
+  .pr-strip-reviews { display: flex; gap: 3px; flex-shrink: 0; }
+  .pr-strip-r { width: 6px; height: 6px; border-radius: 50%; }
+
+  /* ── URL pill ── */
+  .url-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: var(--bg-3);
+    font-family: var(--mono);
+    font-size: 10px;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .url-pill:hover { background: var(--bg-4); }
+  .url-pill + .url-pill { margin-top: 4px; }
+  .url-pill-tag {
+    font-size: 7px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 1px 5px; border-radius: 3px; flex-shrink: 0;
+  }
+  .url-pill-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .url-pill-copy { opacity: 0.3; cursor: pointer; flex-shrink: 0; font-size: 11px; }
+  .url-pill-copy:hover { opacity: 1; }
+
+  /* ── Deploy list ── */
+  .deploy-item {
+    display: flex; align-items: center; gap: 7px;
+    padding: 4px 0; cursor: pointer;
+  }
+  .deploy-item:hover .di-msg { color: var(--t1); }
+  .di-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+  .di-msg { font-size: 10px; color: var(--t2); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.1s; }
+  .di-err { font-family: var(--mono); font-size: 8px; font-weight: 600; padding: 1px 5px; border-radius: 3px; flex-shrink: 0; }
+  .di-time { font-family: var(--mono); font-size: 8px; color: var(--t4); flex-shrink: 0; }
+
+  /* ── Commit ── */
+  .commit-line {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 10px; color: var(--t3);
+  }
+  .commit-sha {
+    font-family: var(--mono); font-size: 9px;
+    padding: 1px 6px; border-radius: 4px;
+  }
+
+  /* ── Action list ── */
+  .act-list { padding: 4px 8px; }
+  .act-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 8px; border-radius: 6px;
+    font-size: 12px; color: var(--t2);
+    cursor: pointer; transition: all 0.1s;
+  }
+  .act-item:hover { background: rgba(255,255,255,0.03); color: var(--t1); }
+  .act-icon {
+    width: 18px; height: 18px; border-radius: 5px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; background: var(--bg-3); flex-shrink: 0;
+  }
+  .act-kbd {
+    margin-left: auto; font-family: var(--mono); font-size: 8px;
+    color: var(--t4); background: var(--bg-2); padding: 2px 5px;
+    border-radius: 3px; border: 1px solid var(--border);
+  }
+
+  /* ── Info pairs ── */
+  .info-r {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 3px 0;
+  }
+  .info-l { font-size: 11px; color: var(--t3); }
+  .info-v { font-family: var(--mono); font-size: 10px; font-weight: 500; }
+
+  /* ── Footer ── */
+  .dd-foot {
+    padding: 5px 14px 7px; text-align: center;
+    border-top: 1px solid var(--border);
+  }
+  .dd-foot button {
+    font-family: var(--mono); font-size: 9px;
+    color: var(--t4); background: none; border: none; cursor: pointer;
+  }
+  .dd-foot button:hover { color: var(--red); }
+
+  /* ── Primary button (clean) ── */
+  .w-btn {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    width: 100%; padding: 9px 14px;
+    border-radius: 8px; border: none;
+    font-family: var(--sans); font-size: 12px; font-weight: 700;
+    cursor: pointer; transition: all 0.12s;
+  }
+  .w-btn:hover { transform: translateY(-1px); }
+  .w-btn-cyan { background: var(--cyan); color: #000; box-shadow: 0 2px 10px rgba(74,234,255,0.12); }
+  .w-btn-cyan:hover { box-shadow: 0 4px 16px rgba(74,234,255,0.2); }
+
+  /* ── Divider inside widget ── */
+  .w-div { height: 1px; background: var(--border); margin: 8px 0; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>V8 — Widget Panel</h1>
+  <div class="sub">Semi-arc gauges · modular widget cards · Manrope type</div>
+  <div class="desc">Each section is a self-contained widget card. Semi-circular arc gauges for hero metrics — they read like speedometers, instantly communicating health. Stacked card layout feels like a system panel you can rearrange. Compact but spacious inside each card.</div>
+</div>
+
+<div class="row">
+
+  <!-- ══════════════════════════════════════════
+       GITHUB
+       ══════════════════════════════════════════ -->
+  <div class="col">
+    <span class="col-label">GitHub</span>
+    <div class="dd">
+      <div class="dd-head">
+        <div class="dd-head-av" style="background:#161b22;border:1px solid rgba(255,255,255,0.08);">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="rgba(255,255,255,0.7)"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        </div>
+        <span class="dd-head-name">rosendolopez</span>
+        <span class="dd-head-tag" style="background:var(--green-d);color:var(--green);border:1px solid rgba(52,211,153,0.08);">Connected</span>
+      </div>
+
+      <!-- Sync gauge widget -->
+      <div class="widget">
+        <div class="widget-pad">
+          <div class="arc-gauge">
+            <svg width="120" height="68" viewBox="0 0 120 68">
+              <!-- Background arc (half circle) -->
+              <path d="M 10 64 A 50 50 0 0 1 110 64" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="6" stroke-linecap="round"/>
+              <!-- Filled arc (75% = 3 ahead) -->
+              <path d="M 10 64 A 50 50 0 0 1 110 64" fill="none" stroke="var(--cyan)" stroke-width="6" stroke-linecap="round"
+                stroke-dasharray="157" stroke-dashoffset="39"/>
+            </svg>
+            <div class="arc-gauge-center">
+              <div class="arc-val" style="color:var(--cyan);">3↑</div>
+              <div class="arc-label">ahead of origin</div>
+            </div>
+          </div>
+
+          <div style="margin-top:8px;">
+            <div class="commit-line" style="justify-content:center;">
+              <span class="commit-sha" style="background:var(--cyan-d);color:var(--cyan);">fc3c860</span>
+              <span>feat: complete Plan 2</span>
+            </div>
+          </div>
+
+          <div style="margin-top:10px;">
+            <button class="w-btn w-btn-cyan">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+              Push 3 commits
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CI widget -->
+      <div class="widget">
+        <div class="widget-pad-sm">
+          <div class="w-head">
+            <div class="w-icon" style="background:var(--green-d);color:var(--green);">✓</div>
+            <span class="w-title">CI Pipeline</span>
+            <span class="w-badge" style="background:var(--green-d);color:var(--green);">All passing</span>
+          </div>
+          <div class="ci-badges">
+            <div class="ci-badge" style="color:var(--green);">
+              <div class="ci-badge-dot" style="background:var(--green);"></div>
+              Build
+            </div>
+            <div class="ci-badge" style="color:var(--green);">
+              <div class="ci-badge-dot" style="background:var(--green);"></div>
+              Lint
+            </div>
+            <div class="ci-badge" style="color:var(--green);">
+              <div class="ci-badge-dot" style="background:var(--green);"></div>
+              Tests
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PR widget -->
+      <div class="widget">
+        <div class="widget-pad-sm">
+          <div class="w-head">
+            <div class="w-icon" style="background:var(--green-d);color:var(--green);">⑂</div>
+            <span class="w-title">Pull Request</span>
+          </div>
+          <div class="pr-strip">
+            <span class="pr-strip-num" style="color:var(--green);">#42</span>
+            <div class="pr-strip-text">
+              <div class="pr-strip-title">Add gallery view</div>
+              <div class="pr-strip-meta">Open · +342 −89</div>
+            </div>
+            <div class="pr-strip-reviews">
+              <div class="pr-strip-r" style="background:var(--green);"></div>
+              <div class="pr-strip-r" style="background:var(--t4);"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Branch info -->
+      <div class="widget">
+        <div class="widget-pad-sm">
+          <div class="info-r">
+            <span class="info-l">Branch</span>
+            <span class="info-v" style="color:var(--cyan);">feat/gallery-revamp</span>
+          </div>
+          <div class="info-r">
+            <span class="info-l">Repo</span>
+            <span class="info-v" style="color:var(--t2);">claude-canvas</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="act-list">
+        <div class="act-item">
+          <div class="act-icon">↗</div>Open on GitHub<span class="act-kbd">⌘⇧G</span>
+        </div>
+        <div class="act-item">
+          <div class="act-icon">+</div>New Pull Request
+        </div>
+      </div>
+      <div class="dd-foot"><button>Disconnect</button></div>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════
+       VERCEL
+       ══════════════════════════════════════════ -->
+  <div class="col">
+    <span class="col-label">Vercel</span>
+    <div class="dd">
+      <div class="dd-head">
+        <div class="dd-head-av" style="background:#000;border:1px solid rgba(255,255,255,0.1);">
+          <svg width="11" height="10" viewBox="0 0 76 65" fill="white"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z"/></svg>
+        </div>
+        <span class="dd-head-name">claude-canvas</span>
+        <span class="dd-head-tag" style="background:rgba(255,255,255,0.05);color:var(--t2);border:1px solid var(--border);">Pro</span>
+      </div>
+
+      <!-- Deploy gauge widget -->
+      <div class="widget">
+        <div class="widget-pad">
+          <div class="mini-gauges">
+            <!-- Health arc -->
+            <div class="mini-gauge-item">
+              <div class="arc-gauge" style="width:100px;height:58px;">
+                <svg width="100" height="58" viewBox="0 0 100 58">
+                  <path d="M 8 54 A 42 42 0 0 1 92 54" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="5" stroke-linecap="round"/>
+                  <path d="M 8 54 A 42 42 0 0 1 92 54" fill="none" stroke="var(--green)" stroke-width="5" stroke-linecap="round"
+                    stroke-dasharray="132" stroke-dashoffset="0"/>
+                </svg>
+                <div class="arc-gauge-center">
+                  <div class="arc-val" style="color:var(--green);font-size:16px;">Ready</div>
+                  <div class="arc-label">Production</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Build time arc -->
+            <div class="mini-gauge-item">
+              <div class="arc-sm">
+                <svg width="72" height="42" viewBox="0 0 72 42">
+                  <path d="M 6 38 A 30 30 0 0 1 66 38" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="4" stroke-linecap="round"/>
+                  <path d="M 6 38 A 30 30 0 0 1 66 38" fill="none" stroke="var(--cyan)" stroke-width="4" stroke-linecap="round"
+                    stroke-dasharray="94" stroke-dashoffset="75"/>
+                </svg>
+                <div class="arc-gauge-center" style="bottom:2px;">
+                  <div class="arc-val" style="color:var(--cyan);font-size:12px;">2.1s</div>
+                  <div class="arc-label" style="font-size:7px;">Build time</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="commit-line" style="justify-content:center;margin-top:6px;">
+            <span class="commit-sha" style="background:rgba(255,255,255,0.05);color:var(--t2);">fc3c860</span>
+            <span>12m ago</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- URLs widget -->
+      <div class="widget">
+        <div class="widget-pad-sm">
+          <div class="w-head">
+            <div class="w-icon" style="background:var(--green-d);color:var(--green);">🌐</div>
+            <span class="w-title">URLs</span>
+          </div>
+          <div class="url-pill" style="color:var(--green);">
+            <span class="url-pill-tag" style="background:var(--green-d);color:var(--green);">Prod</span>
+            <span class="url-pill-text">claude-canvas.vercel.app</span>
+            <span class="url-pill-copy">⎘</span>
+          </div>
+          <div class="url-pill" style="color:var(--cyan);">
+            <span class="url-pill-tag" style="background:var(--cyan-d);color:var(--cyan);">Preview</span>
+            <span class="url-pill-text">gallery-revamp-a1b2.vercel.app</span>
+            <span class="url-pill-copy">⎘</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats widget -->
+      <div class="widget">
+        <div class="widget-pad-sm">
+          <div class="metric-row">
+            <div class="metric-card">
+              <div class="metric-val" style="color:var(--green);">148</div>
+              <div class="metric-label">Deploys</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-val">4/5</div>
+              <div class="metric-label">Success</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-val">Next</div>
+              <div class="metric-label">Framework</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent widget -->
+      <div class="widget">
+        <div class="widget-pad-sm">
+          <div class="w-head">
+            <span class="w-title">Recent</span>
+          </div>
+          <div class="deploy-item">
+            <div class="di-dot" style="background:var(--green);"></div>
+            <span class="di-msg">feat: complete Plan 2 features</span>
+            <span class="di-time">12m</span>
+          </div>
+          <div class="deploy-item">
+            <div class="di-dot" style="background:var(--green);"></div>
+            <span class="di-msg">refactor: remove dead build-logs</span>
+            <span class="di-time">2h</span>
+          </div>
+          <div class="deploy-item">
+            <div class="di-dot" style="background:var(--red);"></div>
+            <span class="di-msg">feat: add keyboard shortcuts</span>
+            <span class="di-err" style="background:var(--red-d);color:var(--red);">Module not found</span>
+            <span class="di-time">5h</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="act-list">
+        <div class="act-item">
+          <div class="act-icon">⟳</div>Redeploy
+        </div>
+        <div class="act-item">
+          <div class="act-icon">↗</div>Open Dashboard<span class="act-kbd">⌘⇧V</span>
+        </div>
+        <div class="act-item">
+          <div class="act-icon">≡</div>Build Logs
+        </div>
+      </div>
+      <div class="dd-foot"><button>Disconnect</button></div>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════
+       SUPABASE
+       ══════════════════════════════════════════ -->
+  <div class="col">
+    <span class="col-label">Supabase</span>
+    <div class="dd">
+      <div class="dd-head">
+        <div class="dd-head-av" style="background:#1a3a2a;border:1px solid rgba(62,207,142,0.12);">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--sb)" stroke-width="2.5"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        </div>
+        <span class="dd-head-name">canvas-prod</span>
+        <span class="dd-head-tag" style="background:var(--sb-d);color:var(--sb);border:1px solid rgba(62,207,142,0.08);">Healthy</span>
+      </div>
+
+      <!-- Usage gauges widget -->
+      <div class="widget">
+        <div class="widget-pad">
+          <div class="mini-gauges">
+            <!-- Database arc -->
+            <div class="mini-gauge-item">
+              <div class="arc-sm">
+                <svg width="72" height="42" viewBox="0 0 72 42">
+                  <path d="M 6 38 A 30 30 0 0 1 66 38" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="4" stroke-linecap="round"/>
+                  <path d="M 6 38 A 30 30 0 0 1 66 38" fill="none" stroke="var(--sb)" stroke-width="4" stroke-linecap="round"
+                    stroke-dasharray="94" stroke-dashoffset="93.5"/>
+                </svg>
+                <div class="arc-gauge-center" style="bottom:2px;">
+                  <div class="arc-val" style="color:var(--sb);font-size:11px;">42M</div>
+                  <div class="arc-label" style="font-size:7px;">/ 8 GB</div>
+                </div>
+              </div>
+              <div style="font-size:8px;color:var(--t3);margin-top:2px;">Database</div>
+            </div>
+
+            <!-- Requests arc -->
+            <div class="mini-gauge-item">
+              <div class="arc-sm">
+                <svg width="72" height="42" viewBox="0 0 72 42">
+                  <path d="M 6 38 A 30 30 0 0 1 66 38" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="4" stroke-linecap="round"/>
+                  <path d="M 6 38 A 30 30 0 0 1 66 38" fill="none" stroke="var(--violet)" stroke-width="4" stroke-linecap="round"
+                    stroke-dasharray="94" stroke-dashoffset="92.5"/>
+                </svg>
+                <div class="arc-gauge-center" style="bottom:2px;">
+                  <div class="arc-val" style="color:var(--violet);font-size:11px;">8.2k</div>
+                  <div class="arc-label" style="font-size:7px;">/ 500k</div>
+                </div>
+              </div>
+              <div style="font-size:8px;color:var(--t3);margin-top:2px;">Requests</div>
+            </div>
+
+            <!-- Storage arc -->
+            <div class="mini-gauge-item">
+              <div class="arc-sm">
+                <svg width="72" height="42" viewBox="0 0 72 42">
+                  <path d="M 6 38 A 30 30 0 0 1 66 38" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="4" stroke-linecap="round"/>
+                  <path d="M 6 38 A 30 30 0 0 1 66 38" fill="none" stroke="var(--amber)" stroke-width="4" stroke-linecap="round"
+                    stroke-dasharray="94" stroke-dashoffset="82"/>
+                </svg>
+                <div class="arc-gauge-center" style="bottom:2px;">
+                  <div class="arc-val" style="color:var(--amber);font-size:11px;">128M</div>
+                  <div class="arc-label" style="font-size:7px;">/ 1 GB</div>
+                </div>
+              </div>
+              <div style="font-size:8px;color:var(--t3);margin-top:2px;">Storage</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Connection widget -->
+      <div class="widget">
+        <div class="widget-pad-sm">
+          <div class="url-pill" style="color:var(--sb);">
+            <span class="url-pill-tag" style="background:var(--sb-d);color:var(--sb);">URL</span>
+            <span class="url-pill-text">xyzcompany.supabase.co</span>
+            <span class="url-pill-copy">⎘</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Resources widget -->
+      <div class="widget">
+        <div class="widget-pad-sm">
+          <div class="w-head">
+            <span class="w-title">Resources</span>
+          </div>
+          <div class="metric-row">
+            <div class="metric-card">
+              <div class="metric-val" style="color:var(--sb);">12</div>
+              <div class="metric-label">Tables</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-val" style="color:var(--violet);">5</div>
+              <div class="metric-label">Functions</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-val" style="color:var(--amber);">8</div>
+              <div class="metric-label">RLS</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Auth widget -->
+      <div class="widget">
+        <div class="widget-pad-sm">
+          <div class="w-head">
+            <div class="w-icon" style="background:var(--sb-d);color:var(--sb);">🔑</div>
+            <span class="w-title">Auth</span>
+            <span class="w-badge" style="background:var(--sb-d);color:var(--sb);">↑ 12%</span>
+          </div>
+          <div class="status-row">
+            <div class="status-dot" style="background:var(--sb);"></div>
+            <span class="status-text" style="color:var(--sb);">1,247 users</span>
+            <span class="status-meta">last signup 14m ago</span>
+          </div>
+          <div style="margin-top:6px;">
+            <div class="info-r">
+              <span class="info-l">Providers</span>
+              <span class="info-v" style="color:var(--t2);">Email · GitHub</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="act-list">
+        <div class="act-item">
+          <div class="act-icon">↗</div>Open Dashboard
+        </div>
+        <div class="act-item">
+          <div class="act-icon">⊞</div>SQL Editor
+        </div>
+        <div class="act-item">
+          <div class="act-icon">🔑</div>Auth Settings
+        </div>
+      </div>
+      <div class="dd-foot"><button>Disconnect</button></div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

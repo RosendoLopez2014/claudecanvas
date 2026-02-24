@@ -47,7 +47,7 @@ describe.skip('Fix: Tab close resource cleanup (implement in Plan 1 Task 2)', ()
     const { addTab } = useTabsStore.getState()
     addTab({ name: 'Test', path: '/test/project' })
     const tab = useTabsStore.getState().tabs[0]
-    useTabsStore.getState().updateTab(tab.id, { isDevServerRunning: true })
+    useTabsStore.getState().updateTab(tab.id, { dev: { status: 'running', url: null, pid: null, lastError: null, lastExitCode: null } })
 
     useTabsStore.getState().closeTab(tab.id)
 

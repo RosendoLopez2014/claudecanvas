@@ -1,0 +1,30 @@
+[     101ms] TypeError: Cannot read properties of undefined (reading 'platform')
+    at TitleBar (http://localhost:5173/components/TitleBar/TitleBar.tsx:24:31)
+    at Object.react_stack_bottom_frame (http://localhost:5173/@fs/Users/rosendolopez/claudecanvas/node_modules/.vite/deps/react-dom_client.js?v=335ba686:18509:20)
+    at renderWithHooks (http://localhost:5173/@fs/Users/rosendolopez/claudecanvas/node_modules/.vite/deps/react-dom_client.js?v=335ba686:5654:24)
+    at updateFunctionComponent (http://localhost:5173/@fs/Users/rosendolopez/claudecanvas/node_modules/.vite/deps/react-dom_client.js?v=335ba686:7475:21)
+    at beginWork (http://localhost:5173/@fs/Users/rosendolopez/claudecanvas/node_modules/.vite/deps/react-dom_client.js?v=335ba686:8525:20)
+    at runWithFiberInDEV (http://localhost:5173/@fs/Users/rosendolopez/claudecanvas/node_modules/.vite/deps/react-dom_client.js?v=335ba686:997:72)
+    at performUnitOfWork (http://localhost:5173/@fs/Users/rosendolopez/claudecanvas/node_modules/.vite/deps/react-dom_client.js?v=335ba686:12561:98)
+    at workLoopSync (http://localhost:5173/@fs/Users/rosendolopez/claudecanvas/node_modules/.vite/deps/react-dom_client.js?v=335ba686:12424:43)
+    at renderRootSync (http://localhost:5173/@fs/Users/rosendolopez/claudecanvas/node_modules/.vite/deps/react-dom_client.js?v=335ba686:12408:13)
+    at performWorkOnRoot (http://localhost:5173/@fs/Users/rosendolopez/claudecanvas/node_modules/.vite/deps/react-dom_client.js?v=335ba686:11827:37)
+[     101ms] [WARNING] %s
+
+%s
+ An error occurred in the <TitleBar> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://localhost:5173/@fs/Users/rosendolopez/claudecanvas/node_modules/.vite/deps/react-dom_client.js?v=335ba686:6965
+[     103ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5173/favicon.ico:0
+[   35584ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[   36587ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[   37589ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[   38591ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[   39594ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[   40596ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[   41598ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[   42600ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[   43605ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[   44608ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[   45611ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[   46614ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[   47626ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
