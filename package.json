@@ -43,7 +43,7 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "OWNER",
+      "owner": "RosendoLopez2014",
       "repo": "claudecanvas"
     }
   },
