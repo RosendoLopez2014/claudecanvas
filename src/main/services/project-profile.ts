@@ -6,10 +6,9 @@
  *
  * All filesystem access is synchronous (runs at project-open time in main process).
  */
-import { readFileSync, readdirSync, existsSync, statSync } from 'fs'
+import { readFileSync, readdirSync, existsSync } from 'fs'
 import { join, basename, extname, dirname } from 'path'
 import { resolveDevServerPlan } from '../devserver/resolve'
-import { commandToString } from '../../shared/devserver/types'
 import {
   IGNORE_DIRS,
   IGNORE_PATTERNS,
@@ -22,11 +21,11 @@ import {
 // ── Types ────────────────────────────────────────────────────────
 
 export interface ProjectProfile {
-  framework: string | undefined
-  frameworkVersion: string | undefined
+  framework: string | null
+  frameworkVersion: string | null
   packageManager: string
-  devPort: number | undefined
-  language: 'TypeScript' | 'JavaScript'
+  devPort: number
+  language: 'typescript' | 'javascript'
   keyDirectories: string[]
   components: ComponentGroup[]
   designSystem: DesignTokens | null
@@ -40,11 +39,11 @@ export interface ComponentGroup {
 }
 
 export interface DesignTokens {
-  source: string
-  colors: string[]
-  fonts: string[]
-  borderRadius: string[]
-  spacing: string[]
+  source: 'tailwind-config' | 'css-variables'
+  colors: Record<string, string>
+  fonts: Record<string, string>
+  borderRadius: string | null
+  spacing: string | null
 }
 
 export interface DependencySummary {
@@ -74,22 +73,22 @@ const FRAMEWORK_PACKAGES: Record<string, string> = {
 
 // ── Sub-scanner 1: Framework & Structure ─────────────────────────
 
-export function scanFrameworkAndStructure(projectPath: string): {
-  framework: string | undefined
-  frameworkVersion: string | undefined
+function scanFrameworkAndStructure(projectPath: string): {
+  framework: string | null
+  frameworkVersion: string | null
   packageManager: string
-  devPort: number | undefined
-  language: 'TypeScript' | 'JavaScript'
+  devPort: number
+  language: 'typescript' | 'javascript'
   keyDirectories: string[]
 } {
   // Resolve framework, PM, and port via devserver resolver
   const plan = resolveDevServerPlan(projectPath)
-  const framework = plan.detection.framework
+  const framework = plan.detection.framework ?? null
   const packageManager = plan.manager
-  const devPort = plan.port
+  const devPort = plan.port ?? 3000
 
   // Determine framework version from package.json
-  let frameworkVersion: string | undefined
+  let frameworkVersion: string | null = null
   if (framework && FRAMEWORK_PACKAGES[framework]) {
     try {
       const raw = readFileSync(join(projectPath, 'package.json'), 'utf-8')
@@ -100,14 +99,14 @@ export function scanFrameworkAndStructure(projectPath: string): {
         frameworkVersion = allDeps[depName]
       }
     } catch {
-      // Can't read package.json — leave version undefined
+      // Can't read package.json — leave version null
     }
   }
 
   // Detect TypeScript
-  let language: 'TypeScript' | 'JavaScript' = 'JavaScript'
+  let language: 'typescript' | 'javascript' = 'javascript'
   if (existsSync(join(projectPath, 'tsconfig.json'))) {
-    language = 'TypeScript'
+    language = 'typescript'
   }
 
   // Scan for key directories
@@ -209,9 +208,9 @@ function scanComponentDir(
   }
 }
 
-export function scanComponentInventory(
+function scanComponentInventory(
   projectPath: string,
-  framework: string | undefined
+  framework: string | null
 ): ComponentGroup[] {
   const groups = new Map<string, string[]>()
   const totalCount = { value: 0 }
@@ -250,108 +249,87 @@ export function scanComponentInventory(
 // ── Sub-scanner 3: Design Tokens ─────────────────────────────────
 
 function extractTailwindTokens(content: string): DesignTokens | null {
-  const colors: string[] = []
-  const fonts: string[] = []
-  const borderRadius: string[] = []
-  const spacing: string[] = []
+  const colors: Record<string, string> = {}
+  const fonts: Record<string, string> = {}
+  let borderRadius: string | null = null
+  let spacing: string | null = null
 
   // Extract from theme.extend block
   // Match colors object inside extend
   const colorsMatch = content.match(/colors\s*:\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/s)
   if (colorsMatch) {
-    // Extract color names (keys of the object)
-    const colorKeys = colorsMatch[1].match(/['"]?([\w-]+)['"]?\s*:/g)
-    if (colorKeys) {
-      for (const key of colorKeys) {
-        const name = key.replace(/['":\s]/g, '')
-        if (name && !colors.includes(name)) colors.push(name)
-      }
+    const colorPairs = colorsMatch[1].matchAll(/(\w+)\s*:\s*['"]([^'"]+)['"]/g)
+    for (const m of colorPairs) {
+      colors[m[1]] = m[2]
     }
   }
 
   // Extract fontFamily
   const fontMatch = content.match(/fontFamily\s*:\s*\{([^}]*)\}/s)
   if (fontMatch) {
-    const fontKeys = fontMatch[1].match(/['"]?([\w-]+)['"]?\s*:/g)
-    if (fontKeys) {
-      for (const key of fontKeys) {
-        const name = key.replace(/['":\s]/g, '')
-        if (name && !fonts.includes(name)) fonts.push(name)
-      }
+    const fontPairs = fontMatch[1].matchAll(/(\w+)\s*:\s*\[['"]([^'"]+)['"]/g)
+    for (const m of fontPairs) {
+      fonts[m[1]] = m[2]
     }
   }
 
-  // Extract borderRadius
-  const radiusMatch = content.match(/borderRadius\s*:\s*\{([^}]*)\}/s)
+  // Extract borderRadius (single string match)
+  const radiusMatch = content.match(/borderRadius\s*:\s*\{[^}]*\w+\s*:\s*['"]([^'"]+)['"]/s)
   if (radiusMatch) {
-    const radiusKeys = radiusMatch[1].match(/['"]?([\w-]+)['"]?\s*:\s*['"]?([^'",\n}]+)['"]?/g)
-    if (radiusKeys) {
-      for (const pair of radiusKeys) {
-        const m = pair.match(/['"]?([\w-]+)['"]?\s*:\s*['"]?([^'",\n}]+)['"]?/)
-        if (m) borderRadius.push(`${m[1]}: ${m[2].trim()}`)
-      }
-    }
+    borderRadius = radiusMatch[1]
   }
 
-  // Extract spacing
-  const spacingMatch = content.match(/spacing\s*:\s*\{([^}]*)\}/s)
+  // Extract spacing (single string match)
+  const spacingMatch = content.match(/spacing\s*:\s*\{[^}]*\w+\s*:\s*['"]([^'"]+)['"]/s)
   if (spacingMatch) {
-    const spacingKeys = spacingMatch[1].match(/['"]?([\w-]+)['"]?\s*:\s*['"]?([^'",\n}]+)['"]?/g)
-    if (spacingKeys) {
-      for (const pair of spacingKeys) {
-        const m = pair.match(/['"]?([\w-]+)['"]?\s*:\s*['"]?([^'",\n}]+)['"]?/)
-        if (m) spacing.push(`${m[1]}: ${m[2].trim()}`)
-      }
-    }
+    spacing = spacingMatch[1]
   }
 
-  if (colors.length === 0 && fonts.length === 0 && borderRadius.length === 0 && spacing.length === 0) {
+  if (Object.keys(colors).length === 0 && Object.keys(fonts).length === 0 && borderRadius === null && spacing === null) {
     return null
   }
 
-  return { source: 'Tailwind config', colors, fonts, borderRadius, spacing }
+  return { source: 'tailwind-config', colors, fonts, borderRadius, spacing }
 }
 
 function extractCssVariableTokens(content: string): DesignTokens | null {
-  const colors: string[] = []
-  const fonts: string[] = []
-  const borderRadius: string[] = []
-  const spacing: string[] = []
+  const colors: Record<string, string> = {}
+  const fonts: Record<string, string> = {}
+  let borderRadius: string | null = null
+  let spacing: string | null = null
 
   // Extract --color-* custom properties
-  const colorVars = content.matchAll(/--color-([\w-]+)\s*:\s*([^;]+);/g)
+  const colorVars = content.matchAll(/--(?:color-)?(\w[\w-]*?):\s*([^;}\n]+)/g)
   for (const match of colorVars) {
-    colors.push(`${match[1]}: ${match[2].trim()}`)
+    colors[match[1]] = match[2].trim()
   }
 
   // Extract --font-* custom properties
-  const fontVars = content.matchAll(/--font-([\w-]+)\s*:\s*([^;]+);/g)
+  const fontVars = content.matchAll(/--font-(\w[\w-]*):\s*([^;}\n]+)/g)
   for (const match of fontVars) {
-    fonts.push(`${match[1]}: ${match[2].trim()}`)
+    fonts[match[1]] = match[2].trim()
   }
 
-  // Extract --radius custom properties
-  const radiusVars = content.matchAll(/--radius(?:-([\w-]+))?\s*:\s*([^;]+);/g)
-  for (const match of radiusVars) {
-    const name = match[1] ? match[1] : 'default'
-    borderRadius.push(`${name}: ${match[2].trim()}`)
+  // Extract --radius custom property (single string)
+  const radiusMatch = content.match(/--radius\s*:\s*([^;}\n]+)/)
+  if (radiusMatch) {
+    borderRadius = radiusMatch[1].trim()
   }
 
-  // Extract --spacing custom properties
-  const spacingVars = content.matchAll(/--spacing(?:-([\w-]+))?\s*:\s*([^;]+);/g)
-  for (const match of spacingVars) {
-    const name = match[1] ? match[1] : 'default'
-    spacing.push(`${name}: ${match[2].trim()}`)
+  // Extract --spacing custom property (single string)
+  const spacingMatch = content.match(/--spacing\s*:\s*([^;}\n]+)/)
+  if (spacingMatch) {
+    spacing = spacingMatch[1].trim()
   }
 
-  if (colors.length === 0 && fonts.length === 0 && borderRadius.length === 0 && spacing.length === 0) {
+  if (Object.keys(colors).length === 0 && Object.keys(fonts).length === 0 && borderRadius === null && spacing === null) {
     return null
   }
 
-  return { source: 'CSS variables', colors, fonts, borderRadius, spacing }
+  return { source: 'css-variables', colors, fonts, borderRadius, spacing }
 }
 
-export function readDesignTokens(projectPath: string): DesignTokens | null {
+function readDesignTokens(projectPath: string): DesignTokens | null {
   // Priority 1: Tailwind config
   const tailwindFiles = [
     'tailwind.config.ts',
@@ -454,7 +432,7 @@ function matchesDep(depName: string, pattern: string | RegExp): boolean {
   return pattern.test(depName)
 }
 
-export function summarizeDependencies(projectPath: string): DependencySummary {
+function summarizeDependencies(projectPath: string): DependencySummary {
   const result: DependencySummary = {
     ui: [],
     auth: [],
@@ -523,9 +501,7 @@ export function renderProjectProfile(profile: ProjectProfile): string {
     : 'Unknown'
   lines.push(`- **Framework:** ${frameworkLabel}`)
   lines.push(`- **Package Manager:** ${profile.packageManager}`)
-  if (profile.devPort) {
-    lines.push(`- **Dev Port:** ${profile.devPort}`)
-  }
+  lines.push(`- **Dev Port:** ${profile.devPort}`)
   lines.push(`- **Language:** ${profile.language}`)
   lines.push('')
 
@@ -559,26 +535,28 @@ export function renderProjectProfile(profile: ProjectProfile): string {
     lines.push(`### Design System (from ${ds.source})`)
     lines.push('')
 
-    if (ds.colors.length > 0) {
-      const displayColors = ds.colors.slice(0, 8)
-      const moreCount = ds.colors.length - displayColors.length
+    const colorEntries = Object.entries(ds.colors)
+    if (colorEntries.length > 0) {
+      const displayColors = colorEntries.slice(0, 8)
+      const moreCount = colorEntries.length - displayColors.length
       const suffix = moreCount > 0 ? `, +${moreCount} more` : ''
-      lines.push(`- **Colors:** ${displayColors.join(', ')}${suffix}`)
+      lines.push(`- **Colors:** ${displayColors.map(([k, v]) => `${k}: ${v}`).join(', ')}${suffix}`)
     }
 
-    if (ds.fonts.length > 0) {
-      const displayFonts = ds.fonts.slice(0, 4)
-      const moreCount = ds.fonts.length - displayFonts.length
+    const fontEntries = Object.entries(ds.fonts)
+    if (fontEntries.length > 0) {
+      const displayFonts = fontEntries.slice(0, 4)
+      const moreCount = fontEntries.length - displayFonts.length
       const suffix = moreCount > 0 ? `, +${moreCount} more` : ''
-      lines.push(`- **Fonts:** ${displayFonts.join(', ')}${suffix}`)
+      lines.push(`- **Fonts:** ${displayFonts.map(([k, v]) => `${k}: ${v}`).join(', ')}${suffix}`)
     }
 
-    if (ds.borderRadius.length > 0) {
-      lines.push(`- **Border Radius:** ${ds.borderRadius.join(', ')}`)
+    if (ds.borderRadius !== null) {
+      lines.push(`- **Border Radius:** ${ds.borderRadius}`)
     }
 
-    if (ds.spacing.length > 0) {
-      lines.push(`- **Spacing:** ${ds.spacing.join(', ')}`)
+    if (ds.spacing !== null) {
+      lines.push(`- **Spacing:** ${ds.spacing}`)
     }
 
     lines.push('')
