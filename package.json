@@ -1,6 +1,6 @@
 {
   "name": "claude-canvas",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Terminal-first development environment with adaptive rendering",
   "main": "./out/main/index.js",
   "scripts": {
@@ -30,12 +30,17 @@
       "node_modules/node-pty/**/*"
     ],
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "category": "public.app-category.developer-tools",
       "identity": null
     },
     "win": {
-      "target": ["nsis"]
+      "target": [
+        "nsis"
+      ]
     },
     "nsis": {
       "oneClick": true,
