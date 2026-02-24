@@ -47,9 +47,6 @@ const api = {
     selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory')
   },
 
-  framework: {
-    detect: (projectPath: string) => ipcRenderer.invoke('framework:detect', projectPath),
-  },
 
   template: {
     list: () => ipcRenderer.invoke('template:list'),
@@ -101,6 +98,17 @@ const api = {
   render: {
     evaluate: (html: string, css?: string) =>
       ipcRenderer.invoke('render:evaluate', html, css)
+  },
+
+  component: {
+    scan: (projectPath: string) =>
+      ipcRenderer.invoke('component:scan', projectPath) as Promise<
+        Array<{ name: string; filePath: string; relativePath: string }>
+      >,
+    parse: (filePath: string, projectPath: string) =>
+      ipcRenderer.invoke('component:parse', filePath, projectPath) as Promise<
+        { name: string; html: string; relativePath: string } | null
+      >,
   },
 
   git: {
@@ -281,6 +289,11 @@ const api = {
     stop: (cwd?: string) => ipcRenderer.invoke('dev:stop', cwd),
     status: (cwd: string) => ipcRenderer.invoke('dev:status', cwd) as Promise<{ running: boolean; url: string | null }>,
     clearCrashHistory: (cwd: string) => ipcRenderer.invoke('dev:clearCrashHistory', cwd),
+    resolve: (projectPath: string) => ipcRenderer.invoke('devserver:resolve', projectPath),
+    setOverride: (projectPath: string, command: string, port?: number) =>
+      ipcRenderer.invoke('devserver:setOverride', projectPath, command, port),
+    clearOverride: (projectPath: string) => ipcRenderer.invoke('devserver:clearOverride', projectPath),
+    getConfig: (projectPath: string) => ipcRenderer.invoke('devserver:getConfig', projectPath),
     onOutput: (cb: (data: { cwd: string; data: string }) => void) => onIpc('dev:output', cb),
     onExit: (cb: (data: { cwd: string; code: number }) => void) => onIpc('dev:exit', cb),
     onStatus: (cb: (status: { cwd?: string; stage: string; message: string; url?: string }) => void) => onIpc('dev:status', cb)
@@ -356,6 +369,15 @@ const api = {
         current: string
         branches: string[]
       } | { error: string }>
+  },
+
+  updater: {
+    onStatus: (cb: (data: {
+      status: 'available' | 'downloading' | 'ready'
+      version?: string
+      percent?: number
+    }) => void) => onIpc('updater:status', cb),
+    install: () => ipcRenderer.invoke('updater:install')
   }
 }
 
