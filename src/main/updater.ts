@@ -37,5 +37,5 @@ export function setupAutoUpdater(win: BrowserWindow): void {
 }
 
 export function installUpdate(): void {
-  autoUpdater.quitAndInstall()
+  setImmediate(() => autoUpdater.quitAndInstall(false, true))
 }
