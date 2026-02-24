@@ -9,17 +9,17 @@ interface ScannedComponent {
   relativePath: string
 }
 
-const IGNORE_DIRS = new Set([
+export const IGNORE_DIRS = new Set([
   'node_modules', '.git', 'dist', '.next', '.nuxt', '.output',
   '.cache', '.turbo', '.vercel', '.svelte-kit', 'build',
   'coverage', '__pycache__'
 ])
 
-const IGNORE_PATTERNS = ['.test.', '.spec.', '.stories.']
+export const IGNORE_PATTERNS = ['.test.', '.spec.', '.stories.']
 
-const COMPONENT_EXTENSIONS = new Set(['.tsx', '.jsx'])
+export const COMPONENT_EXTENSIONS = new Set(['.tsx', '.jsx'])
 
-const MAX_DEPTH = 5
+export const MAX_DEPTH = 5
 
 /**
  * Regex patterns to detect default exports.
@@ -38,7 +38,7 @@ const DEFAULT_EXPORT_PATTERNS = [
  * Attempt to extract the default-exported component name from file contents.
  * Returns null if no default export is detected.
  */
-function parseComponentName(content: string): string | null {
+export function parseComponentName(content: string): string | null {
   for (const pattern of DEFAULT_EXPORT_PATTERNS) {
     const match = content.match(pattern)
     if (match && match[1]) {
