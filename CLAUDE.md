@@ -27,6 +27,18 @@ Canvas renders adaptively: small components inline in terminal, large/full-page 
 - `npm run rebuild` — rebuild native modules (node-pty)
 - `npm test` — run vitest
 - `npm run test:watch` — vitest watch mode
+- `npm run dist:mac` — build macOS DMG + zip
+- `npm run dist:win` — build Windows NSIS installer
+
+## Distribution & Auto-Updates
+- **Repo:** github.com/RosendoLopez2014/claudecanvas
+- **Build:** electron-builder 25 (config in package.json `build` key)
+- **Updates:** electron-updater checks GitHub Releases on launch + every 4h
+- **Release flow:** `npm version patch/minor/major` → `git push origin main --tags` → GitHub Actions builds + publishes
+- **CI:** `.github/workflows/release.yml` triggers on `v*` tags, builds mac + win, uploads to GitHub Releases
+- **Updater module:** `src/main/updater.ts` — silent download, status bar pill when ready
+- **IPC:** `updater:status` (main→renderer), `updater:install` (renderer→main)
+- **Signing:** Not configured yet (`identity: null`), users must bypass Gatekeeper
 
 ## Don'ts
 - Don't use Redux or React Context for app state
