@@ -18,6 +18,7 @@
   "build": {
     "appId": "com.claudecanvas.app",
     "productName": "Claude Canvas",
+    "icon": "resources/icon.png",
     "directories": {
       "output": "dist"
     },
@@ -35,7 +36,8 @@
         "zip"
       ],
       "category": "public.app-category.developer-tools",
-      "identity": null
+      "identity": null,
+      "icon": "resources/icon.icns"
     },
     "win": {
       "target": [
