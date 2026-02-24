@@ -4,7 +4,7 @@ import { is } from '@electron-toolkit/utils'
 import { setupPtyHandlers, killAllPtys } from './pty'
 import { setupSettingsHandlers } from './store'
 import { setupFileWatcher, closeWatcher } from './watcher'
-import { setupDevServerHandlers, killDevServer } from './services/dev-server'
+import { setupDevServerSystem, killAllDevServers } from './devserver'
 import { setupRenderRouter } from './render-router'
 import { setupGitHandlers, cleanupAllGitInstances } from './services/git'
 import { setupGithubOAuth } from './oauth/github'
@@ -17,11 +17,12 @@ import { setupScreenshotHandlers } from './screenshot'
 import { setupInspectorHandlers } from './inspector'
 import { setupWorktreeHandlers } from './services/worktree'
 import { setupTemplateHandlers } from './services/templates'
-import { setupFrameworkDetectHandlers } from './services/framework-detect'
 import { setupVisualDiffHandlers } from './services/visual-diff'
 import { setupFileTreeHandlers } from './services/file-tree'
 import { setupSearchHandlers } from './services/search'
+import { setupComponentScannerHandlers } from './services/component-scanner'
 import { initSecureStorage } from './services/secure-storage'
+import { setupAutoUpdater, installUpdate } from './updater'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -106,12 +107,13 @@ app.whenReady().then(() => {
   initSecureStorage()
 
   createWindow()
+  setupAutoUpdater(mainWindow!)
 
   // Core services
   setupPtyHandlers(() => mainWindow)
   setupSettingsHandlers()
   setupFileWatcher(() => mainWindow)
-  setupDevServerHandlers(() => mainWindow)
+  setupDevServerSystem(() => mainWindow)
   setupRenderRouter(() => mainWindow)
   setupGitHandlers()
   setupGithubOAuth(() => mainWindow)
@@ -121,10 +123,10 @@ app.whenReady().then(() => {
   setupInspectorHandlers(() => mainWindow)
   setupWorktreeHandlers()
   setupTemplateHandlers(() => mainWindow)
-  setupFrameworkDetectHandlers()
   setupVisualDiffHandlers(() => mainWindow)
   setupFileTreeHandlers()
   setupSearchHandlers()
+  setupComponentScannerHandlers()
   setupGalleryIpc()
   // MCP Bridge — start server when a project opens
   ipcMain.handle('mcp:project-opened', async (_event, projectPath: string) => {
@@ -138,6 +140,9 @@ app.whenReady().then(() => {
     await removeMcpConfig()
     await stopMcpServer()
   })
+
+  // Auto-updater
+  ipcMain.handle('updater:install', () => installUpdate())
 
   // Dialog
   ipcMain.handle('dialog:selectDirectory', async () => {
@@ -195,7 +200,7 @@ app.on('window-all-closed', () => {
   stopMcpServer()
   killAllPtys()
   closeWatcher()
-  killDevServer()
+  killAllDevServers()
   cleanupAllGitInstances()
   if (process.platform !== 'darwin') app.quit()
 })
