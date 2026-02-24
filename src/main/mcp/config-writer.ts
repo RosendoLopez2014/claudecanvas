@@ -2,6 +2,7 @@ import { writeFile, unlink, readFile, appendFile, mkdir } from 'node:fs/promises
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
+import { generateProjectProfile, renderProjectProfile } from '../services/project-profile'
 
 const projectPaths = new Set<string>()
 
@@ -129,6 +130,58 @@ const CANVAS_CLAUDE_MD = [
   '- Each option must be genuinely different',
 ].join('\n')
 
+const SOUL_TEMPLATE = `<!--
+# Project Soul
+
+Uncomment and customize any section below. Claude reads this
+file every session to understand your preferences.
+
+## Design Taste
+- I prefer [minimal / bold / playful / corporate] aesthetics
+- Dark mode first / Light mode first / Both equally
+- Rounded corners, soft shadows, generous whitespace
+- Animations: subtle and purposeful, no bounce effects
+
+## Coding Style
+- Prefer Tailwind utility classes over CSS modules
+- Always use TypeScript strict mode
+- Collocate tests next to source files
+- Prefer named exports over default exports
+
+## Brand
+- Primary brand color: #___
+- Voice: [friendly / professional / technical / casual]
+- Never use Lorem Ipsum — use realistic placeholder content
+
+## Workflow
+- Always preview in gallery before building into the project
+- Create checkpoints after every significant change
+- When I say "make it pop", I mean add subtle hover animations and depth
+-->`
+
+async function readSoulFile(projPath: string): Promise<string | null> {
+  const soulPath = join(projPath, 'soul.md')
+  if (!existsSync(soulPath)) return null
+
+  try {
+    const content = await readFile(soulPath, 'utf-8')
+    const trimmed = content.trim()
+    // Skip if entire file is still the commented-out template
+    if (trimmed.startsWith('<!--') && trimmed.endsWith('-->') && !trimmed.includes('-->\n')) {
+      return null
+    }
+    return content
+  } catch {
+    return null
+  }
+}
+
+async function ensureSoulTemplate(projPath: string): Promise<void> {
+  const soulPath = join(projPath, 'soul.md')
+  if (existsSync(soulPath)) return
+  await writeFile(soulPath, SOUL_TEMPLATE + '\n', 'utf-8')
+}
+
 export async function writeMcpConfig(projPath: string, port: number): Promise<void> {
   projectPaths.add(projPath)
   const mcpServerConfig = {
@@ -172,9 +225,12 @@ export async function writeMcpConfig(projPath: string, port: number): Promise<vo
   // (permissions.allow DOES work from settings.local.json, only mcpServers is ignored)
   await writeToolPermissions(projPath)
 
-  // Write CLAUDE.md with canvas tool instructions (always overwrite for latest version)
-  await writeCanvasClaudeMd(projPath)
-
+  // Write CLAUDE.md with dynamic profile, soul, and canvas tool instructions
+  const profile = generateProjectProfile(projPath)
+  const profileMd = renderProjectProfile(profile)
+  const soul = await readSoulFile(projPath)
+  await writeCanvasClaudeMd(projPath, profileMd, soul)
+  await ensureSoulTemplate(projPath)
   await ensureGitignore(projPath)
 }
 
@@ -333,27 +389,50 @@ async function writeToolPermissions(projPath: string): Promise<void> {
   await writeFile(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8')
 }
 
-async function writeCanvasClaudeMd(projPath: string): Promise<void> {
+async function writeCanvasClaudeMd(
+  projPath: string,
+  profile: string,
+  soul: string | null
+): Promise<void> {
   const claudeMdPath = join(projPath, 'CLAUDE.md')
+
+  // Build dynamic CLAUDE.md from three parts
+  const parts: string[] = []
+
+  // Part 1: Dynamic project profile
+  parts.push(profile)
+
+  // Part 2: User soul (if exists and has content)
+  if (soul) {
+    parts.push('')
+    parts.push('## Project Soul')
+    parts.push('')
+    parts.push(soul.trim())
+  }
+
+  // Part 3: Static canvas instructions (unchanged)
+  parts.push('')
+  parts.push(CANVAS_CLAUDE_MD)
+
+  const fullContent = parts.join('\n')
 
   // Always overwrite to ensure latest instructions
   if (existsSync(claudeMdPath)) {
     const content = await readFile(claudeMdPath, 'utf-8')
     if (content.includes('# Claude Canvas Environment')) {
-      // Replace the existing canvas section with the latest version
       const before = content.split('# Claude Canvas Environment')[0]
-      await writeFile(claudeMdPath, before.trimEnd() + '\n\n' + CANVAS_CLAUDE_MD + '\n', 'utf-8')
+      await writeFile(claudeMdPath, before.trimEnd() + '\n\n' + fullContent + '\n', 'utf-8')
       return
     }
-    await appendFile(claudeMdPath, '\n' + CANVAS_CLAUDE_MD + '\n')
+    await appendFile(claudeMdPath, '\n' + fullContent + '\n')
   } else {
-    await writeFile(claudeMdPath, CANVAS_CLAUDE_MD + '\n', 'utf-8')
+    await writeFile(claudeMdPath, fullContent + '\n', 'utf-8')
   }
 }
 
 async function ensureGitignore(projPath: string): Promise<void> {
   const gitignorePath = join(projPath, '.gitignore')
-  const entries = ['CLAUDE.md', '.claude/screenshots/']
+  const entries = ['CLAUDE.md', 'soul.md', '.claude/screenshots/']
 
   if (existsSync(gitignorePath)) {
     const content = await readFile(gitignorePath, 'utf-8')
