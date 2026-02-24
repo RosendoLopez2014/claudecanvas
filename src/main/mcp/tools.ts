@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { resolveDevServerPlan } from '../devserver/resolve'
 import { setUserOverride } from '../devserver/config-store'
 import { parseCommandString, validateCommand, commandToString } from '../../shared/devserver/types'
+import { generateProjectProfile } from '../services/project-profile'
 
 /** Auto-detect Supabase project ref from supabase/config.toml */
 async function detectProjectRef(projectPath: string): Promise<string | null> {
@@ -57,6 +58,11 @@ export function registerMcpTools(
   getWindow: () => BrowserWindow | null,
   projectPath: string
 ): void {
+  // Cache project profile for richer tool responses
+  const profile = generateProjectProfile(projectPath)
+  const componentCount = profile.components.reduce((sum, g) => sum + g.items.length + g.overflow, 0)
+  const frameworkLabel = profile.framework || 'unknown'
+
   server.tool(
     'canvas_render',
     'Render HTML/CSS in the canvas panel or inline in the terminal. Auto-opens the canvas if the component is large.',
@@ -83,7 +89,8 @@ export function registerMcpTools(
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
       win.webContents.send('mcp:start-preview', { projectPath, command, cwd })
-      return { content: [{ type: 'text', text: 'Dev server starting. The canvas panel will open with a live preview.' }] }
+      const ctx = [frameworkLabel, `port ${profile.devPort}`, `${componentCount} components`].join(', ')
+      return { content: [{ type: 'text', text: `Dev server starting (${ctx}). The canvas panel will open with a live preview.` }] }
     }
   )
 
