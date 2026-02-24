@@ -96,7 +96,7 @@ function scanFrameworkAndStructure(projectPath: string): {
       const allDeps = { ...pkg.dependencies, ...pkg.devDependencies }
       const depName = FRAMEWORK_PACKAGES[framework]
       if (allDeps[depName]) {
-        frameworkVersion = allDeps[depName]
+        frameworkVersion = allDeps[depName]?.replace(/^[\^~>=<]+/, '') || null
       }
     } catch {
       // Can't read package.json — leave version null
@@ -118,26 +118,25 @@ function scanFrameworkAndStructure(projectPath: string): {
 
   const keyDirectories: string[] = []
 
-  // Check under src/ first, then root
-  const searchRoots = existsSync(join(projectPath, 'src'))
-    ? [join(projectPath, 'src')]
-    : [projectPath]
+  // Check under src/ and root (inclusive — both are scanned)
+  const searchRoots: Array<{ root: string; prefix: string }> = []
+  if (existsSync(join(projectPath, 'src'))) {
+    searchRoots.push({ root: join(projectPath, 'src'), prefix: 'src/' })
+  }
+  searchRoots.push({ root: projectPath, prefix: '' })
 
-  for (const root of searchRoots) {
+  for (const { root, prefix } of searchRoots) {
     try {
       const entries = readdirSync(root, { withFileTypes: true })
       for (const entry of entries) {
         if (entry.isDirectory() && KEY_DIR_NAMES.includes(entry.name)) {
-          const prefix = root === projectPath ? '' : 'src/'
-          const dirLabel = `${prefix}${entry.name}/`
+          const dirLabel = prefix + entry.name
           if (!keyDirectories.includes(dirLabel)) {
             keyDirectories.push(dirLabel)
           }
         }
       }
-    } catch {
-      // Can't read directory — skip
-    }
+    } catch { /* ignore */ }
   }
 
   // Sort alphabetically for consistency
@@ -298,10 +297,14 @@ function extractCssVariableTokens(content: string): DesignTokens | null {
   let borderRadius: string | null = null
   let spacing: string | null = null
 
-  // Extract --color-* custom properties
+  // Extract --color-* custom properties (only color-like values)
   const colorVars = content.matchAll(/--(?:color-)?(\w[\w-]*?):\s*([^;}\n]+)/g)
   for (const match of colorVars) {
-    colors[match[1]] = match[2].trim()
+    const value = match[2].trim()
+    // Only include if value looks like a color
+    if (/^(#|rgb|hsl|oklch|color\(|var\(|\d)/.test(value)) {
+      colors[match[1]] = value
+    }
   }
 
   // Extract --font-* custom properties
@@ -378,90 +381,92 @@ function readDesignTokens(projectPath: string): DesignTokens | null {
 
 // ── Sub-scanner 4: Dependencies ──────────────────────────────────
 
-const DEP_CATEGORIES: Record<keyof DependencySummary, Array<string | RegExp>> = {
-  ui: [
-    /^@radix-ui\//,
-    /^@shadcn\//,
-    /^@mui\//,
-    /^@chakra-ui\//,
-    /^@headlessui\//,
-    /^@mantine\//,
-    'antd',
-    'framer-motion',
-  ],
-  auth: [
-    'next-auth',
-    /^@clerk\//,
-    '@supabase/auth-helpers',
-    /^@auth\//,
-    'passport',
-    'lucia',
-  ],
-  database: [
-    '@supabase/supabase-js',
-    'prisma',
-    '@prisma/client',
-    'drizzle-orm',
-    'mongoose',
-    'typeorm',
-    /^@planetscale\//,
-    'firebase',
-    /^@firebase\//,
-  ],
-  state: [
-    'zustand',
-    '@reduxjs/toolkit',
-    'jotai',
-    'recoil',
-    'valtio',
-    'mobx',
-    '@tanstack/react-query',
-  ],
-  testing: [
-    'vitest',
-    'jest',
-    /^@testing-library\//,
-    'playwright',
-    /^@playwright\//,
-    'cypress',
-  ],
-}
-
-function matchesDep(depName: string, pattern: string | RegExp): boolean {
-  if (typeof pattern === 'string') return depName === pattern
-  return pattern.test(depName)
-}
+const DEP_CATEGORIES: Array<{
+  category: keyof DependencySummary
+  patterns: Array<{ match: string | RegExp; label: string }>
+}> = [
+  {
+    category: 'ui',
+    patterns: [
+      { match: /^@radix-ui\//, label: 'Radix UI' },
+      { match: /^@shadcn\//, label: 'shadcn/ui' },
+      { match: /^@mui\//, label: 'MUI' },
+      { match: /^@chakra-ui\//, label: 'Chakra UI' },
+      { match: /^@headlessui\//, label: 'Headless UI' },
+      { match: /^@mantine\//, label: 'Mantine' },
+      { match: 'antd', label: 'Ant Design' },
+      { match: 'framer-motion', label: 'Framer Motion' },
+    ],
+  },
+  {
+    category: 'auth',
+    patterns: [
+      { match: 'next-auth', label: 'NextAuth.js' },
+      { match: /^@clerk\//, label: 'Clerk' },
+      { match: '@supabase/auth-helpers', label: 'Supabase Auth' },
+      { match: /^@auth\//, label: 'Auth.js' },
+      { match: 'passport', label: 'Passport.js' },
+      { match: 'lucia', label: 'Lucia' },
+    ],
+  },
+  {
+    category: 'database',
+    patterns: [
+      { match: '@supabase/supabase-js', label: 'Supabase' },
+      { match: 'prisma', label: 'Prisma' },
+      { match: '@prisma/client', label: 'Prisma' },
+      { match: 'drizzle-orm', label: 'Drizzle' },
+      { match: 'mongoose', label: 'Mongoose' },
+      { match: 'typeorm', label: 'TypeORM' },
+      { match: /^@planetscale\//, label: 'PlanetScale' },
+      { match: 'firebase', label: 'Firebase' },
+      { match: /^@firebase\//, label: 'Firebase' },
+    ],
+  },
+  {
+    category: 'state',
+    patterns: [
+      { match: 'zustand', label: 'Zustand' },
+      { match: '@reduxjs/toolkit', label: 'Redux Toolkit' },
+      { match: 'jotai', label: 'Jotai' },
+      { match: 'recoil', label: 'Recoil' },
+      { match: 'valtio', label: 'Valtio' },
+      { match: 'mobx', label: 'MobX' },
+      { match: '@tanstack/react-query', label: 'TanStack Query' },
+    ],
+  },
+  {
+    category: 'testing',
+    patterns: [
+      { match: 'vitest', label: 'Vitest' },
+      { match: 'jest', label: 'Jest' },
+      { match: /^@testing-library\//, label: 'Testing Library' },
+      { match: 'playwright', label: 'Playwright' },
+      { match: /^@playwright\//, label: 'Playwright' },
+      { match: 'cypress', label: 'Cypress' },
+    ],
+  },
+]
 
 function summarizeDependencies(projectPath: string): DependencySummary {
-  const result: DependencySummary = {
-    ui: [],
-    auth: [],
-    database: [],
-    state: [],
-    testing: [],
-  }
-
+  const result: DependencySummary = { ui: [], auth: [], database: [], state: [], testing: [] }
   try {
-    const raw = readFileSync(join(projectPath, 'package.json'), 'utf-8')
-    const pkg = JSON.parse(raw)
+    const pkg = JSON.parse(readFileSync(join(projectPath, 'package.json'), 'utf-8'))
     const allDeps = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies })
-
-    for (const depName of allDeps) {
-      for (const category of Object.keys(DEP_CATEGORIES) as Array<keyof DependencySummary>) {
-        for (const pattern of DEP_CATEGORIES[category]) {
-          if (matchesDep(depName, pattern)) {
-            if (!result[category].includes(depName)) {
-              result[category].push(depName)
-            }
-            break
-          }
+    for (const { category, patterns } of DEP_CATEGORIES) {
+      const seen = new Set<string>()
+      for (const { match, label } of patterns) {
+        if (seen.has(label)) continue
+        const found = typeof match === 'string'
+          ? allDeps.some((d) => d === match || d.startsWith(match))
+          : allDeps.some((d) => (match as RegExp).test(d))
+        if (found) {
+          seen.add(label)
+          result[category].push(label)
         }
       }
     }
-  } catch {
-    // Can't read package.json — return empty
-  }
-
+  } catch { /* no package.json */ }
   return result
 }
 

@@ -391,7 +391,7 @@ async function writeToolPermissions(projPath: string): Promise<void> {
 
 async function writeCanvasClaudeMd(
   projPath: string,
-  profile: string,
+  profileMd: string,
   soul: string | null
 ): Promise<void> {
   const claudeMdPath = join(projPath, 'CLAUDE.md')
@@ -400,7 +400,7 @@ async function writeCanvasClaudeMd(
   const parts: string[] = []
 
   // Part 1: Dynamic project profile
-  parts.push(profile)
+  parts.push(profileMd)
 
   // Part 2: User soul (if exists and has content)
   if (soul) {
