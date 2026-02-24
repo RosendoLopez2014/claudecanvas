@@ -152,6 +152,11 @@ app.whenReady().then(() => {
     return result.canceled ? null : result.filePaths[0]
   })
 
+  // App version (sync for preload static property)
+  ipcMain.on('app:getVersion', (event) => {
+    event.returnValue = app.getVersion()
+  })
+
   // Window controls
   ipcMain.on('window:minimize', () => mainWindow?.minimize())
   ipcMain.on('window:maximize', () => {

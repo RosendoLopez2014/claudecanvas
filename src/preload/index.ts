@@ -16,6 +16,7 @@ function onIpc<T>(channel: string, cb: (data: T) => void): () => void {
 
 const api = {
   platform: process.platform,
+  appVersion: ipcRenderer.sendSync('app:getVersion') as string,
 
   window: {
     minimize: () => ipcRenderer.send('window:minimize'),

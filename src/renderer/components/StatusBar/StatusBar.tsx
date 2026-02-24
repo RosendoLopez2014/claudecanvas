@@ -595,6 +595,9 @@ export function StatusBar() {
         >
           <Settings size={11} />
         </button>
+
+        {/* App version */}
+        <span className="text-white/20">v{window.api.appVersion}</span>
       </div>
     </div>
     </>
