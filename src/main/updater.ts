@@ -1,8 +1,8 @@
 import { autoUpdater } from 'electron-updater'
-import { BrowserWindow } from 'electron'
+import { app, BrowserWindow } from 'electron'
 
 export function setupAutoUpdater(win: BrowserWindow): void {
-  if (process.env.NODE_ENV === 'development') return
+  if (!app.isPackaged) return
 
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
