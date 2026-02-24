@@ -59,6 +59,18 @@ export function StatusBar() {
   const [commandPickerSuggestions, setCommandPickerSuggestions] = useState<string[]>([])
   const [commandPickerFramework, setCommandPickerFramework] = useState<string | null>(null)
 
+  // Auto-updater state
+  const [updateReady, setUpdateReady] = useState<string | null>(null)
+
+  useEffect(() => {
+    const unsub = window.api.updater.onStatus((data) => {
+      if (data.status === 'ready' && data.version) {
+        setUpdateReady(data.version)
+      }
+    })
+    return unsub
+  }, [])
+
   // Check Vercel connection status once on mount (not on every project change)
   useEffect(() => {
     window.api.oauth.vercel.status().then((s) => {
@@ -205,52 +217,74 @@ export function StatusBar() {
     return removeStatus
   }, [])
 
-  /** Resolve the dev command for the current project.
-   *  Chain: per-project override → auto-detect → show picker */
-  const resolveCommand = useCallback(async (): Promise<string | null> => {
+  /** Check if the dev command can be auto-resolved for the current project.
+   *  Returns true if auto-start is OK (main process will resolve the command).
+   *  Returns false if the picker should be shown instead. */
+  const canAutoStart = useCallback(async (): Promise<boolean> => {
     const cwd = currentProject?.path
-    if (!cwd) return null
+    if (!cwd) return false
 
-    // 1. Per-project override (persisted in project info)
-    if (currentProject.devCommand) return currentProject.devCommand
-
-    // 2. Auto-detect from filesystem
+    // Always resolve fresh — the cached devCommand might be stale from a previous session
     try {
-      const detected = await window.api.framework.detect(cwd)
-      if (detected?.devCommand) {
-        // Cache the detected command on the project info for next time
+      const result = await window.api.dev.resolve(cwd)
+      if (result?.error) {
+        setCommandPickerSuggestions([])
+        setCommandPickerFramework(null)
+        setShowCommandPicker(true)
+        return false
+      }
+
+      const plan = result.plan
+      if (plan && plan.confidence !== 'low') {
+        // High/medium confidence — cache for display, main process will resolve again on start
+        const cmdStr = [plan.command.bin, ...plan.command.args].join(' ')
         useProjectStore.getState().setCurrentProject({
           ...currentProject,
-          devCommand: detected.devCommand,
-          devPort: detected.devPort,
-          framework: detected.framework,
+          devCommand: cmdStr,
+          devPort: plan.port,
+          framework: plan.detection?.framework,
         })
-        // Also update the tab and persisted recent projects
         if (activeTab) {
           useTabsStore.getState().updateProjectInfo(activeTab.id, {
-            devCommand: detected.devCommand,
-            devPort: detected.devPort,
-            framework: detected.framework,
+            devCommand: cmdStr,
+            devPort: plan.port,
+            framework: plan.detection?.framework,
           })
         }
-        return detected.devCommand
+        return true
       }
-      // Detection returned a result without a clear command — show picker with suggestions
-      setCommandPickerSuggestions(detected?.suggestions ?? [])
-      setCommandPickerFramework(detected?.framework ?? null)
+
+      // Low confidence — clear any stale cached command, then show picker
+      if (currentProject.devCommand) {
+        useProjectStore.getState().setCurrentProject({
+          ...currentProject,
+          devCommand: undefined,
+          devPort: undefined,
+        })
+        if (activeTab) {
+          useTabsStore.getState().updateProjectInfo(activeTab.id, {
+            devCommand: undefined,
+            devPort: undefined,
+          })
+        }
+      }
+      setCommandPickerSuggestions(
+        plan ? [[plan.command.bin, ...plan.command.args].join(' ')] : []
+      )
+      setCommandPickerFramework(plan?.detection?.framework ?? null)
     } catch {
-      // Detection failed — show picker with no suggestions
       setCommandPickerSuggestions([])
       setCommandPickerFramework(null)
     }
 
-    // 3. No command found — show picker and return null (start deferred)
+    // No confident command — show picker
     setShowCommandPicker(true)
-    return null
+    return false
   }, [currentProject, activeTab])
 
-  /** Actually start the dev server with a resolved command. */
-  const doStart = useCallback(async (command: string) => {
+  /** Actually start the dev server. When command is omitted, the main
+   *  process auto-resolves (handles subdirectory projects correctly). */
+  const doStart = useCallback(async (command?: string) => {
     const cwd = currentProject?.path
     if (!cwd) return
 
@@ -261,6 +295,12 @@ export function StatusBar() {
       const result = await window.api.dev.start(cwd, command)
       if (result?.error) {
         setStartingStatus(null)
+        // If the server needs manual configuration, reset to stopped and show picker
+        if (result.errorCode === 'DEV_COMMAND_UNRESOLVED' || result.needsConfiguration) {
+          useTabsStore.getState().updateDevForProject(cwd, { status: 'stopped', lastError: null })
+          setShowCommandPicker(true)
+          return
+        }
         useTabsStore.getState().updateDevForProject(cwd, {
           status: 'error',
           lastError: result.error,
@@ -323,28 +363,23 @@ export function StatusBar() {
       return
     }
 
-    const command = await resolveCommand()
-    if (!command) return // picker will be shown — start deferred to onCommandSelect
-    await doStart(command)
-  }, [currentProject, isDevServerRunning, startingStatus, openCanvas, resolveCommand, doStart])
+    const ok = await canAutoStart()
+    if (!ok) return // picker will be shown — start deferred to onCommandSelect
+    await doStart() // no command — let main process resolve (handles subdirectories)
+  }, [currentProject, isDevServerRunning, startingStatus, openCanvas, canAutoStart, doStart])
 
   /** Called by CommandPicker when the user selects or types a command. */
   const handleCommandSelect = useCallback(async (command: string, remember: boolean) => {
     setShowCommandPicker(false)
     if (remember && currentProject) {
-      // Persist to project info
+      // Persist to config store via IPC (sets user override in electron-store)
+      window.api.dev.setOverride(currentProject.path, command)
+      // Also update in-memory project info for immediate display
       const updated = { ...currentProject, devCommand: command }
       useProjectStore.getState().setCurrentProject(updated)
       if (activeTab) {
         useTabsStore.getState().updateProjectInfo(activeTab.id, { devCommand: command })
       }
-      // Update recent projects
-      const recents = useProjectStore.getState().recentProjects
-      const updatedRecents = recents.map((p) =>
-        p.path === currentProject.path ? { ...p, devCommand: command } : p
-      )
-      useProjectStore.getState().setRecentProjects(updatedRecents)
-      window.api.settings.set('recentProjects', updatedRecents)
     }
     await doStart(command)
   }, [currentProject, activeTab, doStart])
@@ -457,6 +492,18 @@ export function StatusBar() {
           >
             {deploying ? <Loader2 size={10} className="animate-spin" /> : <Rocket size={10} />}
             <span>{deploying ? 'Deploying...' : 'Deploy'}</span>
+          </button>
+        )}
+
+        {/* Update available pill */}
+        {updateReady && (
+          <button
+            onClick={() => window.api.updater.install()}
+            className="flex items-center gap-1 text-[var(--accent-cyan)] hover:text-white transition-colors"
+            title={`Update to v${updateReady} — click to restart`}
+          >
+            <ArrowDown size={10} />
+            <span>v{updateReady} — Restart</span>
           </button>
         )}
 
