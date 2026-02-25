@@ -246,8 +246,12 @@ export function setupGitHandlers(): void {
           try {
             await g.stash(['pop'])
             return { success: true, conflicts: false }
-          } catch {
-            return { success: true, conflicts: true }
+          } catch (popErr: any) {
+            const msg = popErr?.message || ''
+            if (msg.includes('CONFLICT') || msg.includes('could not apply')) {
+              return { success: true, conflicts: true }
+            }
+            return { success: false, error: sanitizeGitError(msg || 'Stash pop failed after pull') }
           }
         }
         return { success: true, conflicts: false }
@@ -321,10 +325,28 @@ export function setupGitHandlers(): void {
             return { success: true, branch }
           }
 
-          await withEbadfRetry(() => g.raw(['reset', '--soft', forkPoint]), 3, 'git:push:reset')
-          await withEbadfRetry(() => g.commit(message), 3, 'git:push:commit')
-          await withEbadfRetry(() => g.raw(pushArgs), 3, 'git:push:push-squash')
-          return { success: true, branch }
+          // Create backup before destructive squash operation
+          await withEbadfRetry(() => g.raw(['tag', '-f', '_claude_canvas_backup']), 3, 'git:push:backup')
+
+          try {
+            await withEbadfRetry(() => g.raw(['reset', '--soft', forkPoint]), 3, 'git:push:reset')
+            await withEbadfRetry(() => g.commit(message), 3, 'git:push:commit')
+            await withEbadfRetry(() => g.raw(pushArgs), 3, 'git:push:push-squash')
+
+            // Clean up backup ref on success
+            try { await g.raw(['tag', '-d', '_claude_canvas_backup']) } catch { /* tag may not exist */ }
+
+            return { success: true, branch }
+          } catch (squashErr: any) {
+            // Attempt rollback to pre-squash state
+            try {
+              await g.raw(['reset', '--soft', '_claude_canvas_backup'])
+              console.warn('[git] squash failed, rolled back to backup')
+            } catch (rollbackErr) {
+              console.error('[git] rollback failed:', rollbackErr)
+            }
+            throw squashErr // re-throw so outer catch handles error response
+          }
         } catch (err: any) {
           if (err?.message?.includes('rejected') || err?.message?.includes('non-fast-forward')) {
             return { success: false, error: 'rejected', needsPull: true }
