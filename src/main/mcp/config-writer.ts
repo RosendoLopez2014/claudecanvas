@@ -186,7 +186,7 @@ export async function writeMcpConfig(projPath: string, port: number): Promise<vo
   projectPaths.add(projPath)
   const mcpServerConfig = {
     'claude-canvas': {
-      type: 'url',
+      type: 'http',
       url: `http://127.0.0.1:${port}/mcp`
     }
   }
@@ -254,7 +254,20 @@ export async function removeMcpConfig(): Promise<void> {
     if (existsSync(claudeMdPath)) {
       try {
         const content = await readFile(claudeMdPath, 'utf-8')
-        if (content.startsWith('# Claude Canvas Environment')) {
+        const START_MARKER = '<!-- CLAUDE-CANVAS-START -->'
+        const END_MARKER = '<!-- CLAUDE-CANVAS-END -->'
+
+        if (content.includes(START_MARKER)) {
+          const before = content.substring(0, content.indexOf(START_MARKER))
+          const afterIdx = content.indexOf(END_MARKER)
+          const after = afterIdx >= 0 ? content.substring(afterIdx + END_MARKER.length) : ''
+          const remaining = (before + after).trim()
+          if (remaining) {
+            await writeFile(claudeMdPath, remaining + '\n', 'utf-8')
+          } else {
+            await unlink(claudeMdPath).catch((e: Error) => console.warn('[mcp-config] cleanup:', e.message))
+          }
+        } else if (content.startsWith('# Claude Canvas Environment')) {
           await unlink(claudeMdPath).catch((e: Error) => console.warn('[mcp-config] cleanup:', e.message))
         } else if (content.includes('# Claude Canvas Environment')) {
           const cleaned = content.replace(/\n# Claude Canvas Environment[\s\S]*$/, '')
@@ -396,8 +409,12 @@ async function writeCanvasClaudeMd(
 ): Promise<void> {
   const claudeMdPath = join(projPath, 'CLAUDE.md')
 
-  // Build dynamic CLAUDE.md from three parts
+  const START_MARKER = '<!-- CLAUDE-CANVAS-START -->'
+  const END_MARKER = '<!-- CLAUDE-CANVAS-END -->'
+
+  // Build dynamic CLAUDE.md from three parts, wrapped in markers
   const parts: string[] = []
+  parts.push(START_MARKER)
 
   // Part 1: Dynamic project profile
   parts.push(profileMd)
@@ -410,15 +427,25 @@ async function writeCanvasClaudeMd(
     parts.push(soul.trim())
   }
 
-  // Part 3: Static canvas instructions (unchanged)
+  // Part 3: Static canvas instructions
   parts.push('')
   parts.push(CANVAS_CLAUDE_MD)
+  parts.push(END_MARKER)
 
   const fullContent = parts.join('\n')
 
-  // Always overwrite to ensure latest instructions
+  // Replace the marked section if it exists, otherwise write fresh
   if (existsSync(claudeMdPath)) {
     const content = await readFile(claudeMdPath, 'utf-8')
+    if (content.includes(START_MARKER)) {
+      // Replace everything between markers (inclusive)
+      const before = content.substring(0, content.indexOf(START_MARKER))
+      const afterIdx = content.indexOf(END_MARKER)
+      const after = afterIdx >= 0 ? content.substring(afterIdx + END_MARKER.length) : ''
+      await writeFile(claudeMdPath, before.trimEnd() + '\n\n' + fullContent + after, 'utf-8')
+      return
+    }
+    // Legacy: old format used '# Claude Canvas Environment' without markers
     if (content.includes('# Claude Canvas Environment')) {
       const before = content.split('# Claude Canvas Environment')[0]
       await writeFile(claudeMdPath, before.trimEnd() + '\n\n' + fullContent + '\n', 'utf-8')

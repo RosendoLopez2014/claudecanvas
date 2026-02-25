@@ -129,6 +129,26 @@ const mockApi = {
     onDesignSession: vi.fn().mockReturnValue(() => {}),
     onUpdateVariant: vi.fn().mockReturnValue(() => {}),
     gallerySelect: vi.fn()
+  },
+  worktree: {
+    list: vi.fn().mockResolvedValue([]),
+    create: vi.fn().mockResolvedValue({ path: '/tmp/worktree', branch: 'test' }),
+    checkout: vi.fn().mockResolvedValue({ path: '/tmp/worktree', branch: 'test' }),
+    remove: vi.fn().mockResolvedValue({ ok: true }),
+    branches: vi.fn().mockResolvedValue({ current: 'main', branches: ['main'] })
+  },
+  screenshot: {
+    capture: vi.fn().mockResolvedValue('/tmp/screenshot.png'),
+    captureCheckpoint: vi.fn().mockResolvedValue('/tmp/checkpoint.png'),
+    loadCheckpoint: vi.fn().mockResolvedValue(null)
+  },
+  inspector: {
+    inject: vi.fn().mockResolvedValue({ success: true }),
+    findFile: vi.fn().mockResolvedValue(null)
+  },
+  updater: {
+    onStatus: vi.fn().mockReturnValue(vi.fn()),
+    install: vi.fn().mockResolvedValue(undefined)
   }
 }
 

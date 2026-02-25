@@ -68,6 +68,7 @@ const api = {
       ipcRenderer.invoke('fs:tree', rootPath, depth) as Promise<
         Array<{ name: string; path: string; type: 'file' | 'directory'; children?: unknown[] }>
       >,
+    readFile: (filePath: string) => ipcRenderer.invoke('fs:readFile', filePath) as Promise<string | null>,
     watch: (path: string) => ipcRenderer.invoke('fs:watch', path),
     unwatch: (path?: string) => ipcRenderer.invoke('fs:unwatch', path),
     onChange: (cb: (data: { projectPath: string; path: string }) => void) => onIpc('fs:change', cb),
@@ -110,6 +111,10 @@ const api = {
       ipcRenderer.invoke('component:parse', filePath, projectPath) as Promise<
         { name: string; html: string; relativePath: string } | null
       >,
+    previewSetup: (projectPath: string) =>
+      ipcRenderer.invoke('component:preview-setup', projectPath) as Promise<string | null>,
+    previewCleanup: (projectPath: string) =>
+      ipcRenderer.invoke('component:preview-cleanup', projectPath) as Promise<void>,
   },
 
   git: {
@@ -319,6 +324,7 @@ const api = {
       label: string
       html: string
       css?: string
+      componentPath?: string
       description?: string
       category?: string
       pros?: string[]

@@ -61,6 +61,7 @@ export async function startMcpServer(getWindow: () => BrowserWindow | null, proj
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {
+          console.log(`[MCP] New session ${id.slice(0, 8)} for project: ${currentProjectPath}`)
           sessions[id] = { server: sessionServer, transport, projectPath: currentProjectPath || '', lastActivity: Date.now() }
         }
       })
