@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useCanvasStore } from '@/stores/canvas'
+import { useTabsStore } from '@/stores/tabs'
 import { useTerminalStore } from '@/stores/terminal'
 import { useToastStore } from '@/stores/toast'
 
@@ -11,7 +11,10 @@ interface SelectionRect {
 }
 
 export function ScreenshotOverlay() {
-  const { setScreenshotMode } = useCanvasStore()
+  const setScreenshotMode = useCallback((active: boolean) => {
+    const tab = useTabsStore.getState().getActiveTab()
+    if (tab) useTabsStore.getState().updateTab(tab.id, { screenshotMode: active })
+  }, [])
   const overlayRef = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState<SelectionRect | null>(null)
   const [capturing, setCapturing] = useState(false)

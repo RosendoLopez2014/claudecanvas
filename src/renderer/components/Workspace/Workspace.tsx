@@ -9,8 +9,7 @@ import { SplitPaneHeader, getGridStyle, shouldSpanFull } from './SplitViewGrid'
 import type { SplitViewTab } from './SplitViewGrid'
 import { useWorkspaceStore } from '@/stores/workspace'
 import type { SplitViewScope } from '@/stores/workspace'
-import { useCanvasStore } from '@/stores/canvas'
-import { useTabsStore } from '@/stores/tabs'
+import { useTabsStore, selectActiveTab } from '@/stores/tabs'
 
 // Terminal gets a narrow column in desktop mode so canvas is as wide as possible
 const TERMINAL_MIN = 380
@@ -101,7 +100,8 @@ function SplitDropdown({ canSplitBranches, canSplitAll, onSelect, onClose }: {
 export function Workspace() {
   const renderT0 = performance.now()
   const { mode, fileExplorerOpen, splitViewActive, splitViewScope } = useWorkspaceStore()
-  const { viewportMode } = useCanvasStore()
+  const currentTab = useTabsStore(selectActiveTab)
+  const viewportMode = currentTab?.viewportMode ?? 'desktop'
   const tabList = useTabList()
   const splitTabs = useSplitViewTabs()
   const activeTabId = useTabsStore((s) => s.activeTabId)

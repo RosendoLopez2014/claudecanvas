@@ -1,5 +1,4 @@
 import { useProjectStore } from '@/stores/project'
-import { useCanvasStore } from '@/stores/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useToastStore } from '@/stores/toast'
 import { useTabsStore, selectActiveTab } from '@/stores/tabs'
@@ -15,11 +14,11 @@ import { CommandPicker } from '../CommandPicker/CommandPicker'
 
 export function StatusBar() {
   const { currentProject } = useProjectStore()
-  const { inspectorActive, setInspectorActive } = useCanvasStore()
   const { mode, openCanvas, closeCanvas } = useWorkspaceStore()
   const showCanvas = mode === 'terminal-canvas'
   const [startingStatus, setStartingStatus] = useState<string | null>(null)
   const activeTab = useTabsStore(selectActiveTab)
+  const inspectorActive = activeTab?.inspectorActive ?? false
 
   // Dev server state — derived from the active tab (NOT deprecated globals)
   const devStatus = activeTab?.dev.status ?? 'stopped'
@@ -577,7 +576,7 @@ export function StatusBar() {
 
         {/* Inspector toggle */}
         <button
-          onClick={() => setInspectorActive(!inspectorActive)}
+          onClick={() => { if (activeTab) useTabsStore.getState().updateTab(activeTab.id, { inspectorActive: !inspectorActive }) }}
           className={`flex items-center gap-1 hover:text-white/80 transition-colors ${
             inspectorActive ? 'text-[var(--accent-cyan)]' : ''
           }`}

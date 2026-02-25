@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react'
-import { useCanvasStore } from '@/stores/canvas'
+import { useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useProjectStore } from '@/stores/project'
 import { useTabsStore, selectActiveTab } from '@/stores/tabs'
@@ -13,11 +12,14 @@ import { useTabsStore, selectActiveTab } from '@/stores/tabs'
  * window.__inspectorContext — selected inspector elements (array)
  */
 export function useMcpStateExposer() {
-  const { activeTab, inspectorActive, selectedElements, previewErrors, addPreviewError, addConsoleLog } = useCanvasStore()
+  const currentTab = useTabsStore(selectActiveTab)
+  const activeTab = currentTab?.activeCanvasTab ?? 'preview'
+  const inspectorActive = currentTab?.inspectorActive ?? false
+  const selectedElements = currentTab?.selectedElements ?? []
+  const previewErrors = currentTab?.previewErrors ?? []
+  const previewUrl = currentTab?.previewUrl ?? null
   const { mode } = useWorkspaceStore()
   const { currentProject } = useProjectStore()
-  const currentTab = useTabsStore(selectActiveTab)
-  const previewUrl = currentTab?.previewUrl ?? null
   const isDevServerRunning = currentTab?.dev.status === 'running'
   const [supabaseConnected, setSupabaseConnected] = useState(false)
 
@@ -46,15 +48,40 @@ export function useMcpStateExposer() {
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       if (e.data?.type === 'inspector:runtimeError' && e.data.error) {
-        addPreviewError(e.data.error)
+        const tab = useTabsStore.getState().getActiveTab()
+        if (tab) useTabsStore.getState().addPreviewError(tab.id, e.data.error)
       }
       if (e.data?.type === 'inspector:consoleLog' && e.data.log) {
-        addConsoleLog(e.data.log)
+        const tab = useTabsStore.getState().getActiveTab()
+        if (tab) useTabsStore.getState().addConsoleLog(tab.id, e.data.log)
       }
     }
     window.addEventListener('message', handler)
     return () => window.removeEventListener('message', handler)
-  }, [addPreviewError, addConsoleLog])
+  }, [])
+
+  // Auto-clear stale errors after HMR updates (file changes)
+  // Debounced: waits 2s after last file change so HMR settles,
+  // then clears old errors. New errors from the reloaded code
+  // will re-appear if the fix didn't work.
+  const hmrTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    const cleanup = window.api.fs.onChange(() => {
+      if (hmrTimerRef.current) clearTimeout(hmrTimerRef.current)
+      hmrTimerRef.current = setTimeout(() => {
+        hmrTimerRef.current = null
+        const tab = useTabsStore.getState().getActiveTab()
+        if (tab) {
+          useTabsStore.getState().clearPreviewErrors(tab.id)
+          useTabsStore.getState().clearConsoleLogs(tab.id)
+        }
+      }, 2000)
+    })
+    return () => {
+      cleanup()
+      if (hmrTimerRef.current) clearTimeout(hmrTimerRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     ;(window as any).__inspectorContext = selectedElements.length > 0

@@ -1,7 +1,6 @@
 import { useEffect, useCallback } from 'react'
-import { useCanvasStore } from '@/stores/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { useTabsStore } from '@/stores/tabs'
+import { useTabsStore, selectActiveTab } from '@/stores/tabs'
 import { useProjectStore } from '@/stores/project'
 import { useGalleryStore } from '@/stores/gallery'
 import { destroyTerminalsForTab } from '@/services/terminalPool'
@@ -14,7 +13,8 @@ interface ShortcutHandlers {
 }
 
 export function useKeyboardShortcuts({ onQuickActions, onShortcutSheet, onSettings, onSearch }: ShortcutHandlers) {
-  const { inspectorActive, setInspectorActive, setActiveTab } = useCanvasStore()
+  const currentTab = useTabsStore(selectActiveTab)
+  const inspectorActive = currentTab?.inspectorActive ?? false
   const { mode, openCanvas, closeCanvas } = useWorkspaceStore()
 
   const handleKeyDown = useCallback(
@@ -106,7 +106,8 @@ export function useKeyboardShortcuts({ onQuickActions, onShortcutSheet, onSettin
       // Cmd+I — Toggle inspector
       if (meta && e.key === 'i' && !e.shiftKey) {
         e.preventDefault()
-        setInspectorActive(!inspectorActive)
+        const activeTab = useTabsStore.getState().getActiveTab()
+        if (activeTab) useTabsStore.getState().updateTab(activeTab.id, { inspectorActive: !inspectorActive })
         return
       }
 
@@ -114,7 +115,8 @@ export function useKeyboardShortcuts({ onQuickActions, onShortcutSheet, onSettin
       if (meta && e.key === 'g') {
         e.preventDefault()
         if (mode !== 'terminal-canvas') openCanvas()
-        setActiveTab('gallery')
+        const activeTab = useTabsStore.getState().getActiveTab()
+        if (activeTab) useTabsStore.getState().updateTab(activeTab.id, { activeCanvasTab: 'gallery' })
         return
       }
 
@@ -154,10 +156,13 @@ export function useKeyboardShortcuts({ onQuickActions, onShortcutSheet, onSettin
       }
 
       // ── Gallery keyboard shortcuts (only when gallery tab is active) ──
-      const canvasActiveTab = useCanvasStore.getState().activeTab
-      const galleryActive = mode === 'terminal-canvas' && canvasActiveTab === 'gallery'
+      const currentActiveTab = useTabsStore.getState().getActiveTab()
+      const galleryActive = mode === 'terminal-canvas' && currentActiveTab?.activeCanvasTab === 'gallery'
 
-      if (galleryActive && !meta && !e.shiftKey) {
+      // Skip gallery shortcuts when typing in terminal or inputs
+      const tag = (e.target as HTMLElement)?.tagName
+      const inTerminal = tag === 'INPUT' || tag === 'TEXTAREA' || !!(e.target as HTMLElement)?.closest?.('.xterm')
+      if (galleryActive && !meta && !e.shiftKey && !inTerminal) {
         const gallery = useGalleryStore.getState()
         const displayVariants = gallery.activeSessionId
           ? gallery.variants.filter((v) => v.sessionId === gallery.activeSessionId)
@@ -219,18 +224,17 @@ export function useKeyboardShortcuts({ onQuickActions, onShortcutSheet, onSettin
           return
         }
         if (inspectorActive) {
-          setInspectorActive(false)
+          const activeTab = useTabsStore.getState().getActiveTab()
+          if (activeTab) useTabsStore.getState().updateTab(activeTab.id, { inspectorActive: false })
         }
         return
       }
     },
     [
       inspectorActive,
-      setInspectorActive,
       mode,
       openCanvas,
       closeCanvas,
-      setActiveTab,
       onQuickActions,
       onShortcutSheet,
       onSettings,

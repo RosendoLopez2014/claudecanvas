@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { RefreshCw, AlertTriangle, AlertCircle, Info, CheckCircle } from 'lucide-react'
-import { useCanvasStore } from '@/stores/canvas'
+import { useTabsStore, selectActiveTab } from '@/stores/tabs'
 
 interface A11yIssue {
   id: string
@@ -31,7 +31,8 @@ export function A11yAudit() {
   const [issues, setIssues] = useState<A11yIssue[]>([])
   const [state, setState] = useState<AuditState>('idle')
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const previewUrl = useCanvasStore((s) => s.previewUrl)
+  const currentTab = useTabsStore(selectActiveTab)
+  const previewUrl = currentTab?.previewUrl ?? null
 
   const runAudit = useCallback(async () => {
     setState('running')

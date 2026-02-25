@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useProjectStore } from '@/stores/project'
-import { useCanvasStore } from '@/stores/canvas'
+import { useTabsStore, selectActiveTab } from '@/stores/tabs'
 import { useToastStore } from '@/stores/toast'
 import { GitCommit, Plus, RotateCcw, FileText, Info, X } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -24,10 +24,9 @@ export function Timeline() {
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
   const [visualDiffs, setVisualDiffs] = useState<DiffMap>(new Map())
   const [showHelp, setShowHelp] = useState(false)
-  const diffBeforeHash = useCanvasStore((s) => s.diffBeforeHash)
-  const diffAfterHash = useCanvasStore((s) => s.diffAfterHash)
-  const setDiffHashes = useCanvasStore((s) => s.setDiffHashes)
-  const setActiveTab = useCanvasStore((s) => s.setActiveTab)
+  const currentTab = useTabsStore(selectActiveTab)
+  const diffBeforeHash = currentTab?.diffBeforeHash ?? null
+  const diffAfterHash = currentTab?.diffAfterHash ?? null
 
   const loadCheckpoints = useCallback(async () => {
     if (!currentProject?.path) return
@@ -71,7 +70,7 @@ export function Timeline() {
   }, [checkpoints, currentProject?.path])
 
   // Reload when switching to timeline tab
-  const activeCanvasTab = useCanvasStore((s) => s.activeTab)
+  const activeCanvasTab = currentTab?.activeCanvasTab ?? 'preview'
   useEffect(() => {
     if (activeCanvasTab === 'timeline') loadCheckpoints()
   }, [activeCanvasTab, loadCheckpoints])
@@ -96,24 +95,30 @@ export function Timeline() {
     loadCheckpoints()
   }, [loadCheckpoints, currentProject?.path])
 
+  const updateDiffHashes = useCallback((before: string | null, after: string | null) => {
+    const tab = useTabsStore.getState().getActiveTab()
+    if (tab) useTabsStore.getState().updateTab(tab.id, { diffBeforeHash: before, diffAfterHash: after })
+  }, [])
+
   const handleClick = useCallback(
     (hash: string) => {
       if (hash === diffBeforeHash) {
-        setDiffHashes(null, null)
+        updateDiffHashes(null, null)
         return
       }
       if (hash === diffAfterHash) {
-        setDiffHashes(diffBeforeHash, null)
+        updateDiffHashes(diffBeforeHash, null)
         return
       }
       if (!diffBeforeHash) {
-        setDiffHashes(hash, null)
+        updateDiffHashes(hash, null)
         return
       }
-      setDiffHashes(diffBeforeHash, hash)
-      setActiveTab('diff')
+      updateDiffHashes(diffBeforeHash, hash)
+      const tab = useTabsStore.getState().getActiveTab()
+      if (tab) useTabsStore.getState().updateTab(tab.id, { activeCanvasTab: 'diff' })
     },
-    [diffBeforeHash, diffAfterHash, setDiffHashes, setActiveTab]
+    [diffBeforeHash, diffAfterHash, updateDiffHashes]
   )
 
   const [rollbackTarget, setRollbackTarget] = useState<string | null>(null)
@@ -169,7 +174,7 @@ export function Timeline() {
           )}
           {diffBeforeHash && diffAfterHash && (
             <button
-              onClick={() => setDiffHashes(null, null)}
+              onClick={() => updateDiffHashes(null, null)}
               className="text-[10px] text-white/40 hover:text-white/60 transition"
             >
               Clear selection
@@ -186,7 +191,7 @@ export function Timeline() {
           </button>
           {diffBeforeHash && diffAfterHash && (
             <button
-              onClick={() => setActiveTab('diff')}
+              onClick={() => { const tab = useTabsStore.getState().getActiveTab(); if (tab) useTabsStore.getState().updateTab(tab.id, { activeCanvasTab: 'diff' }) }}
               className="flex items-center gap-1 px-3 py-1 bg-amber-500/20 text-amber-400 rounded text-xs hover:bg-amber-500/30 transition"
             >
               View Diff

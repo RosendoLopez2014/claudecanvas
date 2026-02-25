@@ -1,11 +1,10 @@
 import { useTabState } from '@/hooks/useTabState'
-import { type CanvasTab } from '@/stores/canvas'
+import type { CanvasTab } from '@/types/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useFileWatcher } from '@/hooks/useFileWatcher'
 import { useInspector } from '@/hooks/useInspector'
 import { useRef, useCallback, useState, useEffect } from 'react'
 import { X, RotateCw, Camera, Monitor, ChevronDown, XCircle } from 'lucide-react'
-import { useCanvasStore } from '@/stores/canvas'
 import { ScreenshotOverlay } from './ScreenshotOverlay'
 import { ConsoleOverlay } from './ConsoleOverlay'
 import { Gallery } from '../Gallery/Gallery'
@@ -26,8 +25,8 @@ export function CanvasPanel() {
   const { closeCanvas } = useWorkspaceStore()
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const { injectInspector, clearHighlight } = useInspector(iframeRef)
-  const inspectorActive = useCanvasStore((s) => s.inspectorActive)
-  const selectedCount = useCanvasStore((s) => s.selectedElements.length)
+  const inspectorActive = tab?.inspectorActive ?? false
+  const selectedCount = tab?.selectedElements.length ?? 0
   const [showViewportMenu, setShowViewportMenu] = useState(false)
 
   // Recover dev server state after HMR — query main process for running servers

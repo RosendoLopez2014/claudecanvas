@@ -1,5 +1,4 @@
 import { useEffect } from 'react'
-import { useCanvasStore } from '@/stores/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useGalleryStore, type GalleryVariant } from '@/stores/gallery'
 import { useProjectStore } from '@/stores/project'
@@ -101,7 +100,6 @@ export function useMcpCommands() {
             label: 'Live Render',
             html: css ? `<style>${css}</style>${html}` : html
           })
-          useCanvasStore.getState().setActiveTab('gallery')
           updateTargetTab(eventPath, { activeCanvasTab: 'gallery' })
         }
       })
@@ -193,20 +191,20 @@ export function useMcpCommands() {
       window.api.mcp.onOpenTab(({ projectPath: eventPath, tab }) => {
         if (shouldSkipEvent(eventPath)) return
         ensureCanvasOpen()
-        useCanvasStore.getState().setActiveTab(tab as any)
         updateTargetTab(eventPath, { activeCanvasTab: tab })
       })
     )
 
     // canvas_add_to_gallery
     cleanups.push(
-      window.api.mcp.onAddToGallery(({ projectPath: eventPath, label, html, css, description, category, pros, cons, annotations, sessionId, order }) => {
+      window.api.mcp.onAddToGallery(async ({ projectPath: eventPath, label, html, css, componentPath, description, category, pros, cons, annotations, sessionId, order }) => {
         if (shouldSkipEvent(eventPath)) return
         const variant: GalleryVariant = {
           id: `gallery-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           label,
           html: css ? `<style>${css}</style>${html}` : html,
           css,
+          componentPath,
           description,
           category,
           pros,
@@ -222,8 +220,24 @@ export function useMcpCommands() {
         } else {
           useGalleryStore.getState().addVariant(variant)
         }
+
+        // When componentPath is set and dev server is running, generate a live preview URL
+        if (componentPath) {
+          const tab = findTargetTab(eventPath) || useTabsStore.getState().getActiveTab()
+          if (tab?.dev?.status === 'running' && tab.dev.url) {
+            try {
+              const previewFilename = await window.api.component.previewSetup(tab.project.path)
+              if (previewFilename) {
+                const previewUrl = `${tab.dev.url}/${previewFilename}?c=${encodeURIComponent(componentPath)}`
+                useGalleryStore.getState().updateVariant(variant.id, { previewUrl })
+              }
+            } catch (err) {
+              console.warn('[mcp-commands] Failed to setup live preview for componentPath:', err)
+            }
+          }
+        }
+
         ensureCanvasOpen()
-        useCanvasStore.getState().setActiveTab('gallery')
         updateTargetTab(eventPath, { activeCanvasTab: 'gallery' })
       })
     )
@@ -245,7 +259,6 @@ export function useMcpCommands() {
           })
           gallery.setViewMode('session')
           ensureCanvasOpen()
-          useCanvasStore.getState().setActiveTab('gallery')
           updateTargetTab(eventPath, { activeCanvasTab: 'gallery' })
         }
 
@@ -300,14 +313,16 @@ export function useMcpCommands() {
           const parentHash = log[1]?.hash || null
 
           if (parentHash) {
-            useCanvasStore.getState().setDiffHashes(parentHash, result.hash)
             updateTargetTab(eventPath, {
               diffBeforeHash: parentHash,
               diffAfterHash: result.hash,
-              activeCanvasTab: 'diff',
             })
-            useCanvasStore.getState().setActiveTab('diff')
-            ensureCanvasOpen()
+            // Don't switch away from gallery — user sees HMR updates live
+            const targetTab = findTargetTab(eventPath)
+            if (targetTab?.activeCanvasTab !== 'gallery') {
+              updateTargetTab(eventPath, { activeCanvasTab: 'diff' })
+              ensureCanvasOpen()
+            }
           }
         }
       })

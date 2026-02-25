@@ -1,5 +1,4 @@
 import { useCallback } from 'react'
-import { useCanvasStore } from '@/stores/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useFileWatcher } from './useFileWatcher'
 
@@ -10,7 +9,6 @@ interface RenderResult {
 }
 
 export function useRenderRouter() {
-  const { setPreviewUrl } = useCanvasStore()
   const { openCanvas, mode } = useWorkspaceStore()
 
   const evaluateAndRoute = useCallback(
@@ -27,7 +25,7 @@ export function useRenderRouter() {
 
       return result
     },
-    [setPreviewUrl, openCanvas, mode]
+    [openCanvas, mode]
   )
 
   // Watch for file changes and potentially trigger re-renders

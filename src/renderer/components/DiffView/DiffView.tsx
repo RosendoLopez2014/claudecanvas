@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useCanvasStore } from '@/stores/canvas'
+import { useTabsStore, selectActiveTab } from '@/stores/tabs'
 import { useProjectStore } from '@/stores/project'
 import { useToastStore } from '@/stores/toast'
 import { ArrowLeftRight, Undo2 } from 'lucide-react'
@@ -55,9 +55,10 @@ function extractFilePath(header: string): string {
 }
 
 export function DiffView() {
-  const diffBeforeHash = useCanvasStore((s) => s.diffBeforeHash)
-  const diffAfterHash = useCanvasStore((s) => s.diffAfterHash)
-  const previewUrl = useCanvasStore((s) => s.previewUrl)
+  const currentTab = useTabsStore(selectActiveTab)
+  const diffBeforeHash = currentTab?.diffBeforeHash ?? null
+  const diffAfterHash = currentTab?.diffAfterHash ?? null
+  const previewUrl = currentTab?.previewUrl ?? null
   const currentProject = useProjectStore((s) => s.currentProject)
 
   const [mode, setMode] = useState<DiffMode>('text')
