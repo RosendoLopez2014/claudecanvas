@@ -9,7 +9,7 @@ import { SplitPaneHeader, getGridStyle, shouldSpanFull } from './SplitViewGrid'
 import type { SplitViewTab } from './SplitViewGrid'
 import { useWorkspaceStore } from '@/stores/workspace'
 import type { SplitViewScope } from '@/stores/workspace'
-import { useTabsStore, selectActiveTab } from '@/stores/tabs'
+import { useTabsStore, selectActiveTab, type TabState } from '@/stores/tabs'
 
 // Terminal gets a narrow column in desktop mode so canvas is as wide as possible
 const TERMINAL_MIN = 380
@@ -18,13 +18,16 @@ const TRANSITION = 'width 300ms cubic-bezier(0.25, 0.1, 0.25, 1)'
 
 /**
  * Stable selector: extracts tab IDs, project paths, and project names.
+ * Uses Zustand's equality function to avoid re-renders when tab metadata hasn't changed.
  */
 function useTabList() {
-  const raw = useTabsStore((s) => s.tabs)
-  return useMemo(
-    () => raw.map((t) => ({ id: t.id, projectPath: t.project.path, projectName: t.project.name })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [raw.length, ...raw.map((t) => t.id)]
+  return useTabsStore(
+    useCallback(
+      (s: { tabs: TabState[] }) =>
+        s.tabs.map((t) => ({ id: t.id, projectPath: t.project.path, projectName: t.project.name })),
+      []
+    ),
+    (a, b) => a.length === b.length && a.every((item, i) => item.id === b[i].id)
   )
 }
 

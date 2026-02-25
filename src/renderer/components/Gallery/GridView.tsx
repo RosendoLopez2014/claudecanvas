@@ -118,11 +118,20 @@ export function GridView() {
   const initialRelayoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const didInitialRelayout = useRef(false)
 
+  // Reset initial relayout flag when gallery project changes
+  const galleryProject = useGalleryStore((s) => s.projectPath)
+  useEffect(() => {
+    didInitialRelayout.current = false
+  }, [galleryProject])
+
   // Schedule a one-time full relayout after measurements settle (1s after last measurement)
   const scheduleRelayout = useCallback(() => {
     if (didInitialRelayout.current) return
+    const capturedProject = useGalleryStore.getState().projectPath
     if (initialRelayoutTimer.current) clearTimeout(initialRelayoutTimer.current)
     initialRelayoutTimer.current = setTimeout(() => {
+      // Bail if user switched projects during the delay
+      if (useGalleryStore.getState().projectPath !== capturedProject) return
       didInitialRelayout.current = true
       const store = useGalleryStore.getState()
       const updated = fullRelayout(store.cardPositions)

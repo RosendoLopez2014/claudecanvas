@@ -106,6 +106,7 @@ function SplitPane({
     try {
       const webgl = new WebglAddon()
       webgl.onContextLoss(() => {
+        console.warn('[terminal] WebGL context lost — disposing, will recreate on next fit')
         webgl.dispose()
         webglRef.current = null
       })
@@ -127,6 +128,20 @@ function SplitPane({
     if (!fitAddonRef.current) return
     const t0 = performance.now()
     const terminal = getOrCreateTerminal(poolKey, TERMINAL_OPTIONS)
+
+    // Attempt to recover WebGL if previously lost
+    if (!webglRef.current && terminal) {
+      try {
+        const webgl = new WebglAddon()
+        webgl.onContextLoss(() => {
+          webgl.dispose()
+          webglRef.current = null
+        })
+        terminal.loadAddon(webgl)
+        webglRef.current = webgl
+      } catch { /* stay on canvas renderer */ }
+    }
+
     const prevCols = terminal.cols
     const prevRows = terminal.rows
     fitAddonRef.current.fit()
