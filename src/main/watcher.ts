@@ -5,6 +5,7 @@ import * as path from 'path'
 import { isValidPath } from './validate'
 
 const watchers = new Map<string, FSWatcher>()
+const flushTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const closingWatchers = new Set<string>()
 
 function fdCount(): number {
@@ -45,26 +46,37 @@ export function setupFileWatcher(getWindow: () => BrowserWindow | null): void {
       followSymlinks: false, // Prevent infinite loops from circular symlinks
     })
 
-    w.on('change', (path) => {
-      const win = getWindow()
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('fs:change', { projectPath, path })
-      }
-    })
+    // ── Event coalescing ──────────────────────────────────────────────
+    // Rapid saves (e.g. Prettier after save) flood the renderer with
+    // individual IPC messages. Batch events per-watcher and flush after
+    // a 200ms quiet window, deduplicating by path (last event wins).
+    let pending: { type: string; path: string; projectPath: string }[] = []
+    let flushTimer: ReturnType<typeof setTimeout> | null = null
 
-    w.on('add', (path) => {
-      const win = getWindow()
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('fs:add', { projectPath, path })
+    function enqueueEvent(type: string, filePath: string, projPath: string): void {
+      pending.push({ type, path: filePath, projectPath: projPath })
+      if (!flushTimer) {
+        flushTimer = setTimeout(() => {
+          const win = getWindow()
+          if (win && !win.isDestroyed()) {
+            // Deduplicate: keep last event per path
+            const deduped = new Map<string, (typeof pending)[0]>()
+            for (const evt of pending) deduped.set(evt.path, evt)
+            for (const evt of deduped.values()) {
+              win.webContents.send(`fs:${evt.type}`, { projectPath: evt.projectPath, path: evt.path })
+            }
+          }
+          pending = []
+          flushTimer = null
+          flushTimers.delete(projectPath)
+        }, 200)
+        flushTimers.set(projectPath, flushTimer)
       }
-    })
+    }
 
-    w.on('unlink', (path) => {
-      const win = getWindow()
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('fs:unlink', { projectPath, path })
-      }
-    })
+    w.on('change', (p) => enqueueEvent('change', p, projectPath))
+    w.on('add', (p) => enqueueEvent('add', p, projectPath))
+    w.on('unlink', (p) => enqueueEvent('unlink', p, projectPath))
 
     watchers.set(projectPath, w)
 
@@ -81,6 +93,12 @@ export function setupFileWatcher(getWindow: () => BrowserWindow | null): void {
 
   ipcMain.handle('fs:unwatch', (_event, projectPath?: string) => {
     if (projectPath && watchers.has(projectPath)) {
+      // Clear any pending coalesced flush to avoid sending events for a closed project
+      const timer = flushTimers.get(projectPath)
+      if (timer) {
+        clearTimeout(timer)
+        flushTimers.delete(projectPath)
+      }
       const w = watchers.get(projectPath)!
       watchers.delete(projectPath)
       closingWatchers.add(projectPath)
@@ -95,6 +113,9 @@ export function setupFileWatcher(getWindow: () => BrowserWindow | null): void {
         console.warn(`[watcher] CLOSE-ERROR ${projectPath}:`, err)
       })
     } else if (!projectPath) {
+      // Clear all pending flush timers
+      for (const timer of flushTimers.values()) clearTimeout(timer)
+      flushTimers.clear()
       const fdBefore = fdCount()
       console.log(`[watcher] CLOSE-ALL ${watchers.size} watchers, fds=${fdBefore}`)
       for (const [p, w] of watchers) {
@@ -109,6 +130,8 @@ export function setupFileWatcher(getWindow: () => BrowserWindow | null): void {
 
 /** Close all watchers. Called on app exit only. */
 export function closeWatcher(): void {
+  for (const timer of flushTimers.values()) clearTimeout(timer)
+  flushTimers.clear()
   for (const w of watchers.values()) w.close()
   watchers.clear()
 }
