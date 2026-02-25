@@ -4,6 +4,7 @@ import type { CanvasTab } from './canvas'
 import type { GalleryVariant } from './gallery'
 import type { ElementContext } from './canvas'
 import type { WorkspaceMode } from './workspace'
+import type { PreviewError, ConsoleLogEntry } from '@/types/canvas'
 
 // ── Dev Server State ────────────────────────────────────────────────
 export type DevStatus = 'stopped' | 'starting' | 'running' | 'error'
@@ -46,6 +47,9 @@ export interface TabState {
   // Git diff
   diffBeforeHash: string | null
   diffAfterHash: string | null
+  // Preview errors & console logs (per-tab, capped ring buffers)
+  previewErrors: PreviewError[]
+  consoleLogs: ConsoleLogEntry[]
   // Workspace layout
   workspaceMode: WorkspaceMode
   // MCP
@@ -100,6 +104,8 @@ function createDefaultTabState(project: ProjectInfo): TabState {
     gallerySelectedId: null,
     diffBeforeHash: null,
     diffAfterHash: null,
+    previewErrors: [],
+    consoleLogs: [],
     workspaceMode: 'terminal-only',
     mcpReady: false,
     mcpPort: null,
@@ -148,6 +154,15 @@ interface TabsStore {
   /** Update the project metadata (devCommand, framework, etc.) for a tab.
    *  Used when framework detection enriches an already-open project. */
   updateProjectInfo: (id: string, partial: Partial<ProjectInfo>) => void
+
+  /** Append a preview error to a tab's ring buffer (capped at 20). */
+  addPreviewError: (tabId: string, err: PreviewError) => void
+  /** Clear all preview errors for a tab. */
+  clearPreviewErrors: (tabId: string) => void
+  /** Append a console log entry to a tab's ring buffer (capped at 50). */
+  addConsoleLog: (tabId: string, entry: ConsoleLogEntry) => void
+  /** Clear all console logs for a tab. */
+  clearConsoleLogs: (tabId: string) => void
 
   /** Add a horizontal split to a tab's terminal */
   addSplit: (tabId: string) => void
@@ -300,6 +315,34 @@ export const useTabsStore = create<TabsStore>((set, get) => ({
       ),
     }))
     persistTabs()
+  },
+
+  addPreviewError: (tabId, err) => {
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.id === tabId ? { ...t, previewErrors: [...t.previewErrors.slice(-19), err] } : t
+      ),
+    }))
+  },
+
+  clearPreviewErrors: (tabId) => {
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, previewErrors: [] } : t)),
+    }))
+  },
+
+  addConsoleLog: (tabId, entry) => {
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.id === tabId ? { ...t, consoleLogs: [...t.consoleLogs.slice(-49), entry] } : t
+      ),
+    }))
+  },
+
+  clearConsoleLogs: (tabId) => {
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, consoleLogs: [] } : t)),
+    }))
   },
 
   addSplit: (tabId) => {
