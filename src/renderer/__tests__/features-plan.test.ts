@@ -9,7 +9,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useTabsStore } from '@/stores/tabs'
 import { useToastStore } from '@/stores/toast'
-import { useCanvasStore } from '@/stores/canvas'
 import { useGalleryStore } from '@/stores/gallery'
 
 // ── Phase 1: Project Templates & Onboarding ─────────────────────────
@@ -66,9 +65,11 @@ describe.skip('Feature: Token usage tracking', () => {
 // ── Phase 3: Canvas Power ───────────────────────────────────────────
 
 describe.skip('Feature: Responsive breakpoint presets', () => {
-  it('canvas store supports viewport width setting', () => {
-    useCanvasStore.getState().setViewportWidth(375)
-    expect(useCanvasStore.getState().viewportWidth).toBe(375)
+  it('canvas state supports viewport width setting', () => {
+    useTabsStore.setState({ tabs: [], activeTabId: null })
+    const tabId = useTabsStore.getState().addTab({ name: 'test', path: '/tmp/test' })
+    useTabsStore.getState().updateTab(tabId, { viewportWidth: 375 })
+    expect(useTabsStore.getState().tabs[0].viewportWidth).toBe(375)
   })
 
   it('has preset definitions', () => {
@@ -79,71 +80,90 @@ describe.skip('Feature: Responsive breakpoint presets', () => {
   })
 })
 
+// Skipped: Error overlay tests referenced addRuntimeError/runtimeErrors/clearRuntimeErrors
+// which were never fully implemented. Preview errors are now tracked via
+// useTabsStore.addPreviewError(tabId, err) — see previewErrors on TabState.
 describe.skip('Feature: Error overlay in canvas', () => {
-  it('canvas store tracks runtime errors', () => {
+  it('tab store tracks preview errors', () => {
+    useTabsStore.setState({ tabs: [], activeTabId: null })
+    const tabId = useTabsStore.getState().addTab({ name: 'test', path: '/tmp/test' })
     const testError = {
       message: 'Cannot read property map of undefined',
       file: 'src/App.tsx',
       line: 42,
       column: 15
     }
-    useCanvasStore.getState().addRuntimeError(testError)
-    const errors = useCanvasStore.getState().runtimeErrors
-    expect(errors).toHaveLength(1)
-    expect(errors[0].message).toContain('Cannot read property')
+    useTabsStore.getState().addPreviewError(tabId, testError)
+    const tab = useTabsStore.getState().tabs[0]
+    expect(tab.previewErrors).toHaveLength(1)
+    expect(tab.previewErrors[0].message).toContain('Cannot read property')
   })
 
-  it('clears errors on successful HMR', () => {
-    useCanvasStore.getState().addRuntimeError({
+  it('clears errors', () => {
+    useTabsStore.setState({ tabs: [], activeTabId: null })
+    const tabId = useTabsStore.getState().addTab({ name: 'test', path: '/tmp/test' })
+    useTabsStore.getState().addPreviewError(tabId, {
       message: 'Test error',
       file: 'test.tsx',
       line: 1,
       column: 1
     })
-    useCanvasStore.getState().clearRuntimeErrors()
-    expect(useCanvasStore.getState().runtimeErrors).toHaveLength(0)
+    useTabsStore.getState().clearPreviewErrors(tabId)
+    expect(useTabsStore.getState().tabs[0].previewErrors).toHaveLength(0)
   })
 })
 
+// Skipped: Console log overlay tests referenced addConsoleMessage/consoleMessages
+// which were never fully implemented. Console logs are now tracked via
+// useTabsStore.addConsoleLog(tabId, entry) — see consoleLogs on TabState.
 describe.skip('Feature: Console log overlay', () => {
-  it('canvas store tracks console messages', () => {
-    useCanvasStore.getState().addConsoleMessage({
+  it('tab store tracks console logs', () => {
+    useTabsStore.setState({ tabs: [], activeTabId: null })
+    const tabId = useTabsStore.getState().addTab({ name: 'test', path: '/tmp/test' })
+    useTabsStore.getState().addConsoleLog(tabId, {
       level: 'log',
       message: 'Hello world',
       timestamp: Date.now()
     })
-    useCanvasStore.getState().addConsoleMessage({
+    useTabsStore.getState().addConsoleLog(tabId, {
       level: 'error',
       message: 'Something failed',
       timestamp: Date.now()
     })
-    const messages = useCanvasStore.getState().consoleMessages
-    expect(messages).toHaveLength(2)
-    expect(messages[0].level).toBe('log')
-    expect(messages[1].level).toBe('error')
+    const tab = useTabsStore.getState().tabs[0]
+    expect(tab.consoleLogs).toHaveLength(2)
+    expect(tab.consoleLogs[0].level).toBe('log')
+    expect(tab.consoleLogs[1].level).toBe('error')
   })
 })
 
 // ── Phase 4: Inspector Improvements ─────────────────────────────────
 
 describe('Feature: Inspector multi-select', () => {
+  let tabId: string
+
   beforeEach(() => {
-    useCanvasStore.setState({ selectedElements: [] })
+    useTabsStore.setState({ tabs: [], activeTabId: null })
+    tabId = useTabsStore.getState().addTab({ name: 'test', path: '/tmp/test' })
   })
 
   it('supports adding multiple selected elements', () => {
     const el1 = { tagName: 'button', componentName: 'Button' }
     const el2 = { tagName: 'div', componentName: 'Card' }
-    useCanvasStore.getState().addSelectedElement(el1)
-    useCanvasStore.getState().addSelectedElement(el2)
-    expect(useCanvasStore.getState().selectedElements).toHaveLength(2)
+    const tab1 = useTabsStore.getState().tabs[0]
+    useTabsStore.getState().updateTab(tabId, { selectedElements: [...tab1.selectedElements, el1] })
+    const tab2 = useTabsStore.getState().tabs[0]
+    useTabsStore.getState().updateTab(tabId, { selectedElements: [...tab2.selectedElements, el2] })
+    expect(useTabsStore.getState().tabs[0].selectedElements).toHaveLength(2)
   })
 
   it('clears all selected elements', () => {
-    useCanvasStore.getState().addSelectedElement({ tagName: 'div' })
-    useCanvasStore.getState().addSelectedElement({ tagName: 'span' })
-    useCanvasStore.getState().clearSelectedElements()
-    expect(useCanvasStore.getState().selectedElements).toHaveLength(0)
+    const tab = useTabsStore.getState().tabs[0]
+    useTabsStore.getState().updateTab(tabId, { selectedElements: [...tab.selectedElements, { tagName: 'div' }] })
+    const tab2 = useTabsStore.getState().tabs[0]
+    useTabsStore.getState().updateTab(tabId, { selectedElements: [...tab2.selectedElements, { tagName: 'span' }] })
+    useTabsStore.getState().updateTab(tabId, { selectedElements: [] })
+    expect(useTabsStore.getState().tabs[0].selectedElements).toHaveLength(0)
   })
 })
 
@@ -375,38 +395,27 @@ describe.skip('Feature: Environment variable editor', () => {
 
 // ── Phase 10: Advanced Canvas ───────────────────────────────────────
 
+// Skipped: a11y and perf metrics tests referenced setA11yIssues/a11yIssues
+// and setPerfMetrics/perfMetrics which were never implemented on the canvas store.
+// These features should be implemented directly on the tabs store when ready.
 describe.skip('Feature: Accessibility audit', () => {
-  it('canvas store supports a11y tab', () => {
-    useCanvasStore.getState().setActiveTab('a11y')
-    expect(useCanvasStore.getState().activeTab).toBe('a11y')
+  it('tab supports a11y canvas tab', () => {
+    useTabsStore.setState({ tabs: [], activeTabId: null })
+    const tabId = useTabsStore.getState().addTab({ name: 'test', path: '/tmp/test' })
+    useTabsStore.getState().updateTab(tabId, { activeCanvasTab: 'a11y' })
+    expect(useTabsStore.getState().tabs[0].activeCanvasTab).toBe('a11y')
   })
 
-  it('tracks a11y issues', () => {
-    useCanvasStore.getState().setA11yIssues([
-      {
-        severity: 'critical',
-        element: 'img',
-        description: 'Image missing alt text',
-        fix: 'Add alt attribute'
-      }
-    ])
-    const issues = useCanvasStore.getState().a11yIssues
-    expect(issues).toHaveLength(1)
-    expect(issues[0].severity).toBe('critical')
+  it('tracks a11y issues (not yet implemented)', () => {
+    // a11y issues tracking needs to be added to TabState
+    expect(true).toBe(true)
   })
 })
 
 describe.skip('Feature: Performance metrics', () => {
-  it('canvas store tracks performance metrics', () => {
-    useCanvasStore.getState().setPerfMetrics({
-      lcp: 1200,
-      fid: 50,
-      cls: 0.05,
-      ttfb: 300
-    })
-    const metrics = useCanvasStore.getState().perfMetrics
-    expect(metrics.lcp).toBe(1200)
-    expect(metrics.cls).toBeLessThan(0.1)
+  it('tracks performance metrics (not yet implemented)', () => {
+    // Performance metrics tracking needs to be added to TabState
+    expect(true).toBe(true)
   })
 })
 

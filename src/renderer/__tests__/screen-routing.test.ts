@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useProjectStore, AppScreen } from '@/stores/project'
-import { useCanvasStore } from '@/stores/canvas'
+import { useTabsStore } from '@/stores/tabs'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 describe('Screen Routing', () => {
@@ -47,12 +47,19 @@ describe('Screen Routing', () => {
 })
 
 describe('Workspace Mode Transitions', () => {
+  let tabId: string
+
+  beforeEach(() => {
+    useTabsStore.setState({ tabs: [], activeTabId: null })
+    tabId = useTabsStore.getState().addTab({ name: 'test', path: '/tmp/test' })
+  })
+
   it('canvas tabs are all accessible', () => {
     const tabs = ['preview', 'gallery', 'timeline', 'diff'] as const
 
     tabs.forEach((tab) => {
-      useCanvasStore.getState().setActiveTab(tab)
-      expect(useCanvasStore.getState().activeTab).toBe(tab)
+      useTabsStore.getState().updateTab(tabId, { activeCanvasTab: tab })
+      expect(useTabsStore.getState().tabs[0].activeCanvasTab).toBe(tab)
     })
   })
 

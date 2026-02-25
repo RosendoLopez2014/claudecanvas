@@ -1,8 +1,7 @@
 import { create } from 'zustand'
 import type { ProjectInfo } from './project'
-import type { CanvasTab } from './canvas'
+import type { CanvasTab, ElementContext } from '@/types/canvas'
 import type { GalleryVariant } from './gallery'
-import type { ElementContext } from './canvas'
 import type { WorkspaceMode } from './workspace'
 import type { PreviewError, ConsoleLogEntry } from '@/types/canvas'
 

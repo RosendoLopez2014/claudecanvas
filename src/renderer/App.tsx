@@ -16,7 +16,6 @@ import { useGitSync } from './hooks/useGitSync'
 import { useGalleryStore } from './stores/gallery'
 import { useAutoCheckpoint } from './hooks/useAutoCheckpoint'
 import { useAutoGallery } from './hooks/useAutoGallery'
-import { useDevServerSync } from './hooks/useDevServerSync'
 import { ShortcutSheet } from './components/ShortcutSheet/ShortcutSheet'
 import { SettingsPanel } from './components/Settings/Settings'
 import { SearchPanel } from './components/Search/SearchPanel'
@@ -71,8 +70,6 @@ export default function App() {
   useGitSync()
   useAutoCheckpoint()
   useAutoGallery()
-  useDevServerSync()
-
   // Sync currentProject and gallery with active tab on tab switch/close
   const activeTabId = useTabsStore((s) => s.activeTabId)
   const prevProjectPathRef = useRef<string | null>(null)
@@ -100,8 +97,10 @@ export default function App() {
       mcpStartedRef.current = true
       const { addToast } = useToastStore.getState()
       addToast('Initializing Claude Canvas...', 'info')
+      console.log(`[MCP-RENDERER] projectOpened called for: ${currentProject.path}`)
 
       window.api.mcp.projectOpened(currentProject.path).then(({ port }) => {
+        console.log(`[MCP-RENDERER] projectOpened resolved — port ${port}`)
         addToast(`MCP bridge active on port ${port}`, 'success')
         useProjectStore.getState().setMcpReady(true, port)
         const activeTab = useTabsStore.getState().getActiveTab()
@@ -112,6 +111,9 @@ export default function App() {
             boot: { ...activeTab.boot, mcpReady: true }
           })
         }
+      }).catch((err) => {
+        console.error(`[MCP-RENDERER] projectOpened FAILED:`, err)
+        addToast(`MCP setup failed: ${err?.message || err}`, 'error')
       })
     }
 
@@ -121,6 +123,10 @@ export default function App() {
       mcpStartedRef.current = false
       window.api.mcp.projectClosed()
       useProjectStore.getState().setMcpReady(false)
+      // Clean up preview HTML file from project root
+      if (currentProject?.path) {
+        window.api.component.previewCleanup(currentProject.path).catch(() => {})
+      }
     }
   }, [screen, currentProject?.path, tabCount])
 

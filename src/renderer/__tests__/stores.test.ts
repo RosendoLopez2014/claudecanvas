@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useTerminalStore } from '@/stores/terminal'
-import { useCanvasStore } from '@/stores/canvas'
 import { useProjectStore } from '@/stores/project'
 import { useGalleryStore } from '@/stores/gallery'
 import { useTabsStore } from '@/stores/tabs'
@@ -61,45 +60,47 @@ describe('TerminalStore', () => {
   })
 })
 
-describe('CanvasStore', () => {
+describe('Canvas state (via TabsStore)', () => {
+  let tabId: string
+
   beforeEach(() => {
-    useCanvasStore.setState({
-      activeTab: 'preview',
-      previewUrl: null,
-      inspectorActive: false,
-      selectedElements: []
-    })
+    useTabsStore.setState({ tabs: [], activeTabId: null })
+    tabId = useTabsStore.getState().addTab({ name: 'test', path: '/tmp/test' })
   })
 
   it('initializes with preview tab', () => {
-    expect(useCanvasStore.getState().activeTab).toBe('preview')
+    const tab = useTabsStore.getState().tabs[0]
+    expect(tab.activeCanvasTab).toBe('preview')
   })
 
   it('switches tabs', () => {
-    useCanvasStore.getState().setActiveTab('gallery')
-    expect(useCanvasStore.getState().activeTab).toBe('gallery')
+    useTabsStore.getState().updateTab(tabId, { activeCanvasTab: 'gallery' })
+    expect(useTabsStore.getState().tabs[0].activeCanvasTab).toBe('gallery')
   })
 
   it('sets preview URL', () => {
-    useCanvasStore.getState().setPreviewUrl('http://localhost:3000')
-    expect(useCanvasStore.getState().previewUrl).toBe('http://localhost:3000')
+    useTabsStore.getState().updateTab(tabId, { previewUrl: 'http://localhost:3000' })
+    expect(useTabsStore.getState().tabs[0].previewUrl).toBe('http://localhost:3000')
   })
 
   it('toggles inspector', () => {
-    useCanvasStore.getState().setInspectorActive(true)
-    expect(useCanvasStore.getState().inspectorActive).toBe(true)
+    useTabsStore.getState().updateTab(tabId, { inspectorActive: true })
+    expect(useTabsStore.getState().tabs[0].inspectorActive).toBe(true)
   })
 
   it('adds and clears selected elements', () => {
     const el1 = { tagName: 'div', componentName: 'Button' }
     const el2 = { tagName: 'span', componentName: 'Label' }
-    useCanvasStore.getState().addSelectedElement(el1)
-    useCanvasStore.getState().addSelectedElement(el2)
-    expect(useCanvasStore.getState().selectedElements).toHaveLength(2)
-    expect(useCanvasStore.getState().selectedElements[0]).toEqual(el1)
+    const tab = useTabsStore.getState().tabs[0]
+    useTabsStore.getState().updateTab(tabId, { selectedElements: [...tab.selectedElements, el1] })
 
-    useCanvasStore.getState().clearSelectedElements()
-    expect(useCanvasStore.getState().selectedElements).toHaveLength(0)
+    const tab2 = useTabsStore.getState().tabs[0]
+    useTabsStore.getState().updateTab(tabId, { selectedElements: [...tab2.selectedElements, el2] })
+    expect(useTabsStore.getState().tabs[0].selectedElements).toHaveLength(2)
+    expect(useTabsStore.getState().tabs[0].selectedElements[0]).toEqual(el1)
+
+    useTabsStore.getState().updateTab(tabId, { selectedElements: [] })
+    expect(useTabsStore.getState().tabs[0].selectedElements).toHaveLength(0)
   })
 })
 
