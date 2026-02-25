@@ -6,7 +6,8 @@ import { setupSettingsHandlers } from './store'
 import { setupFileWatcher, closeWatcher } from './watcher'
 import { setupDevServerSystem, killAllDevServers } from './devserver'
 import { setupRenderRouter } from './render-router'
-import { setupGitHandlers, cleanupAllGitInstances } from './services/git'
+import { setupGitHandlers } from './services/git'
+import { cleanupAllGitInstances } from './services/git-queue'
 import { setupGithubOAuth } from './oauth/github'
 import { setupVercelOAuth } from './oauth/vercel'
 import { setupSupabaseOAuth } from './oauth/supabase'
@@ -131,8 +132,10 @@ app.whenReady().then(() => {
   setupGalleryIpc()
   // MCP Bridge — start server when a project opens
   ipcMain.handle('mcp:project-opened', async (_event, projectPath: string) => {
+    const t0 = Date.now()
     const port = await startMcpServer(() => mainWindow, projectPath)
     await writeMcpConfig(projectPath, port)
+    console.log(`[MCP] Project opened in ${Date.now() - t0}ms — port ${port}, path: ${projectPath}`)
     return { port }
   })
 
