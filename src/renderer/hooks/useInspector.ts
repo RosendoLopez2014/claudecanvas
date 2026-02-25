@@ -154,8 +154,9 @@ export function useInspector(iframeRef: RefObject<HTMLIFrameElement | null>) {
  * in window.__inspectorContext and available via canvas_get_context MCP tool.
  */
 function pasteContextToTerminal(el: ElementContext): void {
-  const { ptyId } = useTerminalStore.getState()
-  if (!ptyId) return
+  const tab = useTabsStore.getState().getActiveTab()
+  if (!tab?.ptyId) return
+  const ptyId = tab.ptyId
 
   let tag: string
   if (el.a11y?.role && el.a11y?.name) {

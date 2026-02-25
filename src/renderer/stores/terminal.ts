@@ -11,9 +11,6 @@ export interface TerminalInstance {
 }
 
 interface TerminalStore {
-  /** @deprecated Use `useTabsStore.getActiveTab().ptyId` for per-tab state */
-  ptyId: string | null
-  isRunning: boolean
   focusFn: (() => void) | null
   /** Per-tab split tracking: tabId → list of split terminal IDs */
   splits: Record<string, TerminalSplit[]>
@@ -21,9 +18,6 @@ interface TerminalStore {
   instances: Record<string, TerminalInstance[]>
   /** Per-tab active terminal instance: tabId → active instance ID */
   activeInstance: Record<string, string>
-  /** @deprecated Use `useTabsStore.updateTab(id, { ptyId })` */
-  setPtyId: (id: string | null) => void
-  setIsRunning: (running: boolean) => void
   setFocusFn: (fn: (() => void) | null) => void
   focus: () => void
   addSplit: (tabId: string) => void
@@ -41,14 +35,10 @@ let splitCounter = 0
 let instanceCounter = 0
 
 export const useTerminalStore = create<TerminalStore>((set, get) => ({
-  ptyId: null,
-  isRunning: false,
   focusFn: null,
   splits: {},
   instances: {},
   activeInstance: {},
-  setPtyId: (ptyId) => set({ ptyId }),
-  setIsRunning: (isRunning) => set({ isRunning }),
   setFocusFn: (focusFn) => set({ focusFn }),
   focus: () => { get().focusFn?.() },
   addSplit: (tabId) => set((s) => {

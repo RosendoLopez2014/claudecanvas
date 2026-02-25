@@ -42,21 +42,18 @@ describe('WorkspaceStore', () => {
 
 describe('TerminalStore', () => {
   beforeEach(() => {
-    useTerminalStore.setState({ ptyId: null, isRunning: false })
+    useTerminalStore.setState({ focusFn: null })
   })
 
-  it('initializes with null ptyId', () => {
-    expect(useTerminalStore.getState().ptyId).toBeNull()
+  it('initializes with null focusFn', () => {
+    expect(useTerminalStore.getState().focusFn).toBeNull()
   })
 
-  it('sets ptyId', () => {
-    useTerminalStore.getState().setPtyId('pty-1')
-    expect(useTerminalStore.getState().ptyId).toBe('pty-1')
-  })
-
-  it('tracks running state', () => {
-    useTerminalStore.getState().setIsRunning(true)
-    expect(useTerminalStore.getState().isRunning).toBe(true)
+  it('sets and calls focus function', () => {
+    let focused = false
+    useTerminalStore.getState().setFocusFn(() => { focused = true })
+    useTerminalStore.getState().focus()
+    expect(focused).toBe(true)
   })
 })
 

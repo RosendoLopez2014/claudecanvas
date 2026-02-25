@@ -1,6 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { Terminal } from '@xterm/xterm'
-import { useTerminalStore } from '@/stores/terminal'
 import { useTabsStore } from '@/stores/tabs'
 
 interface ConnectOptions {
@@ -34,8 +33,6 @@ export function usePty() {
   const cleanupRef = useRef<(() => void)[]>([])
   const claudeLaunchedRef = useRef(false)
   const connectGenRef = useRef(0)
-  const { setPtyId, setIsRunning } = useTerminalStore()
-
   const connect = useCallback(async (terminal: Terminal, cwd?: string, options?: ConnectOptions) => {
     const gen = ++connectGenRef.current
 
@@ -56,7 +53,6 @@ export function usePty() {
     }
 
     ptyIdRef.current = id
-    setPtyId(id)
 
     // Store ptyId in the tab that owns this terminal
     if (targetTabId) {
@@ -69,8 +65,6 @@ export function usePty() {
         })
       }
     }
-
-    setIsRunning(true)
 
     let settleTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -150,8 +144,6 @@ export function usePty() {
     })
 
     const removeExit = window.api.pty.onExit(id, () => {
-      setIsRunning(false)
-      setPtyId(null)
       ptyIdRef.current = null
     })
 
@@ -173,7 +165,7 @@ export function usePty() {
       window.api.pty.write(id, data)
     })
     cleanupRef.current.push(() => disposable.dispose())
-  }, [setPtyId, setIsRunning])
+  }, [])
 
   const resize = useCallback((cols: number, rows: number) => {
     if (ptyIdRef.current) {

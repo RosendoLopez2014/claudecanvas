@@ -87,13 +87,13 @@ export function ConsoleOverlay() {
   const sendErrorsToClaude = useCallback(() => {
     const errors = consoleLogs.filter((l) => l.level === 'error')
     if (errors.length === 0) return
-    const store = useTerminalStore.getState()
-    if (!store.ptyId) return
+    const tab = useTabsStore.getState().getActiveTab()
+    if (!tab?.ptyId) return
     const deduped = [...new Map(errors.map((e) => [e.message, e])).values()]
     const errText = deduped.map((e, i) => `${i + 1}. ${e.message}`).join('\n')
     const prompt = `Fix these ${deduped.length} runtime error${deduped.length > 1 ? 's' : ''} from the preview:\n\n${errText}\n\nFix each error, then call canvas_get_errors to verify — it auto-clears old errors so only NEW errors appear. If canvas_get_errors returns "no errors", you're done. `
-    window.api.pty.write(store.ptyId, prompt)
-    requestAnimationFrame(() => store.focus())
+    window.api.pty.write(tab.ptyId, prompt)
+    requestAnimationFrame(() => useTerminalStore.getState().focus())
   }, [consoleLogs])
 
   return (

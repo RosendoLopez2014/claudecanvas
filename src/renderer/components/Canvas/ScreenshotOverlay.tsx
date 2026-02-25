@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useTabsStore } from '@/stores/tabs'
-import { useTerminalStore } from '@/stores/terminal'
 import { useToastStore } from '@/stores/toast'
 
 interface SelectionRect {
@@ -88,10 +87,10 @@ export function ScreenshotOverlay() {
       await window.api.screenshot.capture(captureRect)
 
       // Send message to Claude Code — use \r to submit as Enter
-      const { ptyId } = useTerminalStore.getState()
-      if (ptyId) {
+      const tab = useTabsStore.getState().getActiveTab()
+      if (tab?.ptyId) {
         window.api.pty.write(
-          ptyId,
+          tab.ptyId,
           'View my screenshot with canvas_get_screenshot\r'
         )
       }
