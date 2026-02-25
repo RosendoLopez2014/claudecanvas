@@ -2,12 +2,15 @@
 @import "tailwindcss";
 
 :root {
+  /* Core theme */
   --accent-cyan: #4AEAFF;
   --accent-coral: #FF6B4A;
   --bg-primary: #0A0F1A;
   --bg-secondary: #111827;
   --bg-tertiary: #1F2937;
   --border: rgba(255, 255, 255, 0.1);
+
+  /* Service integration palette (GitHub/Vercel/Supabase panels in ServiceIcons) */
   --v9-surface: #111113;
   --v9-raised: #19191d;
   --v9-hover: #1f1f24;
