@@ -8,8 +8,7 @@ describe('Screen Routing', () => {
     useProjectStore.setState({
       currentProject: null,
       recentProjects: [],
-      screen: 'onboarding',
-      isDevServerRunning: false
+      screen: 'onboarding'
     })
   })
 

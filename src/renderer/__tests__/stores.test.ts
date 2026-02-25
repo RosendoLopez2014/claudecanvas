@@ -109,8 +109,7 @@ describe('ProjectStore', () => {
     useProjectStore.setState({
       currentProject: null,
       recentProjects: [],
-      screen: 'onboarding',
-      isDevServerRunning: false
+      screen: 'onboarding'
     })
   })
 
@@ -130,11 +129,6 @@ describe('ProjectStore', () => {
 
     useProjectStore.getState().setScreen('workspace')
     expect(useProjectStore.getState().screen).toBe('workspace')
-  })
-
-  it('tracks dev server state', () => {
-    useProjectStore.getState().setDevServerRunning(true)
-    expect(useProjectStore.getState().isDevServerRunning).toBe(true)
   })
 
   it('manages recent projects', () => {

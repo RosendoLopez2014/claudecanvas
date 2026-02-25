@@ -1,7 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { useTerminalStore } from '@/stores/terminal'
-import { useProjectStore } from '@/stores/project'
 import { useTabsStore } from '@/stores/tabs'
 
 interface ConnectOptions {
@@ -11,23 +10,21 @@ interface ConnectOptions {
 }
 
 /**
- * Wait for the MCP server to be ready, then return the port.
+ * Wait for the MCP server to be ready on a specific tab, then return true.
+ * Falls back to false after timeout so Claude still launches.
  */
-function waitForMcpReady(timeoutMs = 5000): Promise<void> {
+function waitForMcpReady(tabId: string, timeoutMs = 15000): Promise<boolean> {
   return new Promise((resolve) => {
-    if (useProjectStore.getState().mcpReady) {
-      resolve()
-      return
-    }
-    const unsub = useProjectStore.subscribe((state) => {
-      if (state.mcpReady) {
-        unsub()
-        resolve()
-      }
+    const tab = useTabsStore.getState().tabs.find(t => t.id === tabId)
+    if (tab?.mcpReady) { resolve(true); return }
+    const unsub = useTabsStore.subscribe((state) => {
+      const t = state.tabs.find(t => t.id === tabId)
+      if (t?.mcpReady) { unsub(); resolve(true) }
     })
     setTimeout(() => {
       unsub()
-      resolve()
+      console.warn('[usePty] MCP ready timeout — launching Claude without confirmed MCP')
+      resolve(false)
     }, timeoutMs)
   })
 }
@@ -95,6 +92,8 @@ export function usePty() {
     const launchClaude = async () => {
       if (ptyIdRef.current !== id || claudeLaunchedRef.current) return
       claudeLaunchedRef.current = true
+      const tabState = targetTabId ? useTabsStore.getState().tabs.find(tab => tab.id === targetTabId) : null
+      console.log(`[MCP-RENDERER] launchClaude: mcpReady=${tabState?.mcpReady ?? false}`)
 
       // MCP is confirmed ready (waitForMcpReady resolved before we get here).
       // Set per-tab flag so the boot overlay progresses even for tabs opened
@@ -142,7 +141,8 @@ export function usePty() {
       if (!claudeLaunchedRef.current && options?.autoLaunchClaude) {
         if (settleTimer) clearTimeout(settleTimer)
         settleTimer = setTimeout(async () => {
-          await waitForMcpReady()
+          const ready = await waitForMcpReady(targetTabId!)
+          if (!ready) console.warn('[usePty] MCP not confirmed ready at shell-settle launch')
           suppressOutput = false
           launchClaude()
         }, 300)
@@ -162,9 +162,10 @@ export function usePty() {
 
     if (options?.autoLaunchClaude) {
       const fallbackTimer = setTimeout(async () => {
-        await waitForMcpReady()
+        const ready = await waitForMcpReady(targetTabId!)
+        if (!ready) console.warn('[usePty] MCP not confirmed ready at fallback launch')
         launchClaude()
-      }, 3000)
+      }, 5000)
       cleanupRef.current.push(() => clearTimeout(fallbackTimer))
     }
 

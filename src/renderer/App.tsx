@@ -102,7 +102,6 @@ export default function App() {
       window.api.mcp.projectOpened(currentProject.path).then(({ port }) => {
         console.log(`[MCP-RENDERER] projectOpened resolved — port ${port}`)
         addToast(`MCP bridge active on port ${port}`, 'success')
-        useProjectStore.getState().setMcpReady(true, port)
         const activeTab = useTabsStore.getState().getActiveTab()
         if (activeTab) {
           useTabsStore.getState().updateTab(activeTab.id, {
@@ -122,7 +121,6 @@ export default function App() {
     if (tabCount === 0 && mcpStartedRef.current) {
       mcpStartedRef.current = false
       window.api.mcp.projectClosed()
-      useProjectStore.getState().setMcpReady(false)
       // Clean up preview HTML file from project root
       if (currentProject?.path) {
         window.api.component.previewCleanup(currentProject.path).catch(() => {})
