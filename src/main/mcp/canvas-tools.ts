@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { BrowserWindow } from 'electron'
 import { getLatestScreenshotBase64 } from '../screenshot'
 import { generateProjectProfile } from '../services/project-profile'
+import { executeWithTimeout, errorResponse } from './helpers'
 
 export function registerCanvasTools(
   server: McpServer,
@@ -152,14 +153,18 @@ export function registerCanvasTools(
       }
 
       if (action === 'get_status') {
-        const status = await win.webContents.executeJavaScript(`
-          (function() {
-            var store = window.__galleryState;
-            if (!store) return JSON.stringify({ error: 'Gallery state not available' });
-            return JSON.stringify(store);
-          })()
-        `)
-        return { content: [{ type: 'text', text: status }] }
+        try {
+          const status = await executeWithTimeout<string>(win, `
+            (function() {
+              var store = window.__galleryState;
+              if (!store) return JSON.stringify({ error: 'Gallery state not available' });
+              return JSON.stringify(store);
+            })()
+          `)
+          return { content: [{ type: 'text', text: status }] }
+        } catch (err) {
+          return errorResponse(`Failed to query renderer: ${(err as Error).message}`)
+        }
       }
 
       return { content: [{ type: 'text', text: 'Invalid action or missing parameters.' }] }
@@ -173,17 +178,21 @@ export function registerCanvasTools(
     async () => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: JSON.stringify({ variantId: null }) }] }
-      const selection = await win.webContents.executeJavaScript(`
-        (function() {
-          var store = window.__galleryState;
-          if (!store || !store.selectedId) return JSON.stringify({ variantId: null });
-          var variant = store.variants.find(function(v) { return v.id === store.selectedId; });
-          return variant
-            ? JSON.stringify({ variantId: variant.id, label: variant.label })
-            : JSON.stringify({ variantId: null });
-        })()
-      `)
-      return { content: [{ type: 'text', text: selection }] }
+      try {
+        const selection = await executeWithTimeout<string>(win, `
+          (function() {
+            var store = window.__galleryState;
+            if (!store || !store.selectedId) return JSON.stringify({ variantId: null });
+            var variant = store.variants.find(function(v) { return v.id === store.selectedId; });
+            return variant
+              ? JSON.stringify({ variantId: variant.id, label: variant.label })
+              : JSON.stringify({ variantId: null });
+          })()
+        `)
+        return { content: [{ type: 'text', text: selection }] }
+      } catch (err) {
+        return errorResponse(`Failed to query renderer: ${(err as Error).message}`)
+      }
     }
   )
 
@@ -249,13 +258,17 @@ export function registerCanvasTools(
     async () => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
-      const state = await win.webContents.executeJavaScript(`
-        (function() {
-          var cs = window.__canvasState;
-          return cs ? JSON.stringify(cs) : JSON.stringify({ error: 'Canvas state not available' });
-        })()
-      `)
-      return { content: [{ type: 'text', text: state }] }
+      try {
+        const state = await executeWithTimeout<string>(win, `
+          (function() {
+            var cs = window.__canvasState;
+            return cs ? JSON.stringify(cs) : JSON.stringify({ error: 'Canvas state not available' });
+          })()
+        `)
+        return { content: [{ type: 'text', text: state }] }
+      } catch (err) {
+        return errorResponse(`Failed to query renderer: ${(err as Error).message}`)
+      }
     }
   )
 
@@ -266,13 +279,17 @@ export function registerCanvasTools(
     async () => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'no' }] }
-      const running = await win.webContents.executeJavaScript(`
-        (function() {
-          var cs = window.__canvasState;
-          return cs && cs.devServerRunning ? 'yes' : 'no';
-        })()
-      `)
-      return { content: [{ type: 'text', text: running }] }
+      try {
+        const running = await executeWithTimeout<string>(win, `
+          (function() {
+            var cs = window.__canvasState;
+            return cs && cs.devServerRunning ? 'yes' : 'no';
+          })()
+        `)
+        return { content: [{ type: 'text', text: running }] }
+      } catch (err) {
+        return errorResponse(`Failed to query renderer: ${(err as Error).message}`)
+      }
     }
   )
 
@@ -283,13 +300,17 @@ export function registerCanvasTools(
     async () => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'none' }] }
-      const url = await win.webContents.executeJavaScript(`
-        (function() {
-          var cs = window.__canvasState;
-          return cs && cs.previewUrl ? cs.previewUrl : 'none';
-        })()
-      `)
-      return { content: [{ type: 'text', text: url }] }
+      try {
+        const url = await executeWithTimeout<string>(win, `
+          (function() {
+            var cs = window.__canvasState;
+            return cs && cs.previewUrl ? cs.previewUrl : 'none';
+          })()
+        `)
+        return { content: [{ type: 'text', text: url }] }
+      } catch (err) {
+        return errorResponse(`Failed to query renderer: ${(err as Error).message}`)
+      }
     }
   )
 
@@ -300,13 +321,17 @@ export function registerCanvasTools(
     async () => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'preview' }] }
-      const tab = await win.webContents.executeJavaScript(`
-        (function() {
-          var cs = window.__canvasState;
-          return cs && cs.activeTab ? cs.activeTab : 'preview';
-        })()
-      `)
-      return { content: [{ type: 'text', text: tab }] }
+      try {
+        const tab = await executeWithTimeout<string>(win, `
+          (function() {
+            var cs = window.__canvasState;
+            return cs && cs.activeTab ? cs.activeTab : 'preview';
+          })()
+        `)
+        return { content: [{ type: 'text', text: tab }] }
+      } catch (err) {
+        return errorResponse(`Failed to query renderer: ${(err as Error).message}`)
+      }
     }
   )
 
@@ -317,25 +342,29 @@ export function registerCanvasTools(
     async () => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
-      const context = await win.webContents.executeJavaScript(`
-        (function() {
-          var ctx = window.__inspectorContext;
-          return ctx ? JSON.stringify(ctx) : JSON.stringify({ selected: false });
-        })()
-      `)
-      // Signal editing mode — switches cyan highlights to amber glow
       try {
-        const parsed = JSON.parse(context)
-        if (parsed.selected) {
-          await win.webContents.executeJavaScript(`
-            (function() {
-              var iframe = document.querySelector('[data-canvas-panel] iframe');
-              if (iframe && iframe.contentWindow) iframe.contentWindow.postMessage({ type: 'inspector:startEditing' }, '*');
-            })()
-          `)
-        }
-      } catch {}
-      return { content: [{ type: 'text', text: context }] }
+        const context = await executeWithTimeout<string>(win, `
+          (function() {
+            var ctx = window.__inspectorContext;
+            return ctx ? JSON.stringify(ctx) : JSON.stringify({ selected: false });
+          })()
+        `)
+        // Signal editing mode — switches cyan highlights to amber glow
+        try {
+          const parsed = JSON.parse(context)
+          if (parsed.selected) {
+            await executeWithTimeout(win, `
+              (function() {
+                var iframe = document.querySelector('[data-canvas-panel] iframe');
+                if (iframe && iframe.contentWindow) iframe.contentWindow.postMessage({ type: 'inspector:startEditing' }, '*');
+              })()
+            `)
+          }
+        } catch {}
+        return { content: [{ type: 'text', text: context }] }
+      } catch (err) {
+        return errorResponse(`Failed to query renderer: ${(err as Error).message}`)
+      }
     }
   )
 
@@ -364,17 +393,21 @@ export function registerCanvasTools(
     async () => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
-      const errors = await win.webContents.executeJavaScript(`
-        (function() {
-          var cs = window.__canvasState;
-          if (!cs || !cs.errors || cs.errors.length === 0) return 'no errors';
-          var result = JSON.stringify(cs.errors);
-          // Clear after reading so next call only shows NEW errors
-          cs.errors = [];
-          return result;
-        })()
-      `)
-      return { content: [{ type: 'text', text: errors }] }
+      try {
+        const errors = await executeWithTimeout<string>(win, `
+          (function() {
+            var cs = window.__canvasState;
+            if (!cs || !cs.errors || cs.errors.length === 0) return 'no errors';
+            var result = JSON.stringify(cs.errors);
+            // Clear after reading so next call only shows NEW errors
+            cs.errors = [];
+            return result;
+          })()
+        `)
+        return { content: [{ type: 'text', text: errors }] }
+      } catch (err) {
+        return errorResponse(`Failed to query renderer: ${(err as Error).message}`)
+      }
     }
   )
 
@@ -385,19 +418,23 @@ export function registerCanvasTools(
     async () => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
-      const context = await win.webContents.executeJavaScript(`
-        (function() {
-          var ctx = window.__inspectorContext;
-          if (!ctx || !ctx.elements || ctx.elements.length === 0) return JSON.stringify({ selected: false });
-          return JSON.stringify({
-            count: ctx.elements.length,
-            elements: ctx.elements.map(function(e) {
-              return { filePath: e.filePath, lineNumber: e.lineNumber, componentName: e.componentName };
-            })
-          });
-        })()
-      `)
-      return { content: [{ type: 'text', text: context }] }
+      try {
+        const context = await executeWithTimeout<string>(win, `
+          (function() {
+            var ctx = window.__inspectorContext;
+            if (!ctx || !ctx.elements || ctx.elements.length === 0) return JSON.stringify({ selected: false });
+            return JSON.stringify({
+              count: ctx.elements.length,
+              elements: ctx.elements.map(function(e) {
+                return { filePath: e.filePath, lineNumber: e.lineNumber, componentName: e.componentName };
+              })
+            });
+          })()
+        `)
+        return { content: [{ type: 'text', text: context }] }
+      } catch (err) {
+        return errorResponse(`Failed to query renderer: ${(err as Error).message}`)
+      }
     }
   )
 
@@ -411,7 +448,7 @@ export function registerCanvasTools(
 
       try {
         // Get the canvas iframe bounding rect from the renderer
-        const rect = await win.webContents.executeJavaScript(`
+        const rect = await executeWithTimeout<{ x: number; y: number; width: number; height: number } | null>(win, `
           (function() {
             var iframe = document.querySelector('[data-canvas-panel] iframe');
             if (!iframe) return null;
