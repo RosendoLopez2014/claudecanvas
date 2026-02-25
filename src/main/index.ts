@@ -28,9 +28,36 @@ import { setupAutoUpdater, installUpdate } from './updater'
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
+  const savedBounds = settingsStore.get('windowBounds') as Electron.Rectangle | undefined
+
+  // Validate that saved position is visible on a connected display.
+  // If the user disconnected an external monitor, the saved x/y could be
+  // off-screen — in that case we let Electron pick a default position.
+  let x: number | undefined
+  let y: number | undefined
+  if (savedBounds?.x !== undefined && savedBounds?.y !== undefined) {
+    const displays = screen.getAllDisplays()
+    const isVisible = displays.some((display) => {
+      const { x: dx, y: dy, width: dw, height: dh } = display.bounds
+      // Consider visible if the saved origin lands within any display bounds
+      return (
+        savedBounds.x >= dx &&
+        savedBounds.x < dx + dw &&
+        savedBounds.y >= dy &&
+        savedBounds.y < dy + dh
+      )
+    })
+    if (isVisible) {
+      x = savedBounds.x
+      y = savedBounds.y
+    }
+  }
+
   mainWindow = new BrowserWindow({
-    width: 960,
-    height: 700,
+    width: savedBounds?.width || 960,
+    height: savedBounds?.height || 700,
+    x,
+    y,
     minWidth: 700,
     minHeight: 500,
     frame: false,
@@ -48,6 +75,19 @@ function createWindow(): void {
       spellcheck: false
     }
   })
+
+  // Persist window bounds on move/resize (debounced to avoid excessive writes)
+  let boundsTimer: ReturnType<typeof setTimeout> | null = null
+  const saveBounds = (): void => {
+    if (boundsTimer) clearTimeout(boundsTimer)
+    boundsTimer = setTimeout(() => {
+      if (!mainWindow!.isMaximized() && !mainWindow!.isMinimized() && !mainWindow!.isDestroyed()) {
+        settingsStore.set('windowBounds', mainWindow!.getBounds())
+      }
+    }, 500)
+  }
+  mainWindow.on('resize', saveBounds)
+  mainWindow.on('move', saveBounds)
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
