@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useProjectStore } from '@/stores/project'
-import { useTabsStore, selectActiveTab } from '@/stores/tabs'
+import { useTabsStore, useActiveTab } from '@/stores/tabs'
+import { useDevRepairStore } from '@/stores/devRepair'
+
+// Stable empty array references — avoids creating new [] each render
+// which would cause React's getSnapshot infinite loop detection to fire.
+const EMPTY_ELEMENTS: never[] = []
+const EMPTY_ERRORS: never[] = []
 
 /**
  * Exposes current canvas / workspace / project state on window globals
@@ -12,15 +18,17 @@ import { useTabsStore, selectActiveTab } from '@/stores/tabs'
  * window.__inspectorContext — selected inspector elements (array)
  */
 export function useMcpStateExposer() {
-  const currentTab = useTabsStore(selectActiveTab)
+  const currentTab = useActiveTab()
   const activeTab = currentTab?.activeCanvasTab ?? 'preview'
   const inspectorActive = currentTab?.inspectorActive ?? false
-  const selectedElements = currentTab?.selectedElements ?? []
-  const previewErrors = currentTab?.previewErrors ?? []
+  const selectedElements = currentTab?.selectedElements ?? EMPTY_ELEMENTS
+  const previewErrors = currentTab?.previewErrors ?? EMPTY_ERRORS
   const previewUrl = currentTab?.previewUrl ?? null
   const { mode } = useWorkspaceStore()
   const { currentProject } = useProjectStore()
   const isDevServerRunning = currentTab?.dev.status === 'running'
+  const activeRepairs = useDevRepairStore((s) => s.activeRepairs)
+  const recentRepairs = useDevRepairStore((s) => s.recentRepairs)
   const [supabaseConnected, setSupabaseConnected] = useState(false)
 
   // Fetch Supabase connection status
@@ -31,6 +39,37 @@ export function useMcpStateExposer() {
   }, [currentProject])
 
   useEffect(() => {
+    // Build repair status summary for MCP tools
+    const projectPath = currentProject?.path || null
+    const repairForProject = projectPath ? activeRepairs[projectPath] : null
+    const lastEvent = repairForProject?.events.length
+      ? repairForProject.events[repairForProject.events.length - 1]
+      : null
+    const repairStatus = repairForProject
+      ? {
+          active: true,
+          sessionId: repairForProject.sessionId,
+          repairId: repairForProject.repairId,
+          status: repairForProject.status,
+          agentEngaged: repairForProject.agentEngaged,
+          attempt: lastEvent?.attempt ?? 0,
+          maxAttempts: lastEvent?.maxAttempts ?? 3,
+          lastPhase: lastEvent?.phase ?? null,
+          lastMessage: lastEvent?.message ?? null,
+        }
+      : recentRepairs.length > 0
+        ? {
+            active: false,
+            sessionId: recentRepairs[0].sessionId,
+            repairId: recentRepairs[0].repairId,
+            status: recentRepairs[0].status,
+            agentEngaged: recentRepairs[0].agentEngaged,
+            lastMessage: recentRepairs[0].events.length > 0
+              ? recentRepairs[0].events[recentRepairs[0].events.length - 1].message
+              : null,
+          }
+        : null
+
     ;(window as any).__canvasState = {
       activeTab,
       previewUrl,
@@ -38,11 +77,12 @@ export function useMcpStateExposer() {
       workspaceMode: mode,
       devServerRunning: isDevServerRunning,
       projectName: currentProject?.name || null,
-      projectPath: currentProject?.path || null,
+      projectPath,
       supabaseConnected,
-      errors: previewErrors
+      errors: previewErrors,
+      repairStatus,
     }
-  }, [activeTab, previewUrl, inspectorActive, mode, isDevServerRunning, currentProject, supabaseConnected, previewErrors])
+  }, [activeTab, previewUrl, inspectorActive, mode, isDevServerRunning, currentProject, supabaseConnected, previewErrors, activeRepairs, recentRepairs])
 
   // Listen for runtime errors and console logs from the preview iframe
   useEffect(() => {

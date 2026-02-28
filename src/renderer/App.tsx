@@ -16,10 +16,13 @@ import { useGitSync } from './hooks/useGitSync'
 import { useGalleryStore } from './stores/gallery'
 import { useAutoCheckpoint } from './hooks/useAutoCheckpoint'
 import { useAutoGallery } from './hooks/useAutoGallery'
+import { useDevSelfHeal } from './hooks/useDevSelfHeal'
+import { useDevRepairListener } from './hooks/useDevRepairListener'
 import { ShortcutSheet } from './components/ShortcutSheet/ShortcutSheet'
 import { SettingsPanel } from './components/Settings/Settings'
 import { SearchPanel } from './components/Search/SearchPanel'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { restoreTabs } from './stores/tabs'
 
 export default function App() {
   const { screen, setScreen, currentProject } = useProjectStore()
@@ -36,8 +39,11 @@ export default function App() {
   }, [screen])
 
   // Navigate to project picker when all tabs are closed (last tab closed).
+  // Skip during tab restoration to prevent racing with async restoreTabs().
   const tabCount = useTabsStore((s) => s.tabs.length)
+  const restoringTabsRef = useRef(false)
   useEffect(() => {
+    if (restoringTabsRef.current) return
     if (workspaceMounted && tabCount === 0 && screen === 'workspace') {
       setScreen('project-picker')
     }
@@ -70,6 +76,8 @@ export default function App() {
   useGitSync()
   useAutoCheckpoint()
   useAutoGallery()
+  useDevSelfHeal()
+  useDevRepairListener()
   // Sync currentProject and gallery with active tab on tab switch/close
   const activeTabId = useTabsStore((s) => s.activeTabId)
   const prevProjectPathRef = useRef<string | null>(null)
@@ -86,55 +94,66 @@ export default function App() {
     useGalleryStore.getState().loadForProject(path)
   }, [activeTabId])
 
-  // Start MCP server once when entering workspace. The server stays alive
-  // across tab switches — each MCP tool event carries projectPath so the
-  // renderer can route commands to the correct tab. We only tear down when
-  // all tabs are closed (not when navigating to project-picker to add another
-  // project, since PTYs and Claude sessions are still alive in the background).
-  const mcpStartedRef = useRef(false)
+  // MCP lifecycle is per-tab (useTabMcpInit in Workspace).
+  // This effect only handles complete teardown when all tabs close.
   useEffect(() => {
-    if (screen === 'workspace' && currentProject?.path && !mcpStartedRef.current) {
-      mcpStartedRef.current = true
-      const { addToast } = useToastStore.getState()
-      addToast('Initializing Claude Canvas...', 'info')
-      console.log(`[MCP-RENDERER] projectOpened called for: ${currentProject.path}`)
-
-      window.api.mcp.projectOpened(currentProject.path).then(({ port }) => {
-        console.log(`[MCP-RENDERER] projectOpened resolved — port ${port}`)
-        addToast(`MCP bridge active on port ${port}`, 'success')
-        const activeTab = useTabsStore.getState().getActiveTab()
-        if (activeTab) {
-          useTabsStore.getState().updateTab(activeTab.id, {
-            mcpReady: true,
-            mcpPort: port,
-            boot: { ...activeTab.boot, mcpReady: true }
-          })
-        }
-      }).catch((err) => {
-        console.error(`[MCP-RENDERER] projectOpened FAILED:`, err)
-        addToast(`MCP setup failed: ${err?.message || err}`, 'error')
-      })
-    }
-
-    // Only tear down when there are no tabs left (true workspace exit),
-    // not when temporarily visiting the project picker to add another project.
-    if (tabCount === 0 && mcpStartedRef.current) {
-      mcpStartedRef.current = false
-      window.api.mcp.projectClosed()
-      // Clean up preview HTML file from project root
+    if (tabCount === 0) {
+      window.api.mcp.shutdownAll()
       if (currentProject?.path) {
         window.api.component.previewCleanup(currentProject.path).catch(() => {})
       }
     }
-  }, [screen, currentProject?.path, tabCount])
+  }, [tabCount, currentProject?.path])
 
   useEffect(() => {
     window.api.settings.get('onboardingComplete').then(async (complete) => {
       if (complete) {
-        setScreen('project-picker')
+        // Try to restore previous session before deciding which screen to show.
+        // This handles renderer reload during sleep, GPU crash, HMR reconnect, etc.
+        restoringTabsRef.current = true
+        await restoreTabs()
+        restoringTabsRef.current = false
+        const { tabs } = useTabsStore.getState()
+        if (tabs.length > 0) {
+          setScreen('workspace')
+        } else {
+          setScreen('project-picker')
+        }
       }
     })
   }, [setScreen])
+
+  // Handle system resume — restore tabs if state was lost during sleep,
+  // and trigger a resize to force xterm WebGL context recovery.
+  useEffect(() => {
+    const removeResume = window.api.system.onResume(() => {
+      const { tabs } = useTabsStore.getState()
+      if (tabs.length === 0) {
+        // Set flag synchronously BEFORE the async call to prevent the
+        // `tabCount === 0 → project-picker` guard from racing us.
+        restoringTabsRef.current = true
+        restoreTabs().then(() => {
+          restoringTabsRef.current = false
+          const restored = useTabsStore.getState().tabs
+          if (restored.length > 0) {
+            setScreen('workspace')
+          }
+        }).catch(() => {
+          restoringTabsRef.current = false
+        })
+      } else if (screen !== 'workspace') {
+        setScreen('workspace')
+      }
+
+      // Force layout recalculation after wake — triggers xterm refit
+      // which recreates lost WebGL contexts and unfreezes the terminal.
+      // Staggered: first refit at 500ms, second at 1500ms for any tabs
+      // whose WebGL context took longer to recover.
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 500)
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 1500)
+    })
+    return () => removeResume()
+  }, [screen, setScreen])
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[var(--bg-primary)]">

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { useShallow } from 'zustand/react/shallow'
 import type { ProjectInfo } from './project'
 import type { CanvasTab, ElementContext } from '@/types/canvas'
 import type { GalleryVariant } from './gallery'
@@ -57,6 +58,9 @@ export interface TabState {
   // Worktree info (null = main working tree)
   worktreeBranch: string | null
   worktreePath: string | null
+  // MCP init tracking
+  mcpRetryCount: number
+  mcpProjectPath: string | null
   // Token tracking
   tokenUsage: { sessionTokens: number; lastUpdated: number } | null
   // Git sync
@@ -79,9 +83,9 @@ export interface TabState {
   supabaseBootstrapped: boolean
   // Boot progress (overlay tracks these to show loading state)
   boot: {
-    ptyReady: boolean
-    mcpReady: boolean
-    claudeReady: boolean
+    ptyReady: boolean | 'error'
+    mcpReady: boolean | 'error'
+    claudeReady: boolean | 'error'
   }
 }
 
@@ -108,6 +112,8 @@ function createDefaultTabState(project: ProjectInfo): TabState {
     workspaceMode: 'terminal-only',
     mcpReady: false,
     mcpPort: null,
+    mcpRetryCount: 0,
+    mcpProjectPath: null,
     worktreeBranch: null,
     worktreePath: null,
     tokenUsage: null,
@@ -163,6 +169,8 @@ interface TabsStore {
   /** Clear all console logs for a tab. */
   clearConsoleLogs: (tabId: string) => void
 
+  /** Bump mcpRetryCount to trigger useTabMcpInit re-init */
+  retryMcp: (tabId: string) => void
   /** Add a horizontal split to a tab's terminal */
   addSplit: (tabId: string) => void
   /** Remove a split from a tab's terminal. Keeps at least one split ('main'). */
@@ -199,26 +207,56 @@ export async function cleanupTabResources(tab: TabState): Promise<void> {
 }
 
 /**
- * Restore tabs from persisted settings on app startup.
+ * Restore tabs from persisted settings on app startup or after sleep.
  * Restores project info and worktree metadata, but NOT runtime state (PTY, dev server).
+ *
+ * Guards:
+ * - Skips if tabs already exist (prevents duplicate restore on resume after startup)
+ * - Validates project paths exist via fs.tree probe (rejects stale/disconnected paths)
  */
+let restoreInFlight = false
 export async function restoreTabs(): Promise<void> {
   if (typeof window === 'undefined' || !window.api?.settings) return
-  const saved = await window.api.settings.get('tabs')
-  if (!Array.isArray(saved) || saved.length === 0) return
+  // Guard: don't restore if tabs already loaded (prevents duplicates)
+  if (useTabsStore.getState().tabs.length > 0) return
+  // Guard: prevent concurrent calls
+  if (restoreInFlight) return
+  restoreInFlight = true
 
-  const tabs: TabState[] = saved.map((s: { project: ProjectInfo; worktreeBranch?: string; worktreePath?: string }) =>
-    ({
-      ...createDefaultTabState(s.project),
-      worktreeBranch: s.worktreeBranch || null,
-      worktreePath: s.worktreePath || null,
+  try {
+    const saved = await window.api.settings.get('tabs')
+    if (!Array.isArray(saved) || saved.length === 0) return
+
+    // Validate each project path still exists (rejects disconnected drives, deleted projects)
+    const validated = await Promise.all(
+      saved.map(async (s: { project: ProjectInfo; worktreeBranch?: string; worktreePath?: string }) => {
+        try {
+          await window.api.fs.tree(s.project.path, 0)
+          return s
+        } catch {
+          console.warn(`[restoreTabs] Skipping stale project: ${s.project.path}`)
+          return null
+        }
+      })
+    )
+    const valid = validated.filter(Boolean) as typeof saved
+    if (valid.length === 0) return
+
+    const tabs: TabState[] = valid.map((s) =>
+      ({
+        ...createDefaultTabState(s.project),
+        worktreeBranch: s.worktreeBranch || null,
+        worktreePath: s.worktreePath || null,
+      })
+    )
+
+    useTabsStore.setState({
+      tabs,
+      activeTabId: tabs[0].id,
     })
-  )
-
-  useTabsStore.setState({
-    tabs,
-    activeTabId: tabs[0].id,
-  })
+  } finally {
+    restoreInFlight = false
+  }
 }
 
 export const useTabsStore = create<TabsStore>((set, get) => ({
@@ -226,6 +264,16 @@ export const useTabsStore = create<TabsStore>((set, get) => ({
   activeTabId: null,
 
   addTab: (project) => {
+    // Prevent duplicate tabs for the same project path — reuse existing tab.
+    // Two tabs with the same path would overwrite each other's .mcp.json token,
+    // causing one tab's MCP session to silently break.
+    const existing = get().tabs.find((t) => t.project.path === project.path)
+    if (existing) {
+      console.log(`[TAB-DEBUG] addTab: reusing existing tab=${existing.id} for project=${project.name}`)
+      set({ activeTabId: existing.id })
+      return existing.id
+    }
+
     const tab = createDefaultTabState(project)
     console.log(`[TAB-DEBUG] addTab: new=${tab.id}, project=${project.name}, existing=${get().tabs.length} tabs`)
     set((s) => ({
@@ -344,6 +392,14 @@ export const useTabsStore = create<TabsStore>((set, get) => ({
     }))
   },
 
+  retryMcp: (tabId) => {
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.id === tabId ? { ...t, mcpRetryCount: t.mcpRetryCount + 1 } : t
+      ),
+    }))
+  },
+
   addSplit: (tabId) => {
     const splitId = `split-${Date.now()}`
     set((s) => ({
@@ -372,3 +428,12 @@ export const useTabsStore = create<TabsStore>((set, get) => ({
  */
 export const selectActiveTab = (s: { tabs: TabState[]; activeTabId: string | null }) =>
   s.tabs.find((t) => t.id === s.activeTabId) || null
+
+/**
+ * Hook that returns the active tab with shallow equality comparison.
+ * Prevents React 19's "getSnapshot should be cached" infinite loop by ensuring
+ * the selector returns a stable reference when no shallow-level fields changed.
+ */
+export function useActiveTab(): TabState | null {
+  return useTabsStore(useShallow(selectActiveTab))
+}

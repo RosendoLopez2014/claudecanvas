@@ -1,11 +1,11 @@
 import { useEffect, useCallback, useRef, RefObject } from 'react'
-import { useTabsStore, selectActiveTab } from '@/stores/tabs'
+import { useTabsStore, useActiveTab } from '@/stores/tabs'
 import type { ElementContext } from '@/types/canvas'
 import { useTerminalStore } from '@/stores/terminal'
 import { useProjectStore } from '@/stores/project'
 
 export function useInspector(iframeRef: RefObject<HTMLIFrameElement | null>) {
-  const currentTab = useTabsStore(selectActiveTab)
+  const currentTab = useActiveTab()
   const inspectorActive = currentTab?.inspectorActive ?? false
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 

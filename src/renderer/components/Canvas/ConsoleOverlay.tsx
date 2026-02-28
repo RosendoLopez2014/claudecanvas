@@ -1,5 +1,5 @@
 import type { ConsoleLogEntry } from '@/types/canvas'
-import { useTabsStore, selectActiveTab } from '@/stores/tabs'
+import { useTabsStore, useActiveTab } from '@/stores/tabs'
 import { useTerminalStore } from '@/stores/terminal'
 import { useState, useCallback } from 'react'
 import { Terminal, ChevronDown, ChevronUp, Trash2, Bug, Copy, Check } from 'lucide-react'
@@ -64,7 +64,7 @@ function LogEntry({ entry }: { entry: ConsoleLogEntry }) {
 }
 
 export function ConsoleOverlay() {
-  const currentTab = useTabsStore(selectActiveTab)
+  const currentTab = useActiveTab()
   const consoleLogs = currentTab?.consoleLogs ?? []
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)

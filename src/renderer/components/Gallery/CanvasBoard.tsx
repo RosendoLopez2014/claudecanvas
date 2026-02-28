@@ -311,7 +311,7 @@ export function CanvasBoard({ children }: { children: (visibleIds: Set<string>) 
       className="relative w-full h-full overflow-hidden outline-none"
       style={{
         cursor,
-        background: '#0e0e1a',
+        background: '#18181B',
         backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.04) 1px, transparent 1px)',
         backgroundSize: `${20 * zoom}px ${20 * zoom}px`,
         backgroundPosition: `${panX}px ${panY}px`,

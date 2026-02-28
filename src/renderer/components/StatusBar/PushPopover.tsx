@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
-import { Loader2, ArrowUpRight } from 'lucide-react'
-import { useTabsStore, selectActiveTab } from '@/stores/tabs'
+import { Loader2, ArrowUpRight, ChevronDown } from 'lucide-react'
+import { useTabsStore, useActiveTab } from '@/stores/tabs'
 import { useToastStore } from '@/stores/toast'
 import { GIT_PUSH_MODES, type GitPushMode } from '../../../shared/constants'
 
@@ -14,27 +14,45 @@ export function PushPopover({ onClose }: PushPopoverProps) {
   const [generating, setGenerating] = useState(true)
   const [pushing, setPushing] = useState(false)
   const [pushMode, setPushMode] = useState<GitPushMode>('solo')
+  const [hasProjectMode, setHasProjectMode] = useState<boolean | null>(null) // null = loading
+  const [showModeSelector, setShowModeSelector] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
 
-  const tab = useTabsStore(selectActiveTab)
+  const tab = useActiveTab()
   const projectPath = tab?.project.path
 
-  // Load push mode and generate AI commit message on mount
+  // Load per-project push mode first, then fall back to global
   useEffect(() => {
-    window.api.settings.get('gitPushMode').then((v) => {
-      if (v && typeof v === 'string') setPushMode(v as GitPushMode)
+    if (!projectPath) return
+    Promise.all([
+      window.api.git.getProjectPushMode(projectPath),
+      window.api.settings.get('gitPushMode'),
+    ]).then(([projectMode, globalMode]) => {
+      if (projectMode && typeof projectMode === 'string') {
+        setPushMode(projectMode as GitPushMode)
+        setHasProjectMode(true)
+      } else {
+        if (globalMode && typeof globalMode === 'string') setPushMode(globalMode as GitPushMode)
+        setHasProjectMode(false)
+      }
     })
-  }, [])
+  }, [projectPath])
 
   useEffect(() => {
     if (!projectPath) return
     setGenerating(true)
-    window.api.git.generateCommitMessage(projectPath).then((msg) => {
-      setMessage(msg || '')
-      setGenerating(false)
-      setTimeout(() => inputRef.current?.focus(), 50)
-    })
+    window.api.git.generateCommitMessage(projectPath)
+      .then((msg) => {
+        setMessage(msg || `Update ${new Date().toLocaleDateString()}`)
+        setGenerating(false)
+        setTimeout(() => inputRef.current?.focus(), 50)
+      })
+      .catch(() => {
+        setMessage(`Update ${new Date().toLocaleDateString()}`)
+        setGenerating(false)
+        setTimeout(() => inputRef.current?.focus(), 50)
+      })
   }, [projectPath])
 
   // Close on outside click
@@ -139,10 +157,41 @@ export function PushPopover({ onClose }: PushPopoverProps) {
     >
       <div className="flex items-center justify-between mb-2">
         <span className="text-[11px] text-white/40">Commit message</span>
-        <span className="text-[9px] text-white/20 px-1.5 py-0.5 rounded bg-white/[0.04]">
+        <button
+          onClick={() => setShowModeSelector(!showModeSelector)}
+          className="flex items-center gap-1 text-[9px] text-white/20 hover:text-white/40 px-1.5 py-0.5 rounded bg-white/[0.04] hover:bg-white/[0.08] transition-colors"
+        >
           {GIT_PUSH_MODES[pushMode].label}
-        </span>
+          <ChevronDown size={8} className={showModeSelector ? 'rotate-180 transition-transform' : 'transition-transform'} />
+        </button>
       </div>
+
+      {/* Mode selector — shown on first push or when clicking the badge */}
+      {(showModeSelector || hasProjectMode === false) && (
+        <div className="mb-2 space-y-1">
+          {(Object.entries(GIT_PUSH_MODES) as [GitPushMode, typeof GIT_PUSH_MODES[GitPushMode]][]).map(([key, config]) => (
+            <button
+              key={key}
+              onClick={() => {
+                setPushMode(key)
+                setHasProjectMode(true)
+                setShowModeSelector(false)
+                if (projectPath) {
+                  window.api.git.setProjectPushMode(projectPath, key)
+                }
+              }}
+              className={`w-full text-left px-2.5 py-1.5 rounded text-[10px] transition-colors ${
+                key === pushMode
+                  ? 'bg-[var(--accent-cyan)]/10 text-[var(--accent-cyan)] border border-[var(--accent-cyan)]/20'
+                  : 'bg-white/[0.03] text-white/40 hover:bg-white/[0.06] border border-transparent'
+              }`}
+            >
+              <div className="font-medium">{config.label}</div>
+              <div className="text-white/20 mt-0.5">{config.description}</div>
+            </button>
+          ))}
+        </div>
+      )}
       <input
         ref={inputRef}
         type="text"

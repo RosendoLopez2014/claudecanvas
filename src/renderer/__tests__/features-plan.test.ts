@@ -74,8 +74,8 @@ describe.skip('Feature: Responsive breakpoint presets', () => {
 
   it('has preset definitions', () => {
     // After implementation: import VIEWPORT_PRESETS from @/shared/constants
-    // Expect presets for: iPhone SE (375), iPad (1024), Desktop (1440), etc.
-    // Expect at least 6 presets
+    // Expect presets for: Responsive, Mobile (390), Tablet (768), Desktop (1440)
+    // Expect 4 presets with device frame types
     expect(true).toBe(true)
   })
 })

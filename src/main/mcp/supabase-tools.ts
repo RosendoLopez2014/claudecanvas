@@ -8,6 +8,15 @@ import type { McpTextResult } from './helpers'
 
 type SupabaseAuth = { token: string; ref: string }
 
+/** Linked project ref set by the renderer when the user links a Supabase project. */
+let linkedProjectRef: string | null = null
+
+/** Called from the main process when the renderer links/unlinks a Supabase project. */
+export function setLinkedSupabaseRef(ref: string | null): void {
+  linkedProjectRef = ref
+  console.log(`[MCP/Supabase] Linked project ref: ${ref || '(none)'}`)
+}
+
 /** Auto-detect Supabase project ref from supabase/config.toml */
 async function detectProjectRef(projectPath: string): Promise<string | null> {
   try {
@@ -20,7 +29,8 @@ async function detectProjectRef(projectPath: string): Promise<string | null> {
   }
 }
 
-/** Validate Supabase token + resolve project ref, returning an error result on failure. */
+/** Validate Supabase token + resolve project ref, returning an error result on failure.
+ *  Resolution order: explicit param > UI-linked ref > supabase/config.toml */
 async function requireSupabaseAuth(
   projectPath: string,
   projectRef?: string
@@ -29,9 +39,9 @@ async function requireSupabaseAuth(
   if (!token) {
     return { content: [{ type: 'text', text: 'Not connected to Supabase. Ask the user to connect via the Supabase icon in the top-right.' }] }
   }
-  const ref = projectRef || await detectProjectRef(projectPath)
+  const ref = projectRef || linkedProjectRef || await detectProjectRef(projectPath)
   if (!ref) {
-    return { content: [{ type: 'text', text: 'No project ref found. Pass projectRef or ensure supabase/config.toml exists.' }] }
+    return { content: [{ type: 'text', text: 'No project ref found. Pass projectRef, link a project in the Supabase icon, or ensure supabase/config.toml exists.' }] }
   }
   // Parse access token from encrypted compound token (JSON: { accessToken, refreshToken })
   let accessToken: string
@@ -48,10 +58,29 @@ function isAuthError(result: SupabaseAuth | McpTextResult): result is McpTextRes
   return 'content' in result
 }
 
+/** Format SQL results compactly to reduce terminal noise.
+ *  - Write ops (empty array result): return "OK"
+ *  - Small results: compact JSON (no pretty-print)
+ *  - Large results: truncate with row count */
+function formatResult(rows: unknown, sql?: string): string {
+  if (!Array.isArray(rows)) return JSON.stringify(rows)
+  // Write operations return empty array
+  if (rows.length === 0) {
+    const verb = sql?.trim().split(/\s+/)[0]?.toUpperCase() || 'Query'
+    return `${verb} executed successfully (0 rows returned)`
+  }
+  // Compact JSON for small results (< 2KB)
+  const compact = JSON.stringify(rows)
+  if (compact.length < 2000) return compact
+  // Truncate large results — show first 5 rows + count
+  const preview = JSON.stringify(rows.slice(0, 5))
+  return `${rows.length} rows total (showing first 5):\n${preview}`
+}
+
 export function registerSupabaseTools(
   server: McpServer,
   _getWindow: () => BrowserWindow | null,
-  projectPath: string
+  getProjectPath: () => string
 ): void {
   server.tool(
     'supabase_list_projects',
@@ -72,7 +101,7 @@ export function registerSupabaseTools(
         })
         if (!res.ok) return { content: [{ type: 'text', text: `Supabase API error (${res.status})` }] }
         const projects = await res.json()
-        return { content: [{ type: 'text', text: JSON.stringify(projects, null, 2) }] }
+        return { content: [{ type: 'text', text: formatResult(projects) }] }
       } catch (err) {
         return { content: [{ type: 'text', text: `Error: ${err}` }] }
       }
@@ -86,6 +115,8 @@ export function registerSupabaseTools(
       projectRef: z.string().optional().describe('Supabase project ref (e.g., "abcdefghijkl"). Auto-detected from supabase/config.toml if omitted.')
     },
     async ({ projectRef }) => {
+      const projectPath = getProjectPath()
+      if (!projectPath) return { content: [{ type: 'text', text: 'Session not initialized — reopen the tab or press Retry in the boot overlay' }] }
       const auth = await requireSupabaseAuth(projectPath, projectRef)
       if (isAuthError(auth)) return auth
 
@@ -105,7 +136,7 @@ export function registerSupabaseTools(
         })
         if (!res.ok) return { content: [{ type: 'text', text: `SQL error (${res.status}): ${await res.text()}` }] }
         const rows = await res.json()
-        return { content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }] }
+        return { content: [{ type: 'text', text: formatResult(rows) }] }
       } catch (err) {
         return { content: [{ type: 'text', text: `Error: ${err}` }] }
       }
@@ -120,6 +151,8 @@ export function registerSupabaseTools(
       projectRef: z.string().optional().describe('Supabase project ref. Auto-detected if omitted.')
     },
     async ({ sql, projectRef }) => {
+      const projectPath = getProjectPath()
+      if (!projectPath) return { content: [{ type: 'text', text: 'Session not initialized — reopen the tab or press Retry in the boot overlay' }] }
       const auth = await requireSupabaseAuth(projectPath, projectRef)
       if (isAuthError(auth)) return auth
 
@@ -131,7 +164,7 @@ export function registerSupabaseTools(
         })
         if (!res.ok) return { content: [{ type: 'text', text: `SQL error (${res.status}): ${await res.text()}` }] }
         const rows = await res.json()
-        return { content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }] }
+        return { content: [{ type: 'text', text: formatResult(rows, sql) }] }
       } catch (err) {
         return { content: [{ type: 'text', text: `Error: ${err}` }] }
       }
@@ -145,6 +178,8 @@ export function registerSupabaseTools(
       projectRef: z.string().optional().describe('Supabase project ref. Auto-detected if omitted.')
     },
     async ({ projectRef }) => {
+      const projectPath = getProjectPath()
+      if (!projectPath) return { content: [{ type: 'text', text: 'Session not initialized — reopen the tab or press Retry in the boot overlay' }] }
       const auth = await requireSupabaseAuth(projectPath, projectRef)
       if (isAuthError(auth)) return auth
 
@@ -185,6 +220,8 @@ export function registerSupabaseTools(
       projectRef: z.string().optional().describe('Supabase project ref. Auto-detected if omitted.')
     },
     async ({ projectRef }) => {
+      const projectPath = getProjectPath()
+      if (!projectPath) return { content: [{ type: 'text', text: 'Session not initialized — reopen the tab or press Retry in the boot overlay' }] }
       const auth = await requireSupabaseAuth(projectPath, projectRef)
       if (isAuthError(auth)) return auth
 
@@ -194,7 +231,7 @@ export function registerSupabaseTools(
         })
         if (!res.ok) return { content: [{ type: 'text', text: `API error (${res.status})` }] }
         const fns = await res.json()
-        return { content: [{ type: 'text', text: JSON.stringify(fns, null, 2) }] }
+        return { content: [{ type: 'text', text: formatResult(fns) }] }
       } catch (err) {
         return { content: [{ type: 'text', text: `Error: ${err}` }] }
       }
@@ -208,6 +245,8 @@ export function registerSupabaseTools(
       projectRef: z.string().optional().describe('Supabase project ref. Auto-detected if omitted.')
     },
     async ({ projectRef }) => {
+      const projectPath = getProjectPath()
+      if (!projectPath) return { content: [{ type: 'text', text: 'Session not initialized — reopen the tab or press Retry in the boot overlay' }] }
       const auth = await requireSupabaseAuth(projectPath, projectRef)
       if (isAuthError(auth)) return auth
 
@@ -217,7 +256,7 @@ export function registerSupabaseTools(
         })
         if (!res.ok) return { content: [{ type: 'text', text: `API error (${res.status})` }] }
         const buckets = await res.json()
-        return { content: [{ type: 'text', text: JSON.stringify(buckets, null, 2) }] }
+        return { content: [{ type: 'text', text: formatResult(buckets) }] }
       } catch (err) {
         return { content: [{ type: 'text', text: `Error: ${err}` }] }
       }
@@ -231,6 +270,8 @@ export function registerSupabaseTools(
       projectRef: z.string().optional().describe('Supabase project ref. Auto-detected if omitted.')
     },
     async ({ projectRef }) => {
+      const projectPath = getProjectPath()
+      if (!projectPath) return { content: [{ type: 'text', text: 'Session not initialized — reopen the tab or press Retry in the boot overlay' }] }
       const auth = await requireSupabaseAuth(projectPath, projectRef)
       if (isAuthError(auth)) return auth
 
@@ -246,7 +287,7 @@ export function registerSupabaseTools(
           serviceKey: keys.find((k) => k.name === 'service_role')?.api_key || '',
           dbUrl: `postgresql://postgres:[YOUR-PASSWORD]@db.${auth.ref}.supabase.co:5432/postgres`
         }
-        return { content: [{ type: 'text', text: JSON.stringify(info, null, 2) }] }
+        return { content: [{ type: 'text', text: formatResult(info) }] }
       } catch (err) {
         return { content: [{ type: 'text', text: `Error: ${err}` }] }
       }
@@ -260,6 +301,8 @@ export function registerSupabaseTools(
       projectRef: z.string().optional().describe('Supabase project ref. Auto-detected if omitted.')
     },
     async ({ projectRef }) => {
+      const projectPath = getProjectPath()
+      if (!projectPath) return { content: [{ type: 'text', text: 'Session not initialized — reopen the tab or press Retry in the boot overlay' }] }
       const auth = await requireSupabaseAuth(projectPath, projectRef)
       if (isAuthError(auth)) return auth
 
@@ -276,7 +319,7 @@ export function registerSupabaseTools(
         })
         if (!res.ok) return { content: [{ type: 'text', text: `SQL error: ${await res.text()}` }] }
         const rows = await res.json()
-        return { content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }] }
+        return { content: [{ type: 'text', text: formatResult(rows, sql) }] }
       } catch (err) {
         return { content: [{ type: 'text', text: `Error: ${err}` }] }
       }

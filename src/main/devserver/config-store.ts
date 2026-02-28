@@ -29,7 +29,7 @@ export function setDevConfig(projectPath: string, config: PersistedDevConfig): v
   settingsStore.set(configKey(projectPath), config)
 }
 
-function mergeDevConfig(projectPath: string, partial: Partial<PersistedDevConfig>): void {
+export function mergeDevConfig(projectPath: string, partial: Partial<PersistedDevConfig>): void {
   const existing = getDevConfig(projectPath) || {}
   setDevConfig(projectPath, { ...existing, ...partial })
 }

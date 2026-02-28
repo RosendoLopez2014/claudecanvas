@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { useTabsStore } from '@/stores/tabs'
+import { RESUME_PTY_RECONNECT_DELAY_MS } from '../../shared/constants'
 
 interface ConnectOptions {
   autoLaunchClaude?: boolean
@@ -11,19 +12,30 @@ interface ConnectOptions {
 /**
  * Wait for the MCP server to be ready on a specific tab, then return true.
  * Falls back to false after timeout so Claude still launches.
+ * Accepts an AbortSignal to clean up the subscriber if the caller cancels.
  */
-function waitForMcpReady(tabId: string, timeoutMs = 15000): Promise<boolean> {
+function waitForMcpReady(tabId: string, timeoutMs = 15000, signal?: AbortSignal): Promise<boolean> {
   return new Promise((resolve) => {
+    if (signal?.aborted) { resolve(false); return }
     const tab = useTabsStore.getState().tabs.find(t => t.id === tabId)
     if (tab?.mcpReady) { resolve(true); return }
+    let settled = false
+    const settle = (value: boolean) => {
+      if (settled) return
+      settled = true
+      unsub()
+      signal?.removeEventListener('abort', onAbort)
+      resolve(value)
+    }
     const unsub = useTabsStore.subscribe((state) => {
       const t = state.tabs.find(t => t.id === tabId)
-      if (t?.mcpReady) { unsub(); resolve(true) }
+      if (t?.mcpReady) settle(true)
     })
+    const onAbort = () => settle(false)
+    signal?.addEventListener('abort', onAbort)
     setTimeout(() => {
-      unsub()
       console.warn('[usePty] MCP ready timeout — launching Claude without confirmed MCP')
-      resolve(false)
+      settle(false)
     }, timeoutMs)
   })
 }
@@ -33,7 +45,18 @@ export function usePty() {
   const cleanupRef = useRef<(() => void)[]>([])
   const claudeLaunchedRef = useRef(false)
   const connectGenRef = useRef(0)
+
+  // Refs for auto-reconnect on system resume
+  const terminalRef = useRef<Terminal | null>(null)
+  const cwdRef = useRef<string | undefined>(undefined)
+  const optionsRef = useRef<ConnectOptions | undefined>(undefined)
+  const unmountingRef = useRef(false)
+
   const connect = useCallback(async (terminal: Terminal, cwd?: string, options?: ConnectOptions) => {
+    // Store for reconnection on resume
+    terminalRef.current = terminal
+    cwdRef.current = cwd
+    optionsRef.current = options
     const gen = ++connectGenRef.current
 
     // Use the explicitly provided tab ID (correct when multiple tabs spawn
@@ -45,7 +68,7 @@ export function usePty() {
       claudeLaunchedRef.current = false
     }
 
-    const id = await window.api.pty.spawn(undefined, cwd)
+    const id = await window.api.pty.spawn(undefined, cwd, targetTabId)
 
     if (gen !== connectGenRef.current) {
       window.api.pty.kill(id)
@@ -67,6 +90,10 @@ export function usePty() {
     }
 
     let settleTimer: ReturnType<typeof setTimeout> | null = null
+
+    // AbortController scoped to this connect() invocation — aborted on cleanup
+    // so any pending waitForMcpReady Zustand subscribers are properly released.
+    const ac = new AbortController()
 
     // Register MCP server via CLI, then launch Claude Code
     let claudeOutputBytes = 0
@@ -135,7 +162,7 @@ export function usePty() {
       if (!claudeLaunchedRef.current && options?.autoLaunchClaude) {
         if (settleTimer) clearTimeout(settleTimer)
         settleTimer = setTimeout(async () => {
-          const ready = await waitForMcpReady(targetTabId!)
+          const ready = await waitForMcpReady(targetTabId!, 15000, ac.signal)
           if (!ready) console.warn('[usePty] MCP not confirmed ready at shell-settle launch')
           suppressOutput = false
           launchClaude()
@@ -151,10 +178,11 @@ export function usePty() {
     cleanupRef.current.push(() => {
       if (settleTimer) clearTimeout(settleTimer)
     })
+    cleanupRef.current.push(() => ac.abort())
 
     if (options?.autoLaunchClaude) {
       const fallbackTimer = setTimeout(async () => {
-        const ready = await waitForMcpReady(targetTabId!)
+        const ready = await waitForMcpReady(targetTabId!, 15000, ac.signal)
         if (!ready) console.warn('[usePty] MCP not confirmed ready at fallback launch')
         launchClaude()
       }, 5000)
@@ -179,8 +207,30 @@ export function usePty() {
     }
   }, [])
 
+  // Auto-reconnect PTY on system resume if it died during sleep
+  useEffect(() => {
+    const removeResume = window.api.system.onResume(() => {
+      setTimeout(() => {
+        if (unmountingRef.current) return
+        if (!ptyIdRef.current && terminalRef.current) {
+          console.log('[usePty] PTY dead after resume — auto-reconnecting')
+          // Show reconnection message in terminal
+          terminalRef.current.writeln('')
+          terminalRef.current.writeln('\x1b[33m⟳ Reconnecting after sleep...\x1b[0m')
+          connect(terminalRef.current, cwdRef.current, {
+            ...optionsRef.current,
+            // Re-launch Claude since the session was lost
+            autoLaunchClaude: optionsRef.current?.autoLaunchClaude ?? true,
+          })
+        }
+      }, RESUME_PTY_RECONNECT_DELAY_MS)
+    })
+    return () => removeResume()
+  }, [connect])
+
   useEffect(() => {
     return () => {
+      unmountingRef.current = true
       console.log(`[TAB-DEBUG] usePty CLEANUP: ptyId=${ptyIdRef.current}`)
       cleanupRef.current.forEach((fn) => fn())
       cleanupRef.current = []

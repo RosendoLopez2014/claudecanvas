@@ -1,7 +1,30 @@
 import { app, BrowserWindow, shell, ipcMain, dialog, screen } from 'electron'
 import { join } from 'path'
+import { readFileSync } from 'fs'
+import { randomBytes } from 'node:crypto'
 import { is } from '@electron-toolkit/utils'
-import { setupPtyHandlers, killAllPtys } from './pty'
+
+// Load .env file into process.env (no external dependency needed)
+// __dirname in compiled output is <project>/out/main — go up two levels to reach project root
+try {
+  const envPath = join(__dirname, '../../.env')
+  const envContent = readFileSync(envPath, 'utf-8')
+  let loaded = 0
+  for (const line of envContent.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const eqIdx = trimmed.indexOf('=')
+    if (eqIdx === -1) continue
+    const key = trimmed.slice(0, eqIdx).trim()
+    const value = trimmed.slice(eqIdx + 1).trim()
+    if (!process.env[key]) {
+      process.env[key] = value
+      loaded++
+    }
+  }
+  console.log(`[env] Loaded ${loaded} variables from ${envPath}`)
+} catch { /* .env file is optional */ }
+import { setupPtyHandlers, killAllPtys, getActivePtyInfo } from './pty'
 import { setupSettingsHandlers, settingsStore } from './store'
 import { setupFileWatcher, closeWatcher } from './watcher'
 import { setupDevServerSystem, killAllDevServers } from './devserver'
@@ -11,7 +34,8 @@ import { cleanupAllGitInstances } from './services/git-queue'
 import { setupGithubOAuth } from './oauth/github'
 import { setupVercelOAuth } from './oauth/vercel'
 import { setupSupabaseOAuth } from './oauth/supabase'
-import { startMcpServer, stopMcpServer } from './mcp/server'
+import { startMcpServer, stopMcpServer, registerSessionToken, unregisterSessionToken, clearTokenRegistry } from './mcp/server'
+import { setLinkedSupabaseRef } from './mcp/supabase-tools'
 import { setupGalleryIpc } from './mcp/gallery-state'
 import { writeMcpConfig, removeMcpConfig } from './mcp/config-writer'
 import { setupScreenshotHandlers } from './screenshot'
@@ -24,6 +48,9 @@ import { setupSearchHandlers } from './services/search'
 import { setupComponentScannerHandlers } from './services/component-scanner'
 import { initSecureStorage } from './services/secure-storage'
 import { setupAutoUpdater, installUpdate } from './updater'
+import { registerPtyProvider, registerDevProvider, listProcesses } from './services/process-tracker'
+import { getActiveDevServers } from './devserver/runner'
+import { setupPowerMonitor, stopPowerSaveBlocker } from './power-monitor'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -95,9 +122,13 @@ function createWindow(): void {
 
   // Forward renderer console messages with [TAB-DEBUG] to main process stdout
   // so we can see them in the terminal without DevTools
-  mainWindow.webContents.on('console-message', (_event, _level, message) => {
+  mainWindow.webContents.on('console-message', (_event, level, message) => {
     if (message.includes('[TAB-DEBUG]')) {
       console.log(message)
+    }
+    // Forward errors/warnings to terminal for debugging
+    if (level >= 2) {
+      console.log(`[RENDERER ${level === 2 ? 'WARN' : 'ERROR'}] ${message}`)
     }
   })
 
@@ -150,6 +181,7 @@ app.whenReady().then(() => {
 
   createWindow()
   setupAutoUpdater(mainWindow!)
+  setupPowerMonitor(() => mainWindow)
 
   // Core services
   setupPtyHandlers(() => mainWindow)
@@ -170,19 +202,74 @@ app.whenReady().then(() => {
   setupSearchHandlers()
   setupComponentScannerHandlers()
   setupGalleryIpc()
-  // MCP Bridge — start server when a project opens
-  ipcMain.handle('mcp:project-opened', async (_event, projectPath: string) => {
-    const t0 = Date.now()
-    const port = await startMcpServer(() => mainWindow, projectPath)
-    await writeMcpConfig(projectPath, port)
-    console.log(`[MCP] Project opened in ${Date.now() - t0}ms — port ${port}, path: ${projectPath}`)
-    return { port }
+
+  // Process tracker providers
+  registerPtyProvider(getActivePtyInfo)
+  registerDevProvider(getActiveDevServers)
+
+  // Process manager IPC
+  ipcMain.handle('process:list', async (_event, opts?: { tabId?: string }) => {
+    return listProcesses(opts?.tabId)
   })
 
-  // MCP Bridge — stop server when project closes
-  ipcMain.handle('mcp:project-closed', async () => {
+  ipcMain.handle('process:kill', async (_event, opts: { pid: number }) => {
+    const treeKill = (await import('tree-kill')).default
+    const known = await listProcesses()
+    if (!known.some((p) => p.pid === opts.pid)) {
+      return { success: false, error: 'PID not in known process list' }
+    }
+    return new Promise((resolve) => {
+      treeKill(opts.pid, 'SIGTERM', (err) => {
+        resolve(err ? { success: false, error: (err as Error).message } : { success: true })
+      })
+    })
+  })
+
+  // Per-tab session tracking
+  const tabSessions = new Map<string, { projectPath: string; port: number; token: string; createdAt: number }>()
+
+  // MCP Bridge — start server when a tab opens a project
+  ipcMain.handle('mcp:project-opened', async (_event, opts: { tabId: string; projectPath: string }) => {
+    const { tabId, projectPath } = opts
+    const t0 = Date.now()
+    try {
+      const token = randomBytes(12).toString('hex') // 24-char hex token
+      const port = await startMcpServer(() => mainWindow, projectPath)
+      registerSessionToken(token, tabId, projectPath)
+      // ALWAYS overwrite .mcp.json with new token (stale tokens from prior sessions are expected)
+      await writeMcpConfig(projectPath, port, token)
+      tabSessions.set(tabId, { projectPath, port, token, createdAt: Date.now() })
+      console.log(`[MCP][tabId=${tabId}] Opened in ${Date.now() - t0}ms — port ${port}, token=${token.slice(0, 4)}…, path: ${projectPath}`)
+      return { port }
+    } catch (err) {
+      console.error(`[MCP][tabId=${tabId}] project-opened failed (${Date.now() - t0}ms):`, err)
+      throw err // Re-throw so renderer's .catch() fires and sets boot.mcpReady = 'error'
+    }
+  })
+
+  // MCP Bridge — stop session when a tab closes
+  ipcMain.handle('mcp:project-closed', async (_event, opts: { tabId: string }) => {
+    const session = tabSessions.get(opts.tabId)
+    if (session?.token) unregisterSessionToken(session.token)
+    tabSessions.delete(opts.tabId)
+    console.log(`[MCP][tabId=${opts.tabId}] Closed (${tabSessions.size} remaining)`)
+    if (tabSessions.size === 0) {
+      await removeMcpConfig()
+      await stopMcpServer()
+    }
+  })
+
+  // MCP Bridge — shutdown all sessions (called when all tabs close)
+  ipcMain.handle('mcp:shutdown-all', async () => {
+    tabSessions.clear()
+    clearTokenRegistry()
     await removeMcpConfig()
     await stopMcpServer()
+  })
+
+  // MCP Bridge — renderer tells us the linked Supabase project ref
+  ipcMain.handle('mcp:supabase-linked', (_event, ref: string | null) => {
+    setLinkedSupabaseRef(ref)
   })
 
   // Auto-updater
@@ -251,6 +338,7 @@ app.on('window-all-closed', () => {
   closeWatcher()
   killAllDevServers()
   cleanupAllGitInstances()
+  stopPowerSaveBlocker()
   if (process.platform !== 'darwin') app.quit()
 })
 

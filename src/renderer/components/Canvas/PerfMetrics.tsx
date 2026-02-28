@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Activity, RefreshCw } from 'lucide-react'
-import { useTabsStore, selectActiveTab } from '@/stores/tabs'
+import { useActiveTab } from '@/stores/tabs'
 
 interface Metrics {
   lcp: number | null
@@ -85,7 +85,7 @@ const PERF_SCRIPT = `
 export function PerfMetrics() {
   const [metrics, setMetrics] = useState<Metrics>({ lcp: null, fid: null, cls: null, ttfb: null })
   const [expanded, setExpanded] = useState(false)
-  const currentTab = useTabsStore(selectActiveTab)
+  const currentTab = useActiveTab()
   const previewUrl = currentTab?.previewUrl ?? null
   const intervalRef = useRef<ReturnType<typeof setInterval>>()
 

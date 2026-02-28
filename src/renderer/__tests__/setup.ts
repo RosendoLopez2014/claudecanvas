@@ -113,7 +113,9 @@ const mockApi = {
     getConfig: vi.fn().mockResolvedValue(null),
     onOutput: vi.fn().mockReturnValue(vi.fn()),
     onExit: vi.fn().mockReturnValue(vi.fn()),
-    onStatus: vi.fn().mockReturnValue(vi.fn())
+    onStatus: vi.fn().mockReturnValue(vi.fn()),
+    onCrashReport: vi.fn().mockReturnValue(vi.fn()),
+    onRepairEvent: vi.fn().mockReturnValue(vi.fn())
   },
   mcp: {
     projectOpened: vi.fn().mockResolvedValue({ port: 9315 }),
@@ -149,6 +151,10 @@ const mockApi = {
   updater: {
     onStatus: vi.fn().mockReturnValue(vi.fn()),
     install: vi.fn().mockResolvedValue(undefined)
+  },
+  system: {
+    onSuspend: vi.fn().mockReturnValue(vi.fn()),
+    onResume: vi.fn().mockReturnValue(vi.fn())
   }
 }
 

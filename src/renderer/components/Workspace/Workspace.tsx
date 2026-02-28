@@ -9,25 +9,25 @@ import { SplitPaneHeader, getGridStyle, shouldSpanFull } from './SplitViewGrid'
 import type { SplitViewTab } from './SplitViewGrid'
 import { useWorkspaceStore } from '@/stores/workspace'
 import type { SplitViewScope } from '@/stores/workspace'
-import { useTabsStore, selectActiveTab, type TabState } from '@/stores/tabs'
+import { useTabsStore, useActiveTab, type TabState } from '@/stores/tabs'
+import { useTabMcpInit } from '@/hooks/useTabMcpInit'
 
 // Terminal gets a narrow column in desktop mode so canvas is as wide as possible
 const TERMINAL_MIN = 380
 
-const TRANSITION = 'width 300ms cubic-bezier(0.25, 0.1, 0.25, 1)'
+// No CSS transition on canvas width — snap open/close like VS Code panels.
+// Transitions caused visual glitches (expanding clear box) and terminal refit lag.
 
 /**
  * Stable selector: extracts tab IDs, project paths, and project names.
- * Uses Zustand's equality function to avoid re-renders when tab metadata hasn't changed.
+ * NOTE: Zustand v5's create() ignores equality functions (third arg).
+ * We subscribe to s.tabs (stable store ref) and derive in useMemo.
  */
 function useTabList() {
-  return useTabsStore(
-    useCallback(
-      (s: { tabs: TabState[] }) =>
-        s.tabs.map((t) => ({ id: t.id, projectPath: t.project.path, projectName: t.project.name })),
-      []
-    ),
-    (a, b) => a.length === b.length && a.every((item, i) => item.id === b[i].id)
+  const tabs = useTabsStore((s) => s.tabs)
+  return useMemo(
+    () => tabs.map((t) => ({ id: t.id, projectPath: t.project.path, projectName: t.project.name })),
+    [tabs]
   )
 }
 
@@ -41,8 +41,7 @@ function useSplitViewTabs(): SplitViewTab[] {
       branch: t.worktreeBranch,
       devStatus: t.dev.status,
     })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tabs.length, ...tabs.map((t) => `${t.id}:${t.project.name}:${t.worktreeBranch}:${t.dev.status}`)]
+    [tabs]
   )
 }
 
@@ -98,23 +97,98 @@ function SplitDropdown({ canSplitBranches, canSplitAll, onSelect, onClose }: {
   )
 }
 
+// ── Per-tab wrapper (calls hooks that can't be inside .map()) ────────
+
+interface TabPaneProps {
+  tabId: string
+  projectPath: string
+  projectName: string
+  isActive: boolean
+  isGridChild: boolean
+  isHidden: boolean
+  splitIndex: number
+  splitGridCount: number
+  splitTab: SplitViewTab | undefined
+  splitViewActive: boolean
+  onSelectSplitPane: (id: string) => void
+}
+
+function TabPane({
+  tabId, projectPath, projectName,
+  isActive, isGridChild, isHidden,
+  splitIndex, splitGridCount, splitTab,
+  splitViewActive, onSelectSplitPane,
+}: TabPaneProps) {
+  // Per-tab MCP session lifecycle
+  useTabMcpInit(tabId, projectPath)
+
+  return (
+    <div
+      className={
+        isGridChild
+          ? `flex flex-col min-w-0 min-h-0 bg-[var(--bg-primary)] border overflow-hidden transition-colors duration-150 ${
+              isActive ? 'border-[var(--accent-cyan)]/40' : 'border-white/10'
+            }`
+          : 'absolute inset-0'
+      }
+      style={
+        isGridChild
+          ? {
+              order: splitIndex,
+              ...(shouldSpanFull(splitGridCount, splitIndex) ? { gridColumn: '1 / -1' } : {}),
+            }
+          : { visibility: isHidden ? 'hidden' : 'visible' }
+      }
+    >
+      {/* Pane header — always mounted to keep child index stable, hidden when not in grid */}
+      <div style={isGridChild ? undefined : { display: 'none' }}>
+        {splitTab && (
+          <SplitPaneHeader
+            tab={splitTab}
+            index={splitIndex >= 0 ? splitIndex : 0}
+            onSelect={() => onSelectSplitPane(tabId)}
+          />
+        )}
+      </div>
+
+      {/* TerminalView — ALWAYS at child index 1, never remounted */}
+      <div
+        className={isGridChild ? 'flex-1 min-h-0' : 'h-full'}
+        onMouseDown={isGridChild ? () => useTabsStore.getState().setActiveTab(tabId) : undefined}
+      >
+        <TerminalView
+          cwd={projectPath}
+          tabId={tabId}
+          isTabActive={isGridChild || isActive}
+        />
+      </div>
+
+      {/* Boot overlay — always mounted so it survives tab switches.
+          Parent div handles visibility:hidden when tab is inactive. */}
+      {!splitViewActive && (
+        <BootOverlay
+          tabId={tabId}
+          projectName={projectName}
+        />
+      )}
+    </div>
+  )
+}
+
 // ── Workspace ──────────────────────────────────────────────────────────
 
 export function Workspace() {
-  const renderT0 = performance.now()
-  const { mode, fileExplorerOpen, splitViewActive, splitViewScope } = useWorkspaceStore()
-  const currentTab = useTabsStore(selectActiveTab)
+  const { mode, fileExplorerOpen, splitViewActive, splitViewScope, canvasFullscreen } = useWorkspaceStore()
+  const currentTab = useActiveTab()
   const viewportMode = currentTab?.viewportMode ?? 'desktop'
   const tabList = useTabList()
   const splitTabs = useSplitViewTabs()
   const activeTabId = useTabsStore((s) => s.activeTabId)
   const [splitMenuOpen, setSplitMenuOpen] = useState(false)
 
-  useEffect(() => {
-    console.log(`[TAB-DEBUG] Workspace render took ${(performance.now() - renderT0).toFixed(1)}ms`)
-  })
   const showCanvas = mode === 'terminal-canvas'
   const isMobile = viewportMode === 'mobile'
+  const viewportWidth = currentTab?.viewportWidth ?? 0
 
   // ── Split view scope logic ─────────────────────────────────────────────
   const activeProjectName = tabList.find((t) => t.id === activeTabId)?.projectName ?? null
@@ -152,7 +226,6 @@ export function Workspace() {
   // ── Canvas width logic ─────────────────────────────────────────────────
   const containerRef = useRef<HTMLDivElement>(null)
   const [canvasWidth, setCanvasWidth] = useState(0)
-  const [isAnimating, setIsAnimating] = useState(false)
   const dividerDragging = useRef(false)
   const dragStartX = useRef(0)
   const dragStartWidth = useRef(0)
@@ -161,18 +234,24 @@ export function Workspace() {
     const container = containerRef.current
     if (!container) return 0
     if (!showCanvas) return 0
+    // Device viewports: shrink canvas to fit the device + padding
+    if (viewportWidth > 0 && viewportWidth <= 430) {
+      return Math.min(500, Math.max(380, container.clientWidth * 0.38))
+    }
+    if (viewportWidth > 430 && viewportWidth <= 800) {
+      return Math.min(620, Math.max(450, container.clientWidth * 0.45))
+    }
     if (isMobile) return Math.min(420, container.clientWidth * 0.45)
     return Math.max(400, container.clientWidth - TERMINAL_MIN)
-  }, [showCanvas, isMobile])
+  }, [showCanvas, isMobile, viewportWidth])
 
   useEffect(() => {
     const target = computeCanvasWidth()
     if (target === canvasWidth) return
-    setIsAnimating(true)
     setCanvasWidth(target)
-    const timer = setTimeout(() => setIsAnimating(false), 320)
-    return () => clearTimeout(timer)
-  }, [showCanvas, isMobile, computeCanvasWidth]) // eslint-disable-line react-hooks/exhaustive-deps
+    // Nudge terminals to re-fit after the snap layout change
+    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
+  }, [showCanvas, isMobile, viewportWidth, computeCanvasWidth]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!showCanvas) return
@@ -184,33 +263,41 @@ export function Workspace() {
     return () => window.removeEventListener('resize', onResize)
   }, [showCanvas, computeCanvasWidth])
 
-  const onDividerMouseDown = useCallback((e: React.MouseEvent) => {
+  // Refit terminals when entering/exiting fullscreen canvas
+  useEffect(() => {
+    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
+  }, [canvasFullscreen])
+
+  // ── Divider drag via Pointer Capture ────────────────────────────────
+  // setPointerCapture guarantees all pointer events are delivered to the
+  // capturing element even if the cursor leaves the window, fixing the
+  // "divider sticks to mouse" bug that occurs with document-level listeners.
+
+  const onDividerPointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault()
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
     dividerDragging.current = true
     dragStartX.current = e.clientX
     dragStartWidth.current = canvasWidth
-
-    const onMouseMove = (ev: MouseEvent) => {
-      const delta = dragStartX.current - ev.clientX
-      const container = containerRef.current
-      if (!container) return
-      const maxWidth = container.clientWidth - 300
-      setCanvasWidth(Math.max(200, Math.min(maxWidth, dragStartWidth.current + delta)))
-    }
-    const onMouseUp = () => {
-      dividerDragging.current = false
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onMouseUp)
   }, [canvasWidth])
 
-  const shouldTransition = isAnimating || !dividerDragging.current
+  const onDividerPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dividerDragging.current) return
+    const delta = dragStartX.current - e.clientX
+    const container = containerRef.current
+    if (!container) return
+    const maxWidth = container.clientWidth - 300
+    setCanvasWidth(Math.max(200, Math.min(maxWidth, dragStartWidth.current + delta)))
+  }, [])
+
+  const onDividerPointerUp = useCallback(() => {
+    dividerDragging.current = false
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }, [])
+
 
   // Auto-exit split view when grid drops below 2 tabs
   useEffect(() => {
@@ -282,9 +369,19 @@ export function Workspace() {
         className={
           splitViewActive
             ? 'h-full flex-1 min-w-0 grid gap-px bg-white/5 relative'
-            : 'h-full flex-1 min-w-[300px] relative'
+            : canvasFullscreen
+              ? 'h-full relative overflow-hidden'
+              : showCanvas
+                ? 'h-full flex-1 min-w-[300px] relative'
+                : 'h-full flex-1 min-w-0 relative'
         }
-        style={splitViewActive ? getGridStyle(splitGridCount) : undefined}
+        style={
+          splitViewActive
+            ? getGridStyle(splitGridCount)
+            : canvasFullscreen
+              ? { width: 0 }
+              : undefined
+        }
       >
         {tabList.map((tab) => {
           const isActive = tab.id === activeTabId
@@ -296,74 +393,41 @@ export function Workspace() {
           const isHidden = splitViewActive ? !inSplitGrid : !isActive
 
           return (
-            <div
+            <TabPane
               key={tab.id}
-              className={
-                isGridChild
-                  ? `flex flex-col min-w-0 min-h-0 bg-[var(--bg-primary)] border overflow-hidden transition-colors duration-150 ${
-                      isActive ? 'border-[var(--accent-cyan)]/40' : 'border-white/10'
-                    }`
-                  : 'absolute inset-0'
-              }
-              style={
-                isGridChild
-                  ? {
-                      order: splitIndex,
-                      ...(shouldSpanFull(splitGridCount, splitIndex) ? { gridColumn: '1 / -1' } : {}),
-                    }
-                  : { visibility: isHidden ? 'hidden' : 'visible' }
-              }
-            >
-              {/* Pane header — always mounted to keep child index stable, hidden when not in grid */}
-              <div style={isGridChild ? undefined : { display: 'none' }}>
-                {splitTab && (
-                  <SplitPaneHeader
-                    tab={splitTab}
-                    index={splitIndex >= 0 ? splitIndex : 0}
-                    onSelect={() => handleSelectSplitPane(tab.id)}
-                  />
-                )}
-              </div>
-
-              {/* TerminalView — ALWAYS at child index 1, never remounted */}
-              <div
-                className={isGridChild ? 'flex-1 min-h-0' : 'h-full'}
-                onMouseDown={isGridChild ? () => useTabsStore.getState().setActiveTab(tab.id) : undefined}
-              >
-                <TerminalView
-                  cwd={tab.projectPath}
-                  tabId={tab.id}
-                  isTabActive={isGridChild || isActive}
-                />
-              </div>
-
-              {/* Boot overlay — always mounted so it survives tab switches.
-                  Parent div handles visibility:hidden when tab is inactive. */}
-              {!splitViewActive && (
-                <BootOverlay
-                  tabId={tab.id}
-                  projectName={tab.projectPath.split('/').pop() || 'project'}
-                />
-              )}
-            </div>
+              tabId={tab.id}
+              projectPath={tab.projectPath}
+              projectName={tab.projectPath.split('/').pop() || 'project'}
+              isActive={isActive}
+              isGridChild={isGridChild}
+              isHidden={isHidden}
+              splitIndex={splitIndex}
+              splitGridCount={splitGridCount}
+              splitTab={splitTab}
+              splitViewActive={splitViewActive}
+              onSelectSplitPane={handleSelectSplitPane}
+            />
           )
         })}
       </div>
 
-      {/* Canvas pane — collapsed to 0 during split view, animated width otherwise */}
+      {/* Canvas pane — collapsed to 0 during split view, full-width when fullscreen */}
       <div
-        className="h-full flex overflow-hidden"
+        className={`h-full flex overflow-hidden bg-[var(--bg-secondary)] ${canvasFullscreen ? 'flex-1' : ''}`}
         style={{
-          width: splitViewActive ? 0 : canvasWidth,
-          transition: shouldTransition && !splitViewActive ? TRANSITION : 'none',
-          willChange: isAnimating ? 'width' : 'auto'
+          width: canvasFullscreen ? undefined : (splitViewActive ? 0 : canvasWidth),
+          opacity: (canvasFullscreen || canvasWidth > 0) && !splitViewActive ? 1 : 0,
+          transition: 'opacity 150ms ease',
         }}
       >
-        {canvasWidth > 0 && !splitViewActive && (
+        {!canvasFullscreen && canvasWidth > 0 && !splitViewActive && (
           <div
             className="h-full flex-shrink-0 flex items-center justify-center group cursor-col-resize"
-            style={{ width: 6 }}
-            onMouseDown={onDividerMouseDown}
+            style={{ width: 10, touchAction: 'none' }}
+            onPointerDown={onDividerPointerDown}
+            onPointerMove={onDividerPointerMove}
+            onPointerUp={onDividerPointerUp}
+            onLostPointerCapture={onDividerPointerUp}
           >
             <div className="w-px h-full bg-white/10 group-hover:bg-cyan-400/40 transition-colors duration-200" />
           </div>

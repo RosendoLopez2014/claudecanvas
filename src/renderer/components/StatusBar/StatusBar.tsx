@@ -1,7 +1,7 @@
 import { useProjectStore } from '@/stores/project'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useToastStore } from '@/stores/toast'
-import { useTabsStore, selectActiveTab } from '@/stores/tabs'
+import { useTabsStore, useActiveTab } from '@/stores/tabs'
 import {
   GitBranch, Play, Square, PanelRight, Eye, Loader2, FolderOpen,
   ArrowDown, ArrowUp, Check, Rocket, Settings, AlertTriangle
@@ -9,6 +9,7 @@ import {
 import { useCallback, useEffect, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { PushPopover } from './PushPopover'
+import { ProcessManager } from './ProcessManager'
 import { TokenGauge } from './TokenGauge'
 import { CommandPicker } from '../CommandPicker/CommandPicker'
 
@@ -17,7 +18,7 @@ export function StatusBar() {
   const { mode, openCanvas, closeCanvas } = useWorkspaceStore()
   const showCanvas = mode === 'terminal-canvas'
   const [startingStatus, setStartingStatus] = useState<string | null>(null)
-  const activeTab = useTabsStore(selectActiveTab)
+  const activeTab = useActiveTab()
   const inspectorActive = activeTab?.inspectorActive ?? false
 
   // Dev server state — derived from the active tab (NOT deprecated globals)
@@ -505,6 +506,9 @@ export function StatusBar() {
             <span>v{updateReady} — Restart</span>
           </button>
         )}
+
+        {/* Process manager */}
+        <ProcessManager />
 
         {/* Token usage gauge */}
         <TokenGauge />

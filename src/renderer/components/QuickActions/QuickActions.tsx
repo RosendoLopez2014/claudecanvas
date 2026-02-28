@@ -9,7 +9,7 @@ import {
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useProjectStore } from '@/stores/project'
 import { useToastStore } from '@/stores/toast'
-import { useTabsStore, selectActiveTab } from '@/stores/tabs'
+import { useTabsStore, useActiveTab } from '@/stores/tabs'
 
 interface QuickAction {
   id: string
@@ -27,7 +27,7 @@ interface QuickActionsProps {
 
 export function QuickActions({ open, onClose }: QuickActionsProps) {
   const [search, setSearch] = useState('')
-  const currentTab = useTabsStore(selectActiveTab)
+  const currentTab = useActiveTab()
   const inspectorActive = currentTab?.inspectorActive ?? false
   const { mode, openCanvas, closeCanvas } = useWorkspaceStore()
   const { currentProject } = useProjectStore()
@@ -152,7 +152,7 @@ export function QuickActions({ open, onClose }: QuickActionsProps) {
       },
       {
         id: 'viewport-mobile',
-        label: 'Set Viewport: iPhone 14',
+        label: 'Set Viewport: Mobile',
         category: 'Canvas',
         icon: Monitor,
         action: () => {

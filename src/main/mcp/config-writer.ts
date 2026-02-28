@@ -1,4 +1,4 @@
-import { writeFile, unlink, readFile, appendFile, mkdir } from 'node:fs/promises'
+import { writeFile, unlink, readFile, appendFile, mkdir, rename } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
@@ -182,7 +182,7 @@ async function ensureSoulTemplate(projPath: string): Promise<void> {
   await writeFile(soulPath, SOUL_TEMPLATE + '\n', 'utf-8')
 }
 
-export async function writeMcpConfig(projPath: string, port: number): Promise<void> {
+export async function writeMcpConfig(projPath: string, port: number, token?: string): Promise<void> {
   projectPaths.add(projPath)
   const mcpServerConfig = {
     'claude-canvas': {
@@ -197,28 +197,28 @@ export async function writeMcpConfig(projPath: string, port: number): Promise<vo
   // Only ~/.claude.json and .mcp.json are read for MCP server discovery.
   const wrote = await writeGlobalClaudeJson(mcpServerConfig, projPath)
 
+  // Per-project .mcp.json with token — ALWAYS overwrite on every projectOpened
+  // so each tab gets a fresh token. Stale tokens from prior sessions are expected
+  // and will produce a clear error from the server.
+  // Atomic write: temp file + rename prevents Claude Code from reading a half-written file.
   const mcpJsonPath = join(projPath, '.mcp.json')
-  if (wrote) {
-    // Clean up stale .mcp.json from older sessions (triggers approval prompt)
-    if (existsSync(mcpJsonPath)) {
-      try {
-        const content = JSON.parse(await readFile(mcpJsonPath, 'utf-8'))
-        if (content?.mcpServers?.['claude-canvas']) {
-          await unlink(mcpJsonPath).catch((e: Error) => console.warn('[mcp-config] cleanup:', e.message))
-        }
-      } catch {
-        // Not JSON or unreadable — leave it alone
+  const mcpJsonTmp = mcpJsonPath + '.tmp'
+  const tokenUrl = token
+    ? `http://127.0.0.1:${port}/mcp?token=${token}`
+    : `http://127.0.0.1:${port}/mcp`
+  await writeFile(
+    mcpJsonTmp,
+    JSON.stringify({
+      mcpServers: {
+        'claude-canvas': { type: 'http', url: tokenUrl }
       }
-    }
-  } else {
-    // Fallback: write .mcp.json in the project directory.
-    // Claude Code will show an approval prompt, but the MCP server will work.
-    console.log('[mcp-config] using .mcp.json fallback')
-    await writeFile(
-      mcpJsonPath,
-      JSON.stringify({ mcpServers: mcpServerConfig }, null, 2) + '\n',
-      'utf-8'
-    )
+    }, null, 2) + '\n',
+    'utf-8'
+  )
+  await rename(mcpJsonTmp, mcpJsonPath)
+
+  if (!wrote) {
+    console.log('[mcp-config] ~/.claude.json write failed — .mcp.json is the sole discovery path')
   }
 
   // Write tool auto-approvals to .claude/settings.local.json

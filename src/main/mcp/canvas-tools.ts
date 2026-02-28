@@ -8,13 +8,8 @@ import { executeWithTimeout, errorResponse } from './helpers'
 export function registerCanvasTools(
   server: McpServer,
   getWindow: () => BrowserWindow | null,
-  projectPath: string
+  getProjectPath: () => string
 ): void {
-  // Cache project profile for richer tool responses
-  const profile = generateProjectProfile(projectPath)
-  const componentCount = profile.components.reduce((sum, g) => sum + g.items.length + g.overflow, 0)
-  const frameworkLabel = profile.framework || 'unknown'
-
   server.tool(
     'canvas_render',
     'Render HTML/CSS in the canvas panel or inline in the terminal. Auto-opens the canvas if the component is large.',
@@ -25,6 +20,8 @@ export function registerCanvasTools(
     async ({ html, css }) => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
+      const projectPath = getProjectPath()
+      if (!projectPath) return errorResponse('Session not initialized — reopen the tab or press Retry in the boot overlay')
       win.webContents.send('mcp:canvas-render', { projectPath, html, css })
       return { content: [{ type: 'text', text: 'Rendered successfully. The component is now visible in the canvas.' }] }
     }
@@ -40,7 +37,12 @@ export function registerCanvasTools(
     async ({ command, cwd }) => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
+      const projectPath = getProjectPath()
+      if (!projectPath) return errorResponse('Session not initialized — reopen the tab or press Retry in the boot overlay')
       win.webContents.send('mcp:start-preview', { projectPath, command, cwd })
+      const profile = generateProjectProfile(projectPath)
+      const componentCount = profile.components.reduce((sum, g) => sum + g.items.length + g.overflow, 0)
+      const frameworkLabel = profile.framework || 'unknown'
       const ctx = [frameworkLabel, `port ${profile.devPort}`, `${componentCount} components`].join(', ')
       return { content: [{ type: 'text', text: `Dev server starting (${ctx}). The canvas panel will open with a live preview.` }] }
     }
@@ -53,6 +55,8 @@ export function registerCanvasTools(
     async () => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
+      const projectPath = getProjectPath()
+      if (!projectPath) return errorResponse('Session not initialized — reopen the tab or press Retry in the boot overlay')
       win.webContents.send('mcp:stop-preview', { projectPath })
       return { content: [{ type: 'text', text: 'Dev server stopped and preview closed.' }] }
     }
@@ -67,6 +71,8 @@ export function registerCanvasTools(
     async ({ url }) => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
+      const projectPath = getProjectPath()
+      if (!projectPath) return errorResponse('Session not initialized — reopen the tab or press Retry in the boot overlay')
       win.webContents.send('mcp:set-preview-url', { projectPath, url })
       return { content: [{ type: 'text', text: `Preview URL set to ${url}. Canvas is now showing the live preview.` }] }
     }
@@ -81,6 +87,8 @@ export function registerCanvasTools(
     async ({ tab }) => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
+      const projectPath = getProjectPath()
+      if (!projectPath) return errorResponse('Session not initialized — reopen the tab or press Retry in the boot overlay')
       win.webContents.send('mcp:open-tab', { projectPath, tab })
       return { content: [{ type: 'text', text: `Switched to ${tab} tab.` }] }
     }
@@ -113,6 +121,8 @@ export function registerCanvasTools(
     async ({ label, html, css, componentPath, description, category, pros, cons, annotations, sessionId, order }) => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
+      const projectPath = getProjectPath()
+      if (!projectPath) return errorResponse('Session not initialized — reopen the tab or press Retry in the boot overlay')
       win.webContents.send('mcp:add-to-gallery', {
         projectPath, label, html, css, componentPath,
         description, category, pros, cons, annotations, sessionId, order
@@ -133,6 +143,8 @@ export function registerCanvasTools(
     async ({ action, title, prompt, variantId }) => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
+      const projectPath = getProjectPath()
+      if (!projectPath) return errorResponse('Session not initialized — reopen the tab or press Retry in the boot overlay')
 
       if (action === 'start') {
         const sessionId = `ds-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
@@ -217,6 +229,8 @@ export function registerCanvasTools(
     async ({ variantId, ...updates }) => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
+      const projectPath = getProjectPath()
+      if (!projectPath) return errorResponse('Session not initialized — reopen the tab or press Retry in the boot overlay')
       win.webContents.send('mcp:update-variant', { projectPath, variantId, ...updates })
       return { content: [{ type: 'text', text: `Updated variant ${variantId}.` }] }
     }
@@ -231,6 +245,8 @@ export function registerCanvasTools(
     async ({ message }) => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
+      const projectPath = getProjectPath()
+      if (!projectPath) return errorResponse('Session not initialized — reopen the tab or press Retry in the boot overlay')
       win.webContents.send('mcp:checkpoint', { projectPath, message })
       return { content: [{ type: 'text', text: `Checkpoint created: "${message}"` }] }
     }
@@ -246,6 +262,8 @@ export function registerCanvasTools(
     async ({ message, type }) => {
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
+      const projectPath = getProjectPath()
+      if (!projectPath) return errorResponse('Session not initialized — reopen the tab or press Retry in the boot overlay')
       win.webContents.send('mcp:notify', { projectPath, message, type: type || 'info' })
       return { content: [{ type: 'text', text: 'Notification shown.' }] }
     }

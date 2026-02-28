@@ -7,9 +7,9 @@ import { registerDevServerTools } from './devserver-tools'
 export function registerMcpTools(
   server: McpServer,
   getWindow: () => BrowserWindow | null,
-  projectPath: string
+  getProjectPath: () => string
 ): void {
-  registerCanvasTools(server, getWindow, projectPath)
-  registerSupabaseTools(server, getWindow, projectPath)
-  registerDevServerTools(server, getWindow, projectPath)
+  registerCanvasTools(server, getWindow, getProjectPath)
+  registerSupabaseTools(server, getWindow, getProjectPath)
+  registerDevServerTools(server, getWindow, getProjectPath)
 }

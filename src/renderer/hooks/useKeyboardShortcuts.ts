@@ -1,6 +1,6 @@
 import { useEffect, useCallback } from 'react'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { useTabsStore, selectActiveTab } from '@/stores/tabs'
+import { useTabsStore, useActiveTab } from '@/stores/tabs'
 import { useProjectStore } from '@/stores/project'
 import { useGalleryStore } from '@/stores/gallery'
 import { destroyTerminalsForTab } from '@/services/terminalPool'
@@ -13,9 +13,9 @@ interface ShortcutHandlers {
 }
 
 export function useKeyboardShortcuts({ onQuickActions, onShortcutSheet, onSettings, onSearch }: ShortcutHandlers) {
-  const currentTab = useTabsStore(selectActiveTab)
+  const currentTab = useActiveTab()
   const inspectorActive = currentTab?.inspectorActive ?? false
-  const { mode, openCanvas, closeCanvas } = useWorkspaceStore()
+  const { mode, openCanvas, closeCanvas, canvasFullscreen, toggleCanvasFullscreen } = useWorkspaceStore()
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -149,9 +149,22 @@ export function useKeyboardShortcuts({ onQuickActions, onShortcutSheet, onSettin
       }
 
       // Cmd+\ — Toggle canvas
-      if (meta && e.key === '\\') {
+      if (meta && !e.shiftKey && e.key === '\\') {
         e.preventDefault()
         mode === 'terminal-canvas' ? closeCanvas() : openCanvas()
+        return
+      }
+
+      // Cmd+Shift+\ — Toggle canvas fullscreen (hide terminal)
+      if (meta && e.shiftKey && e.key === '\\') {
+        e.preventDefault()
+        if (mode === 'terminal-canvas') {
+          toggleCanvasFullscreen()
+        } else {
+          openCanvas()
+          // Defer fullscreen until canvas is open
+          setTimeout(() => useWorkspaceStore.getState().toggleCanvasFullscreen(), 0)
+        }
         return
       }
 
@@ -217,8 +230,12 @@ export function useKeyboardShortcuts({ onQuickActions, onShortcutSheet, onSettin
         }
       }
 
-      // Escape — Exit split view / close overlays / deactivate inspector
+      // Escape — Exit fullscreen / split view / close overlays / deactivate inspector
       if (e.key === 'Escape') {
+        if (useWorkspaceStore.getState().canvasFullscreen) {
+          useWorkspaceStore.getState().toggleCanvasFullscreen()
+          return
+        }
         if (useWorkspaceStore.getState().splitViewActive) {
           useWorkspaceStore.getState().exitSplitView()
           return
@@ -233,8 +250,10 @@ export function useKeyboardShortcuts({ onQuickActions, onShortcutSheet, onSettin
     [
       inspectorActive,
       mode,
+      canvasFullscreen,
       openCanvas,
       closeCanvas,
+      toggleCanvasFullscreen,
       onQuickActions,
       onShortcutSheet,
       onSettings,

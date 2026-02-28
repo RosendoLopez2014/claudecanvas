@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useTabsStore, selectActiveTab } from '@/stores/tabs'
+import { useActiveTab } from '@/stores/tabs'
 import { useProjectStore } from '@/stores/project'
 import { useToastStore } from '@/stores/toast'
 import { ArrowLeftRight, Undo2 } from 'lucide-react'
@@ -55,7 +55,7 @@ function extractFilePath(header: string): string {
 }
 
 export function DiffView() {
-  const currentTab = useTabsStore(selectActiveTab)
+  const currentTab = useActiveTab()
   const diffBeforeHash = currentTab?.diffBeforeHash ?? null
   const diffAfterHash = currentTab?.diffAfterHash ?? null
   const previewUrl = currentTab?.previewUrl ?? null

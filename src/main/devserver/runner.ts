@@ -13,7 +13,7 @@
  * NEVER uses shell: true. All commands are pre-validated SafeCommands.
  */
 import { spawn, execFileSync, ChildProcess } from 'child_process'
-import { existsSync } from 'fs'
+import { existsSync, writeFileSync, unlinkSync } from 'fs'
 import { join, basename } from 'path'
 import { BrowserWindow, net } from 'electron'
 import treeKill from 'tree-kill'
@@ -50,8 +50,37 @@ export interface StartResult {
 
 const processes = new Map<string, ChildProcess>()
 const urls = new Map<string, string>()
+const startTimes = new Map<string, number>()
 const starting = new Set<string>()
 const crashHistory = new Map<string, number[]>()
+
+// Ring buffer of recent output per project — used for crash reports
+const outputBuffers = new Map<string, string[]>()
+const OUTPUT_BUFFER_LINES = 30
+
+// Pluggable crash handler — wired by index.ts to trigger self-healing loop
+// (avoids circular import: self-healing-loop imports runner, not vice versa)
+type PostCrashHandler = (opts: {
+  cwd: string
+  exitCode: number
+  crashOutput: string
+  getWindow: () => BrowserWindow | null
+}) => void
+let onPostCrash: PostCrashHandler | null = null
+
+export function setCrashHandler(handler: PostCrashHandler): void {
+  onPostCrash = handler
+}
+
+function appendOutput(cwd: string, data: string): void {
+  let buf = outputBuffers.get(cwd)
+  if (!buf) { buf = []; outputBuffers.set(cwd, buf) }
+  const lines = data.split('\n')
+  buf.push(...lines)
+  if (buf.length > OUTPUT_BUFFER_LINES) {
+    outputBuffers.set(cwd, buf.slice(-OUTPUT_BUFFER_LINES))
+  }
+}
 
 // ── Logging ───────────────────────────────────────────────────────
 
@@ -305,12 +334,37 @@ export function getStatus(cwd: string): { running: boolean; url: string | null }
   return { running: processes.has(cwd), url: urls.get(cwd) || null }
 }
 
+/** Return all currently running dev server URLs, keyed by project cwd. */
+export function getRunningUrls(): Map<string, string> {
+  return new Map(urls)
+}
+
+/** Get info about all active dev server processes for the process manager. */
+export function getActiveDevServers(): Array<{ pid: number; cwd: string; url: string | null; startedAt: number }> {
+  const result: Array<{ pid: number; cwd: string; url: string | null; startedAt: number }> = []
+  for (const [cwd, proc] of processes) {
+    if (proc.pid) {
+      result.push({
+        pid: proc.pid,
+        cwd,
+        url: urls.get(cwd) || null,
+        startedAt: startTimes.get(cwd) || Date.now(),
+      })
+    }
+  }
+  return result
+}
+
 export async function start(
   plan: DevServerPlan,
   getWindow: () => BrowserWindow | null,
 ): Promise<StartResult> {
   const cwd = plan.cwd
+  // Clear any stale output buffer from a previous run
+  outputBuffers.delete(cwd)
+
   const sendOutput = (data: string) => {
+    appendOutput(cwd, data)
     const win = getWindow()
     if (win && !win.isDestroyed()) win.webContents.send('dev:output', { cwd, data })
   }
@@ -322,6 +376,33 @@ export async function start(
     const win = getWindow()
     if (win && !win.isDestroyed()) win.webContents.send('dev:exit', { cwd, code })
   }
+  const sendCrashReport = (code: number) => {
+    const output = (outputBuffers.get(cwd) || []).join('\n')
+    // Write crash log file so Claude Code can read it with its file tools
+    const logPath = join(cwd, '.dev-crash.log')
+    try {
+      const header = [
+        '=== Dev Server Crash Report ===',
+        `Time: ${new Date().toISOString()}`,
+        `Exit Code: ${code}`,
+        `Project: ${cwd}`,
+        '',
+        '--- Output (last 30 lines) ---',
+        '',
+      ].join('\n')
+      writeFileSync(logPath, header + output + '\n', 'utf-8')
+      log(cwd, `Crash log written to ${logPath}`)
+    } catch (err) {
+      warn(cwd, `Failed to write crash log: ${err}`)
+    }
+    const win = getWindow()
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('dev:crash-report', { cwd, code, output })
+    }
+  }
+
+  // Clean up stale crash log from previous runs
+  try { unlinkSync(join(cwd, '.dev-crash.log')) } catch { /* doesn't exist, fine */ }
 
   if (processes.has(cwd)) {
     log(cwd, 'Already running')
@@ -352,7 +433,10 @@ export async function start(
 
       // Success
       if (result.url) {
-        if (result.process) processes.set(cwd, result.process)
+        if (result.process) {
+          processes.set(cwd, result.process)
+          startTimes.set(cwd, Date.now())
+        }
         urls.set(cwd, result.url)
         crashHistory.delete(cwd)
 
@@ -366,7 +450,15 @@ export async function start(
             processes.delete(cwd)
             urls.delete(cwd)
             log(cwd, `Process exited post-start (code=${code})`)
-            if (code !== 0 && code !== null) recordCrash(cwd)
+            const crashOutput = (outputBuffers.get(cwd) || []).join('\n')
+            if (code !== 0 && code !== null) {
+              recordCrash(cwd)
+              sendCrashReport(code)
+              if (onPostCrash) {
+                onPostCrash({ cwd, exitCode: code, crashOutput, getWindow })
+              }
+            }
+            outputBuffers.delete(cwd)
             sendExit(code)
           })
         }
@@ -433,6 +525,7 @@ export async function start(
 
         if (result.process) {
           processes.set(cwd, result.process)
+          startTimes.set(cwd, Date.now())
 
           // Attach exit handler
           result.process.removeAllListeners('exit')
@@ -440,7 +533,15 @@ export async function start(
             processes.delete(cwd)
             urls.delete(cwd)
             log(cwd, `Process exited post-start (code=${code})`)
-            if (code !== 0 && code !== null) recordCrash(cwd)
+            const crashOutput = (outputBuffers.get(cwd) || []).join('\n')
+            if (code !== 0 && code !== null) {
+              recordCrash(cwd)
+              sendCrashReport(code)
+              if (onPostCrash) {
+                onPostCrash({ cwd, exitCode: code, crashOutput, getWindow })
+              }
+            }
+            outputBuffers.delete(cwd)
             sendExit(code)
           })
         }
@@ -475,6 +576,7 @@ export async function stop(cwd: string): Promise<void> {
     if (proc.pid) await reliableTreeKill(proc.pid)
     processes.delete(cwd)
     urls.delete(cwd)
+    startTimes.delete(cwd)
     log(cwd, 'Stopped')
   }
 }
@@ -487,6 +589,7 @@ export async function stopAll(): Promise<void> {
   await Promise.allSettled(kills)
   processes.clear()
   urls.clear()
+  startTimes.clear()
   console.log('[devserver] All stopped')
 }
 
@@ -499,5 +602,6 @@ export function emergencyKillAll(): void {
   }
   processes.clear()
   urls.clear()
+  startTimes.clear()
   crashHistory.clear()
 }

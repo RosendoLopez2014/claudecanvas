@@ -20,14 +20,20 @@ function buildPreviewUrl(devUrl: string, previewFilename: string, relativePath: 
 export function useAutoGallery() {
   const upgradedRef = useRef(false)
 
-  const devStatus = useTabsStore((s) => {
-    const tab = s.tabs.find((t) => t.id === s.activeTabId)
-    return tab?.dev?.status ?? 'stopped'
-  })
-  const devUrl = useTabsStore((s) => {
-    const tab = s.tabs.find((t) => t.id === s.activeTabId)
-    return tab?.dev?.url ?? null
-  })
+  const devStatus = useTabsStore(
+    (s) => {
+      const tab = s.tabs.find((t) => t.id === s.activeTabId)
+      return tab?.dev?.status ?? 'stopped'
+    },
+    Object.is
+  )
+  const devUrl = useTabsStore(
+    (s) => {
+      const tab = s.tabs.find((t) => t.id === s.activeTabId)
+      return tab?.dev?.url ?? null
+    },
+    Object.is
+  )
 
   useEffect(() => {
     if (devStatus !== 'running' || !devUrl) {

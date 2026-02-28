@@ -65,6 +65,7 @@ describe('API Bridge (Preload Mock)', () => {
     expect(typeof window.api.dev.stop).toBe('function')
     expect(typeof window.api.dev.onOutput).toBe('function')
     expect(typeof window.api.dev.onExit).toBe('function')
+    expect(typeof window.api.dev.onCrashReport).toBe('function')
   })
 
   it('pty.spawn returns a promise with an id', async () => {

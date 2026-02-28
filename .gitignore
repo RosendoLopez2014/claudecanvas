@@ -5,3 +5,8 @@ dist/
 *.tsbuildinfo
 .env
 .env.local
+
+# Self-healing loop artifacts
+.dev-crash.log
+.dev-crash.*.log
+.dev-repair.lock

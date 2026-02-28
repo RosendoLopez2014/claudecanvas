@@ -39,17 +39,47 @@ export const CRASH_LOOP_WINDOW_MS = 60_000
 /** Timeout for SIGTERM before escalating to SIGKILL (5 seconds) */
 export const DEV_KILL_TIMEOUT_MS = 5_000
 
+// ── Self-Healing Loop ─────────────────────────────────────
+/** Max restart attempts before giving up */
+export const REPAIR_MAX_ATTEMPTS = 3
+/** Base delay (ms) for exponential backoff between restart attempts */
+export const REPAIR_BASE_DELAY_MS = 2000
+/** Health check timeout per probe (ms) */
+export const REPAIR_HEALTH_TIMEOUT_MS = 5000
+/** Health check retries after restart */
+export const REPAIR_HEALTH_RETRIES = 3
+/** Delay between health check retries (ms) */
+export const REPAIR_HEALTH_RETRY_DELAY_MS = 1000
+
+// ── Agent Repair (Self-Healing Loop v2) ──────────────────
+/** Max time to wait for Claude Code to engage before treating as transient crash */
+export const AGENT_ENGAGE_TIMEOUT_MS = 30_000
+/** Max time to wait for agent to finish writing files after engaging */
+export const AGENT_WRITE_TIMEOUT_MS = 120_000
+/** Quiet period after agent writes files before restarting (let HMR/watchers settle) */
+export const REPAIR_QUIET_PERIOD_MS = 2_000
+/** Max files the agent can change in one repair (safety gate) */
+export const REPAIR_MAX_FILES = 8
+/** Max lines of code the agent can change in one repair (safety gate) */
+export const REPAIR_MAX_LOC = 300
+/** Cooldown period after all attempts exhausted (10 minutes) */
+export const REPAIR_COOLDOWN_MS = 600_000
+
+// ── Power Monitor ─────────────────────────────────────────
+/** Delay after system resume before running health checks (let OS settle) */
+export const RESUME_HEALTH_CHECK_DELAY_MS = 2_000
+/** Delay after resume before PTY reconnect attempt in renderer */
+export const RESUME_PTY_RECONNECT_DELAY_MS = 1_500
+
 // ── Viewport Presets ───────────────────────────────────────
 export const VIEWPORT_PRESETS = [
-  { label: 'Responsive', width: 0 },
-  { label: 'iPhone SE', width: 375 },
-  { label: 'iPhone 14', width: 390 },
-  { label: 'iPhone Pro Max', width: 430 },
-  { label: 'iPad Mini', width: 768 },
-  { label: 'iPad', width: 1024 },
-  { label: 'Laptop', width: 1280 },
-  { label: 'Desktop', width: 1440 },
-] as const
+  { label: 'Responsive', width: 0, device: 'none' as const },
+  { label: 'Mobile', width: 390, device: 'mobile' as const },
+  { label: 'Tablet', width: 768, device: 'tablet' as const },
+  { label: 'Desktop', width: 1440, device: 'none' as const },
+]
+
+export type DeviceType = 'none' | 'mobile' | 'tablet'
 
 // ── Git ────────────────────────────────────────────────────
 /** Interval between automatic git fetch calls (3 minutes) */

@@ -8,6 +8,7 @@ import { getSecureToken } from '../services/secure-storage'
 import { isValidPath } from '../validate'
 import { GIT_PUSH_MODES, type GitPushMode } from '../../shared/constants'
 import { getGit, cleanupGitInstance, enqueue, withEbadfRetry } from './git-queue'
+import { getDevConfig, mergeDevConfig } from '../devserver/config-store'
 
 // Re-export for backward compatibility (consumed by worktree.ts, etc.)
 export { getGit, cleanupGitInstance, cleanupAllGitInstances, enqueue, withEbadfRetry } from './git-queue'
@@ -270,7 +271,8 @@ export function setupGitHandlers(): void {
         try {
           const branch = (await withEbadfRetry(() => g.branchLocal(), 3, 'git:push:branch')).current
           const authArgs = getGitAuthArgs()
-          const mode = (settingsStore.get('gitPushMode') || 'solo') as GitPushMode
+          const projectConfig = getDevConfig(projectPath)
+          const mode = (projectConfig?.gitPushModeOverride || settingsStore.get('gitPushMode') || 'solo') as GitPushMode
           const config = GIT_PUSH_MODES[mode]
           const isProtected = config.protectedBranches.includes(branch)
           const isFeatureBranch = !isProtected
@@ -363,6 +365,30 @@ export function setupGitHandlers(): void {
       const g = getGit(projectPath)
       try {
         const branch = (await g.branchLocal()).current
+
+        // Build a fallback message from unpushed commit subjects
+        let fallbackMsg = `Update ${branch}`
+        try {
+          const log = await g.raw(['log', '--oneline', `origin/${branch}...HEAD`])
+          const subjects = log.trim().split('\n')
+            .map((l: string) => l.replace(/^[a-f0-9]+ /, '').replace(/^\[checkpoint\] /, ''))
+            .filter(Boolean)
+          if (subjects.length === 1) {
+            fallbackMsg = subjects[0]
+          } else if (subjects.length > 1) {
+            const meaningful = subjects.filter((s: string) => !s.startsWith('Checkpoint at '))
+            fallbackMsg = meaningful.length > 0
+              ? meaningful[0]
+              : `Update: ${subjects.length} changes`
+          }
+        } catch {
+          try {
+            const lastMsg = await g.raw(['log', '--oneline', '-1'])
+            const cleaned = lastMsg.trim().replace(/^[a-f0-9]+ /, '').replace(/^\[checkpoint\] /, '')
+            if (cleaned) fallbackMsg = cleaned
+          } catch { /* keep generic fallback */ }
+        }
+
         let diffStat = ''
         const strategies = [
           () => g.raw(['diff', '--stat', `origin/${branch}...HEAD`]),
@@ -376,7 +402,7 @@ export function setupGitHandlers(): void {
             if (result.trim()) { diffStat = result; break }
           } catch { /* try next */ }
         }
-        if (!diffStat.trim()) return ''
+        if (!diffStat.trim()) return fallbackMsg
 
         const claudeBin = findClaudeBinary()
         return new Promise<string>((resolve) => {
@@ -385,23 +411,23 @@ export function setupGitHandlers(): void {
           delete env.CLAUDECODE
           console.log('[git] generating commit message with:', claudeBin)
           execFile(claudeBin, ['--print', prompt], {
-            timeout: 30000,
+            timeout: 15000,
             env
           }, (err, stdout, stderr) => {
             if (err) {
               console.error('[git] claude CLI error:', err.message)
               if (stderr) console.error('[git] claude stderr:', stderr)
-              resolve('')
+              resolve(fallbackMsg)
             } else if (!stdout.trim()) {
               console.warn('[git] claude CLI returned empty output')
-              resolve('')
+              resolve(fallbackMsg)
             } else {
               resolve(stdout.trim().replace(/^["']|["']$/g, ''))
             }
           })
         })
       } catch {
-        return ''
+        return 'Update project'
       }
     })
   })
@@ -490,6 +516,22 @@ export function setupGitHandlers(): void {
           return { success: false, error: err?.message || 'Revert failed' }
         }
       })
+    }
+  )
+
+  // Per-project git push mode
+  ipcMain.handle(
+    'git:getProjectPushMode',
+    async (_event, projectPath: string): Promise<string | null> => {
+      const config = getDevConfig(projectPath)
+      return config?.gitPushModeOverride || null
+    }
+  )
+
+  ipcMain.handle(
+    'git:setProjectPushMode',
+    async (_event, projectPath: string, mode: string): Promise<void> => {
+      mergeDevConfig(projectPath, { gitPushModeOverride: mode as 'solo' | 'team' | 'contributor' })
     }
   )
 }

@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { Sparkles, X, Loader2 } from 'lucide-react'
-import { useTabsStore, selectActiveTab } from '@/stores/tabs'
+import { useActiveTab } from '@/stores/tabs'
 import { useToastStore } from '@/stores/toast'
 
 interface FeedbackItem {
@@ -13,7 +13,7 @@ export function DesignFeedback() {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [feedback, setFeedback] = useState<FeedbackItem[]>([])
-  const currentTab = useTabsStore(selectActiveTab)
+  const currentTab = useActiveTab()
   const previewUrl = currentTab?.previewUrl ?? null
 
   const requestFeedback = useCallback(async () => {
