@@ -1,4 +1,4 @@
-export type CanvasTab = 'preview' | 'gallery' | 'timeline' | 'diff' | 'deploy' | 'a11y'
+export type CanvasTab = 'preview' | 'gallery' | 'timeline' | 'diff' | 'deploy' | 'a11y' | 'critic'
 export type ViewportMode = 'desktop' | 'mobile'
 
 export interface A11yInfo {

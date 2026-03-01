@@ -121,3 +121,10 @@ export const GIT_PUSH_MODES: Record<GitPushMode, {
     suggestPR: true,
   },
 }
+
+// ── Critic Loop ──────────────────────────────────────────
+export const CRITIC_PLAN_DETECT_DEBOUNCE_MS = 2000
+export const CRITIC_PTY_BUFFER_MAX = 50_000
+export const CRITIC_API_TIMEOUT_MS = 60_000
+export const CRITIC_MAX_DIFF_SIZE = 100_000
+export const CRITIC_JSON_RETRY_COUNT = 1
