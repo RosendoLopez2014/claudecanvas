@@ -10,6 +10,7 @@ import detectPortModule from 'detect-port'
 const detectPort = (detectPortModule as any).default || detectPortModule
 import { BrowserWindow } from 'electron'
 import { registerMcpTools } from './tools'
+import { runWithContext } from './request-context'
 
 let httpServer: Server | null = null
 let serverPort: number | null = null
@@ -137,7 +138,16 @@ async function doStartMcpServer(getWindow: () => BrowserWindow | null, projectPa
       })
       return
     }
-    await transport.handleRequest(req, res, req.body)
+    // Wrap in AsyncLocalStorage so tool handlers can access session context
+    const session = sessions[transport.sessionId ?? '']
+    if (session) {
+      await runWithContext(
+        { sessionId: transport.sessionId ?? '', tabId: session.tabId, projectPath: session.projectPath },
+        () => transport.handleRequest(req, res, req.body)
+      )
+    } else {
+      await transport.handleRequest(req, res, req.body)
+    }
   })
 
   // GET /mcp — SSE stream for server-to-client notifications

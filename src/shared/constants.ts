@@ -128,3 +128,32 @@ export const CRITIC_PTY_BUFFER_MAX = 50_000
 export const CRITIC_API_TIMEOUT_MS = 60_000
 export const CRITIC_MAX_DIFF_SIZE = 100_000
 export const CRITIC_JSON_RETRY_COUNT = 1
+
+// ── Critic Gate ──────────────────────────────────────────
+
+/** MCP tools that require critic approval when gate is active */
+export const GATED_MCP_TOOLS = new Set([
+  'canvas_render', 'canvas_start_preview', 'canvas_stop_preview',
+  'canvas_set_preview_url', 'canvas_open_tab', 'canvas_add_to_gallery',
+  'canvas_update_variant', 'canvas_checkpoint', 'canvas_notify',
+  'canvas_design_session', 'configure_dev_server', 'supabase_run_sql',
+])
+
+/**
+ * Native tools to KEEP in settings.local.json when gated (inverted allowlist).
+ * Everything NOT in this list gets removed during gate restriction.
+ * Safer than enumerating dangerous commands — we only allow known-safe reads.
+ */
+export const GATED_MODE_ALLOWED_NATIVE = [
+  'Read',
+  'Bash(ls *)',
+  'Bash(cat *)',
+]
+
+/** Critic MCP tool IDs (centralized for registration + allowlist) */
+export const CRITIC_TOOL_IDS = [
+  'mcp__claude-canvas__critic_review_plan',
+  'mcp__claude-canvas__critic_review_result',
+  'mcp__claude-canvas__critic_status',
+  'mcp__claude-canvas__critic_override',
+] as const

@@ -71,17 +71,36 @@ export interface CriticConfig {
   enabled: boolean
   model: string
   maxIterations: number
-  autoSendFeedback: boolean
+  autoReviewPlan: boolean
+  gateMode: 'recommended' | 'strict'
   planDetectionKeywords: string[]
 }
 
 export const DEFAULT_CRITIC_CONFIG: CriticConfig = {
   enabled: false,
-  model: 'gpt-4o',
+  model: 'gpt-5.2',
   maxIterations: 3,
-  autoSendFeedback: false,
+  autoReviewPlan: false,
+  gateMode: 'recommended',
   planDetectionKeywords: [
     'plan:', 'implementation plan', 'approach:', 'steps:',
     "here's what i'll do", 'i will:', 'strategy:',
   ],
+}
+
+export type GateStatus = 'open' | 'gated' | 'overridden'
+
+export interface GateState {
+  projectPath: string
+  status: GateStatus
+  reason: string
+  gatedAt: number
+  overriddenBy?: string // 'user' | 'critic_approve' | 'error'
+}
+
+export interface GateEvent {
+  projectPath: string
+  status: GateStatus
+  reason: string
+  timestamp: number
 }
