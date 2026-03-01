@@ -290,8 +290,11 @@ function PlanPreview({ tabId, projectPath }: { tabId: string; projectPath: strin
   const handleReview = async () => {
     setReviewing(true)
     dismissPlan(tabId)
-    await window.api.critic.reviewPlan(tabId, projectPath, pending.planText, `Project: ${projectPath}`)
-    setReviewing(false)
+    try {
+      await window.api.critic.reviewPlan(tabId, projectPath, pending.planText, `Project: ${projectPath}`)
+    } finally {
+      setReviewing(false)
+    }
   }
 
   return (
@@ -360,10 +363,11 @@ export function CriticPanel() {
   const { currentProject } = useProjectStore()
   const projectPath = currentProject?.path ?? null
 
-  // Subscribe to critic store
+  // Subscribe to critic store — all reads via selectors for reactive updates
   const session = useCriticStore((s) => tabId ? s.activeSessions[tabId] : undefined)
   const recentSessions = useCriticStore((s) => s.recentSessions)
   const latestSession = session ?? recentSessions.find((s) => s.tabId === tabId) ?? null
+  const pendingPlan = useCriticStore((s) => tabId ? s.pendingPlans[tabId] : undefined)
 
   const [runningDiagnostics, setRunningDiagnostics] = useState(false)
 
@@ -374,19 +378,28 @@ export function CriticPanel() {
     window.api.pty.write(ptyId, text)
   }, [ptyId])
 
+  const [reviewError, setReviewError] = useState<string | null>(null)
+
   const handleRunReview = useCallback(async () => {
     if (!tabId || !projectPath) return
     setRunningDiagnostics(true)
+    setReviewError(null)
     try {
       // Collect diagnostics + diff
       const [diagnostics, diff] = await Promise.all([
         window.api.critic.collectDiagnostics(projectPath),
         window.api.git.diff(projectPath).catch(() => ''),
       ])
-      await window.api.critic.reviewResult(
+      const result = await window.api.critic.reviewResult(
         tabId, projectPath, diff as string, diagnostics,
         `Project: ${projectPath}`
       )
+      // IPC handler wraps errors as { error: string }
+      if (result && typeof result === 'object' && 'error' in result) {
+        setReviewError((result as { error: string }).error)
+      }
+    } catch (err) {
+      setReviewError(err instanceof Error ? err.message : String(err))
     } finally {
       setRunningDiagnostics(false)
     }
@@ -430,7 +443,7 @@ export function CriticPanel() {
         <PlanPreview tabId={tabId} projectPath={projectPath} />
 
         {/* No review warning when plan exists but user hasn't reviewed */}
-        {useCriticStore.getState().pendingPlans[tabId] && !session && (
+        {pendingPlan && !session && (
           <div className="flex items-center gap-2 px-3 py-2 bg-yellow-500/5 border border-yellow-500/10 rounded-lg">
             <AlertTriangle className="w-3.5 h-3.5 text-yellow-400/60" />
             <span className="text-xs text-yellow-400/60">Proceeding without review</span>
@@ -481,6 +494,17 @@ export function CriticPanel() {
         {/* Event timeline */}
         {latestSession && latestSession.events.length > 0 && (
           <EventTimeline session={latestSession} />
+        )}
+
+        {/* Local review error */}
+        {reviewError && (
+          <div className="px-3 py-2 bg-red-500/5 border border-red-500/10 rounded-lg">
+            <div className="flex items-center gap-1.5 text-xs text-red-400">
+              <XCircle className="w-3 h-3" />
+              Review Failed
+            </div>
+            <div className="text-xs text-red-400/60 mt-1">{reviewError}</div>
+          </div>
         )}
 
         {/* Error display */}

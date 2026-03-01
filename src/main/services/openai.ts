@@ -57,7 +57,8 @@ async function callCritic(
         messages,
         temperature: 0.2,
       })
-      const raw = resp.choices[0]?.message?.content ?? '{}'
+      const raw = resp.choices[0]?.message?.content
+      if (!raw) throw new Error('OpenAI returned empty response — model may be overloaded, try again')
       return FeedbackSchema.parse(JSON.parse(raw))
     } catch (err) {
       lastError = err as Error

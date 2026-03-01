@@ -17,16 +17,16 @@ function runStreaming(cwd: string, cmd: string, args: string[], timeout: number)
   return new Promise((resolve) => {
     let output = ''
     const maxChars = 500_000
-    const proc = spawn(cmd, args, { cwd, timeout, shell: true })
+    const proc = spawn(cmd, args, { cwd, shell: true })
     proc.stdout?.on('data', (chunk: Buffer) => {
       if (output.length < maxChars) output += chunk.toString()
     })
     proc.stderr?.on('data', (chunk: Buffer) => {
       if (output.length < maxChars) output += chunk.toString()
     })
-    proc.on('close', () => resolve(output.trim()))
-    proc.on('error', (err) => resolve(`Error: ${err.message}`))
-    setTimeout(() => { try { proc.kill() } catch {} }, timeout)
+    const killTimer = setTimeout(() => { try { proc.kill() } catch {} }, timeout)
+    proc.on('close', () => { clearTimeout(killTimer); resolve(output.trim()) })
+    proc.on('error', (err) => { clearTimeout(killTimer); resolve(`Error: ${err.message}`) })
   })
 }
 
