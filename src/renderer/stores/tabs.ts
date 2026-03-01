@@ -76,6 +76,8 @@ export interface TabState {
   vercelLinkedProject: any | null
   supabaseLinkedProject: any | null
   lastIntegrationFetch: number | null
+  // Critic loop
+  criticRunId: string | null
   // Bootstrap flags — stored in Zustand (not component refs) to survive
   // React StrictMode remounts and conditional re-renders.
   githubBootstrapped: boolean
@@ -128,6 +130,7 @@ function createDefaultTabState(project: ProjectInfo): TabState {
     vercelLinkedProject: null,
     supabaseLinkedProject: null,
     lastIntegrationFetch: null,
+    criticRunId: null,
     githubBootstrapped: false,
     vercelBootstrapped: false,
     supabaseBootstrapped: false,

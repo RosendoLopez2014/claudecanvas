@@ -152,6 +152,24 @@ const mockApi = {
     onStatus: vi.fn().mockReturnValue(vi.fn()),
     install: vi.fn().mockResolvedValue(undefined)
   },
+  critic: {
+    getConfig: vi.fn().mockResolvedValue({ enabled: false, model: 'gpt-4o', maxIterations: 3, autoSendFeedback: false, planDetectionKeywords: [] }),
+    setConfig: vi.fn().mockResolvedValue({ ok: true }),
+    hasApiKey: vi.fn().mockResolvedValue(false),
+    setApiKey: vi.fn().mockResolvedValue({ ok: true }),
+    registerPty: vi.fn(),
+    unregisterPty: vi.fn(),
+    reviewPlan: vi.fn().mockResolvedValue({ verdict: 'approve', summary: 'ok', issues: [] }),
+    reviewResult: vi.fn().mockResolvedValue({ verdict: 'approve', summary: 'ok', issues: [] }),
+    getActiveRun: vi.fn().mockResolvedValue(null),
+    abort: vi.fn().mockResolvedValue({ ok: true }),
+    complete: vi.fn().mockResolvedValue({ ok: true }),
+    collectDiagnostics: vi.fn().mockResolvedValue({}),
+    listRuns: vi.fn().mockResolvedValue([]),
+    loadRun: vi.fn().mockResolvedValue(null),
+    onEvent: vi.fn().mockReturnValue(vi.fn()),
+    onPlanDetected: vi.fn().mockReturnValue(vi.fn()),
+  },
   system: {
     onSuspend: vi.fn().mockReturnValue(vi.fn()),
     onResume: vi.fn().mockReturnValue(vi.fn())

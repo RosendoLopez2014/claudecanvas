@@ -422,6 +422,28 @@ const api = {
     install: () => ipcRenderer.invoke('updater:install')
   },
 
+  critic: {
+    getConfig: (projectPath: string) => ipcRenderer.invoke('critic:getConfig', projectPath),
+    setConfig: (projectPath: string, config: unknown) => ipcRenderer.invoke('critic:setConfig', projectPath, config),
+    hasApiKey: () => ipcRenderer.invoke('critic:hasApiKey') as Promise<boolean>,
+    setApiKey: (key: string) => ipcRenderer.invoke('critic:setApiKey', key),
+    registerPty: (ptyId: string, tabId: string, projectPath: string) =>
+      ipcRenderer.send('critic:registerPty', ptyId, tabId, projectPath),
+    unregisterPty: (ptyId: string) => ipcRenderer.send('critic:unregisterPty', ptyId),
+    reviewPlan: (tabId: string, projectPath: string, planText: string, ctx: string) =>
+      ipcRenderer.invoke('critic:reviewPlan', tabId, projectPath, planText, ctx),
+    reviewResult: (tabId: string, projectPath: string, diff: string, diag: unknown, ctx: string) =>
+      ipcRenderer.invoke('critic:reviewResult', tabId, projectPath, diff, diag, ctx),
+    getActiveRun: (tabId: string) => ipcRenderer.invoke('critic:getActiveRun', tabId),
+    abort: (tabId: string) => ipcRenderer.invoke('critic:abort', tabId),
+    complete: (tabId: string) => ipcRenderer.invoke('critic:complete', tabId),
+    collectDiagnostics: (projectPath: string) => ipcRenderer.invoke('critic:collectDiagnostics', projectPath),
+    listRuns: (projectPath: string) => ipcRenderer.invoke('critic:listRuns', projectPath),
+    loadRun: (projectPath: string, runId: string) => ipcRenderer.invoke('critic:loadRun', projectPath, runId),
+    onEvent: (cb: (data: unknown) => void) => onIpc('critic:event', cb),
+    onPlanDetected: (cb: (data: unknown) => void) => onIpc('critic:planDetected', cb),
+  },
+
   system: {
     onSuspend: (cb: () => void) => onIpc('system:suspend', cb),
     onResume: (cb: () => void) => onIpc('system:resume', cb)
