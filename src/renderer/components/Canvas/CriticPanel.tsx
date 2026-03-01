@@ -11,6 +11,16 @@ import type { CriticFeedback, CriticIssue, CriticConfig } from '../../../shared/
 import { DEFAULT_CRITIC_CONFIG } from '../../../shared/critic/types'
 import { formatFeedbackForClaude } from '../../../shared/critic/format'
 
+// ── Available models ─────────────────────────────────────────
+const OPENAI_MODELS = [
+  { value: 'gpt-4o', label: 'GPT-4o' },
+  { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+  { value: 'o1', label: 'o1' },
+  { value: 'o1-mini', label: 'o1 Mini' },
+  { value: 'o3-mini', label: 'o3 Mini' },
+]
+
 // ── Severity config ──────────────────────────────────────────
 const SEVERITY_CONFIG = {
   critical: { icon: XCircle, color: 'text-red-400', bg: 'bg-red-500/10', label: 'Critical' },
@@ -26,25 +36,20 @@ const VERDICT_CONFIG = {
 }
 
 // ── Setup Prompt ─────────────────────────────────────────────
-function CriticSetupPrompt() {
+function CriticSetupPrompt({ hasKey, onKeySaved }: { hasKey: boolean; onKeySaved: () => void }) {
   const [apiKey, setApiKey] = useState('')
   const [saving, setSaving] = useState(false)
-  const [hasKey, setHasKey] = useState(false)
 
-  useEffect(() => {
-    window.api.critic.hasApiKey().then(setHasKey)
-  }, [])
+  if (hasKey) return null
 
-  const saveKey = useCallback(async () => {
+  const saveKey = async () => {
     if (!apiKey.trim()) return
     setSaving(true)
     await window.api.critic.setApiKey(apiKey.trim())
-    setHasKey(true)
     setApiKey('')
     setSaving(false)
-  }, [apiKey])
-
-  if (hasKey) return null
+    onKeySaved()
+  }
 
   return (
     <div className="flex flex-col items-center justify-center gap-4 p-8 text-center">
@@ -78,16 +83,18 @@ function CriticSetupPrompt() {
 }
 
 // ── Settings Panel ───────────────────────────────────────────
-function CriticSettings({ projectPath }: { projectPath: string }) {
+function CriticSettings({ projectPath, hasKey, onKeyDeleted }: {
+  projectPath: string
+  hasKey: boolean
+  onKeyDeleted: () => void
+}) {
   const [config, setConfig] = useState<CriticConfig>(DEFAULT_CRITIC_CONFIG)
-  const [hasKey, setHasKey] = useState(false)
   const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
     window.api.critic.getConfig(projectPath).then((c: any) => {
       if (c && !c.error) setConfig(c)
     })
-    window.api.critic.hasApiKey().then(setHasKey)
   }, [projectPath])
 
   const updateConfig = useCallback(async (partial: Partial<CriticConfig>) => {
@@ -119,16 +126,20 @@ function CriticSettings({ projectPath }: { projectPath: string }) {
             Enable critic loop
           </label>
 
-          {/* Model */}
+          {/* Model dropdown */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-white/40 w-20">Model:</span>
-            <input
-              type="text"
+            <select
               value={config.model}
               onChange={(e) => updateConfig({ model: e.target.value })}
               className="flex-1 px-2 py-1 text-xs bg-white/5 border border-white/10 rounded text-white/70
-                focus:outline-none focus:border-[#4AEAFF]/50"
-            />
+                focus:outline-none focus:border-[#4AEAFF]/50 appearance-none cursor-pointer"
+              style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'6\'%3E%3Cpath d=\'M0 0l5 6 5-6z\' fill=\'%23666\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}
+            >
+              {OPENAI_MODELS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
           </div>
 
           {/* Max iterations */}
@@ -155,7 +166,7 @@ function CriticSettings({ projectPath }: { projectPath: string }) {
               <button
                 onClick={async () => {
                   await window.api.critic.setApiKey('')
-                  setHasKey(false)
+                  onKeyDeleted()
                 }}
                 className="ml-auto text-white/30 hover:text-red-400/60 transition-colors"
               >
@@ -369,12 +380,17 @@ export function CriticPanel() {
   const latestSession = session ?? recentSessions.find((s) => s.tabId === tabId) ?? null
   const pendingPlan = useCriticStore((s) => tabId ? s.pendingPlans[tabId] : undefined)
 
+  // Lifted hasKey state — shared between setup prompt and settings
+  const [hasKey, setHasKey] = useState(false)
+  useEffect(() => {
+    window.api.critic.hasApiKey().then(setHasKey)
+  }, [])
+
   const [runningDiagnostics, setRunningDiagnostics] = useState(false)
 
   const sendFeedbackToClaude = useCallback((feedback: CriticFeedback, type: 'plan' | 'result') => {
     if (!ptyId) return
     const text = formatFeedbackForClaude(feedback, type)
-    // Write formatted feedback to Claude's stdin
     window.api.pty.write(ptyId, text)
   }, [ptyId])
 
@@ -385,7 +401,6 @@ export function CriticPanel() {
     setRunningDiagnostics(true)
     setReviewError(null)
     try {
-      // Collect diagnostics + diff
       const [diagnostics, diff] = await Promise.all([
         window.api.critic.collectDiagnostics(projectPath),
         window.api.git.diff(projectPath).catch(() => ''),
@@ -394,7 +409,6 @@ export function CriticPanel() {
         tabId, projectPath, diff as string, diagnostics,
         `Project: ${projectPath}`
       )
-      // IPC handler wraps errors as { error: string }
       if (result && typeof result === 'object' && 'error' in result) {
         setReviewError((result as { error: string }).error)
       }
@@ -432,10 +446,10 @@ export function CriticPanel() {
       </div>
 
       {/* Setup prompt (no API key) */}
-      <CriticSetupPrompt />
+      <CriticSetupPrompt hasKey={hasKey} onKeySaved={() => setHasKey(true)} />
 
       {/* Settings */}
-      <CriticSettings projectPath={projectPath} />
+      <CriticSettings projectPath={projectPath} hasKey={hasKey} onKeyDeleted={() => setHasKey(false)} />
 
       {/* Content area */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
@@ -477,7 +491,7 @@ export function CriticPanel() {
               rounded-md text-white/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {runningDiagnostics ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
-            Run Review
+            Run Code Review
           </button>
           {session && (
             <button
@@ -519,7 +533,7 @@ export function CriticPanel() {
         )}
 
         {/* Empty state */}
-        {!latestSession && !useCriticStore.getState().pendingPlans[tabId] && (
+        {!latestSession && !pendingPlan && (
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <Zap className="w-8 h-8 text-white/10 mb-3" />
             <p className="text-xs text-white/30 max-w-xs">
