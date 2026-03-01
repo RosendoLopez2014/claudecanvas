@@ -10,3 +10,6 @@ dist/
 .dev-crash.log
 .dev-crash.*.log
 .dev-repair.lock
+
+# Git worktrees
+.worktrees/
