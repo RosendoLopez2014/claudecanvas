@@ -55,7 +55,9 @@ function decrypt(encoded: string): string {
  * Retrieve a stored token for a provider.
  * Returns null if no token exists or decryption fails.
  */
-export function getSecureToken(provider: 'github' | 'vercel' | 'supabase'): string | null {
+type SecureProvider = 'github' | 'vercel' | 'supabase' | 'critic_openai'
+
+export function getSecureToken(provider: SecureProvider): string | null {
   const encrypted = (settingsStore.get('encryptedTokens') || {}) as Record<string, string>
   const val = encrypted[provider]
   if (!val) return null
@@ -68,7 +70,7 @@ export function getSecureToken(provider: 'github' | 'vercel' | 'supabase'): stri
  * For compound tokens (e.g. Supabase's { accessToken, refreshToken }),
  * callers should JSON.stringify before calling this.
  */
-export function setSecureToken(provider: 'github' | 'vercel' | 'supabase', value: string): void {
+export function setSecureToken(provider: SecureProvider, value: string): void {
   const encrypted = { ...(settingsStore.get('encryptedTokens') || {}) } as Record<string, string>
   encrypted[provider] = encrypt(value)
   settingsStore.set('encryptedTokens', encrypted)
@@ -77,7 +79,7 @@ export function setSecureToken(provider: 'github' | 'vercel' | 'supabase', value
 /**
  * Delete a stored token for a provider.
  */
-export function deleteSecureToken(provider: 'github' | 'vercel' | 'supabase'): void {
+export function deleteSecureToken(provider: SecureProvider): void {
   const encrypted = { ...(settingsStore.get('encryptedTokens') || {}) } as Record<string, string>
   delete encrypted[provider]
   settingsStore.set('encryptedTokens', encrypted)
