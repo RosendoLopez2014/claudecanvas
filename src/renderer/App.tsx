@@ -18,6 +18,8 @@ import { useAutoCheckpoint } from './hooks/useAutoCheckpoint'
 import { useAutoGallery } from './hooks/useAutoGallery'
 import { useDevSelfHeal } from './hooks/useDevSelfHeal'
 import { useDevRepairListener } from './hooks/useDevRepairListener'
+import { useCriticListener } from './hooks/useCriticListener'
+import { useCriticPtyRegistration } from './hooks/useCriticPtyRegistration'
 import { ShortcutSheet } from './components/ShortcutSheet/ShortcutSheet'
 import { SettingsPanel } from './components/Settings/Settings'
 import { SearchPanel } from './components/Search/SearchPanel'
@@ -78,6 +80,8 @@ export default function App() {
   useAutoGallery()
   useDevSelfHeal()
   useDevRepairListener()
+  useCriticListener()
+  useCriticPtyRegistration()
   // Sync currentProject and gallery with active tab on tab switch/close
   const activeTabId = useTabsStore((s) => s.activeTabId)
   const prevProjectPathRef = useRef<string | null>(null)

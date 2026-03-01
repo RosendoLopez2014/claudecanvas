@@ -15,6 +15,7 @@ import { Timeline } from '../CheckpointTimeline/Timeline'
 import { DiffView } from '../DiffView/DiffView'
 import { DeployLog } from './DeployLog'
 import { A11yAudit } from './A11yAudit'
+import { CriticPanel } from './CriticPanel'
 import { PerfMetrics } from './PerfMetrics'
 import { DesignFeedback } from './DesignFeedback'
 import { VIEWPORT_PRESETS } from '../../../shared/constants'
@@ -301,7 +302,7 @@ export function CanvasPanel() {
     }, [])
   )
 
-  const tabs: CanvasTab[] = ['preview', 'gallery', 'timeline', 'diff', 'deploy', 'a11y']
+  const tabs: CanvasTab[] = ['preview', 'gallery', 'timeline', 'diff', 'deploy', 'a11y', 'critic']
   const currentPreset = VIEWPORT_PRESETS.find((p) => p.width === viewportWidth) || VIEWPORT_PRESETS[0]
 
   return (
@@ -489,6 +490,7 @@ export function CanvasPanel() {
         {activeTab === 'diff' && <DiffView />}
         {activeTab === 'deploy' && <DeployLog />}
         {activeTab === 'a11y' && <A11yAudit />}
+        {activeTab === 'critic' && <CriticPanel />}
       </div>
     </div>
   )
