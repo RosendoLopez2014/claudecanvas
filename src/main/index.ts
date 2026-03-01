@@ -51,6 +51,7 @@ import { setupAutoUpdater, installUpdate } from './updater'
 import { registerPtyProvider, registerDevProvider, listProcesses } from './services/process-tracker'
 import { getActiveDevServers } from './devserver/runner'
 import { setupPowerMonitor, stopPowerSaveBlocker } from './power-monitor'
+import { setupCriticHandlers } from './critic'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -202,6 +203,7 @@ app.whenReady().then(() => {
   setupSearchHandlers()
   setupComponentScannerHandlers()
   setupGalleryIpc()
+  setupCriticHandlers(() => mainWindow)
 
   // Process tracker providers
   registerPtyProvider(getActivePtyInfo)

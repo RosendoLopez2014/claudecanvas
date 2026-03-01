@@ -14,6 +14,15 @@ const ptyStartTimes = new Map<string, number>()
 const ptyTabIds = new Map<string, string>()
 const closingPtys = new Set<string>()
 
+// External data listeners (e.g., critic plan detector)
+type PtyDataListener = (ptyId: string, data: string) => void
+const externalDataListeners = new Set<PtyDataListener>()
+
+export function addPtyDataListener(listener: PtyDataListener): () => void {
+  externalDataListeners.add(listener)
+  return () => { externalDataListeners.delete(listener) }
+}
+
 // Expose PTY count for EBADF diagnostics (read by git.ts via globalThis)
 ;(globalThis as any).__ptyCount = () => ptys.size
 ;(globalThis as any).__ptyClosingCount = () => closingPtys.size
@@ -92,6 +101,10 @@ export function setupPtyHandlers(getWindow: () => BrowserWindow | null): void {
 
     ptyProcess.onData((data) => {
       buffer += data
+      // Notify external listeners (e.g., critic plan detector)
+      for (const listener of externalDataListeners) {
+        try { listener(id, data) } catch { /* ignore listener errors */ }
+      }
       if (!sendScheduled) {
         sendScheduled = true
         setTimeout(() => {
