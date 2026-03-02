@@ -7,6 +7,7 @@ import { parseCommandString, validateCommand, commandToString } from '../../shar
 import { repairSessions } from '../devserver/repair-session'
 import { emitRepairEvent } from '../devserver/repair-events'
 import { REPAIR_MAX_FILES, REPAIR_MAX_LOC } from '../../shared/constants'
+import { assertCriticAllows } from './gate-wrapper'
 import type { RepairPhase, RepairTaskPayload } from '../../shared/devserver/repair-types'
 
 /** Agent-reportable phases (only these are valid for canvas_mark_repair_step). */
@@ -31,6 +32,8 @@ export function registerDevServerTools(
       reason: z.string().optional().describe('Why this command was chosen'),
     },
     async ({ command, port, reason }) => {
+      const gateBlocked = assertCriticAllows('configure_dev_server')
+      if (gateBlocked) return gateBlocked
       const parsed = parseCommandString(command)
       if (!parsed) {
         return { content: [{ type: 'text', text: `Invalid command: "${command}". Only npm, pnpm, yarn, bun, node, npx binaries are allowed. Shell operators (;|&><$) are forbidden.` }] }

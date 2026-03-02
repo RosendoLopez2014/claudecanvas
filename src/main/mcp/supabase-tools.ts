@@ -5,6 +5,7 @@ import { getSecureToken } from '../services/secure-storage'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { McpTextResult } from './helpers'
+import { assertCriticAllows } from './gate-wrapper'
 
 type SupabaseAuth = { token: string; ref: string }
 
@@ -151,6 +152,8 @@ export function registerSupabaseTools(
       projectRef: z.string().optional().describe('Supabase project ref. Auto-detected if omitted.')
     },
     async ({ sql, projectRef }) => {
+      const gateBlocked = assertCriticAllows('supabase_run_sql')
+      if (gateBlocked) return gateBlocked
       const projectPath = getProjectPath()
       if (!projectPath) return { content: [{ type: 'text', text: 'Session not initialized — reopen the tab or press Retry in the boot overlay' }] }
       const auth = await requireSupabaseAuth(projectPath, projectRef)

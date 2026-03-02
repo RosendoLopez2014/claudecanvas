@@ -3,6 +3,7 @@ import { BrowserWindow } from 'electron'
 import { registerCanvasTools } from './canvas-tools'
 import { registerSupabaseTools } from './supabase-tools'
 import { registerDevServerTools } from './devserver-tools'
+import { registerCriticTools } from './critic-tools'
 
 export function registerMcpTools(
   server: McpServer,
@@ -12,4 +13,5 @@ export function registerMcpTools(
   registerCanvasTools(server, getWindow, getProjectPath)
   registerSupabaseTools(server, getWindow, getProjectPath)
   registerDevServerTools(server, getWindow, getProjectPath)
+  registerCriticTools(server, getWindow, getProjectPath)
 }

@@ -4,6 +4,7 @@ import { BrowserWindow } from 'electron'
 import { getLatestScreenshotBase64 } from '../screenshot'
 import { generateProjectProfile } from '../services/project-profile'
 import { executeWithTimeout, errorResponse } from './helpers'
+import { assertCriticAllows } from './gate-wrapper'
 
 export function registerCanvasTools(
   server: McpServer,
@@ -18,6 +19,8 @@ export function registerCanvasTools(
       css: z.string().optional().describe('Optional CSS styles')
     },
     async ({ html, css }) => {
+      const gateBlocked = assertCriticAllows('canvas_render')
+      if (gateBlocked) return gateBlocked
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
       const projectPath = getProjectPath()
@@ -35,6 +38,8 @@ export function registerCanvasTools(
       cwd: z.string().optional().describe('Working directory. Defaults to current project path.')
     },
     async ({ command, cwd }) => {
+      const gateBlocked = assertCriticAllows('canvas_start_preview')
+      if (gateBlocked) return gateBlocked
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
       const projectPath = getProjectPath()
@@ -53,6 +58,8 @@ export function registerCanvasTools(
     'Stop the dev server and close the canvas preview panel.',
     {},
     async () => {
+      const gateBlocked = assertCriticAllows('canvas_stop_preview')
+      if (gateBlocked) return gateBlocked
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
       const projectPath = getProjectPath()
@@ -69,6 +76,8 @@ export function registerCanvasTools(
       url: z.string().describe('URL to load in the preview iframe (e.g., http://localhost:3000)')
     },
     async ({ url }) => {
+      const gateBlocked = assertCriticAllows('canvas_set_preview_url')
+      if (gateBlocked) return gateBlocked
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
       const projectPath = getProjectPath()
@@ -85,6 +94,8 @@ export function registerCanvasTools(
       tab: z.enum(['preview', 'gallery', 'timeline', 'diff']).describe('Which tab to open')
     },
     async ({ tab }) => {
+      const gateBlocked = assertCriticAllows('canvas_open_tab')
+      if (gateBlocked) return gateBlocked
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
       const projectPath = getProjectPath()
@@ -119,6 +130,8 @@ export function registerCanvasTools(
       order: z.number().optional().describe('Display order within the session'),
     },
     async ({ label, html, css, componentPath, description, category, pros, cons, annotations, sessionId, order }) => {
+      const gateBlocked = assertCriticAllows('canvas_add_to_gallery')
+      if (gateBlocked) return gateBlocked
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
       const projectPath = getProjectPath()
@@ -141,6 +154,8 @@ export function registerCanvasTools(
       variantId: z.string().optional().describe('Variant ID to select (for "select" action)'),
     },
     async ({ action, title, prompt, variantId }) => {
+      const gateBlocked = assertCriticAllows('canvas_design_session')
+      if (gateBlocked) return gateBlocked
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
       const projectPath = getProjectPath()
@@ -227,6 +242,8 @@ export function registerCanvasTools(
       })).optional().describe('Updated annotations'),
     },
     async ({ variantId, ...updates }) => {
+      const gateBlocked = assertCriticAllows('canvas_update_variant')
+      if (gateBlocked) return gateBlocked
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
       const projectPath = getProjectPath()
@@ -243,6 +260,8 @@ export function registerCanvasTools(
       message: z.string().describe('Checkpoint message describing the current state')
     },
     async ({ message }) => {
+      const gateBlocked = assertCriticAllows('canvas_checkpoint')
+      if (gateBlocked) return gateBlocked
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
       const projectPath = getProjectPath()
@@ -260,6 +279,8 @@ export function registerCanvasTools(
       type: z.enum(['info', 'success', 'error']).optional().describe('Notification type. Defaults to info.')
     },
     async ({ message, type }) => {
+      const gateBlocked = assertCriticAllows('canvas_notify')
+      if (gateBlocked) return gateBlocked
       const win = getWindow()
       if (!win) return { content: [{ type: 'text', text: 'Error: No window available' }] }
       const projectPath = getProjectPath()
