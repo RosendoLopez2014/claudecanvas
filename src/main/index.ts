@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain, dialog, screen } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, dialog, screen, Menu } from 'electron'
 import { join } from 'path'
 import { readFileSync } from 'fs'
 import { randomBytes } from 'node:crypto'
@@ -181,6 +181,37 @@ app.whenReady().then(() => {
   initSecureStorage()
 
   createWindow()
+
+  // Application menu — required for macOS Cmd+C/V/X/A accelerators to work.
+  // Without a menu, Electron never registers these shortcuts, so clipboard
+  // operations silently fail in xterm.js and other non-native input contexts.
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
+  ]))
+
   setupAutoUpdater(mainWindow!)
   setupPowerMonitor(() => mainWindow)
 

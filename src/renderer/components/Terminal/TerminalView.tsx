@@ -103,6 +103,90 @@ function SplitPane({
 
     terminal.open(container)
 
+    // Let Cmd+C (with selection), Cmd+V, Cmd+A, and Cmd+X pass through to
+    // the browser/Electron menu instead of being captured by xterm.
+    // Return false = browser handles it, true = xterm handles it.
+    terminal.attachCustomKeyEventHandler((e) => {
+      const isMeta = e.metaKey  // Cmd on macOS
+      if (!isMeta) return true  // not a Cmd shortcut — let xterm handle
+
+      switch (e.key) {
+        case 'c':
+        case 'C':
+          // Only pass through to browser (copy) if there's a selection;
+          // otherwise let xterm send Ctrl+C (SIGINT) to the PTY
+          if (terminal.hasSelection()) {
+            navigator.clipboard.writeText(terminal.getSelection())
+            return false
+          }
+          return true
+        case 'v':
+        case 'V':
+          // Read clipboard and write to PTY (paste)
+          navigator.clipboard.readText().then((text) => {
+            if (text) terminal.paste(text)
+          })
+          return false
+        case 'a':
+        case 'A':
+          terminal.selectAll()
+          return false
+        case 'x':
+        case 'X':
+          return false  // browser handles cut
+        default:
+          return true   // xterm handles everything else
+      }
+    })
+
+    // Right-click context menu for copy/paste
+    container.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      const hasSelection = terminal.hasSelection()
+
+      // Remove any existing context menu
+      document.getElementById('xterm-ctx-menu')?.remove()
+
+      const menu = document.createElement('div')
+      menu.id = 'xterm-ctx-menu'
+      menu.className = 'fixed z-50 bg-[#1e1e2e] border border-white/10 rounded-lg py-1 shadow-xl min-w-[140px] text-xs'
+      menu.style.left = `${e.clientX}px`
+      menu.style.top = `${e.clientY}px`
+
+      const addItem = (label: string, shortcut: string, action: () => void, disabled = false) => {
+        const item = document.createElement('button')
+        item.className = `flex items-center justify-between w-full px-3 py-1.5 text-left transition-colors ${
+          disabled ? 'text-white/20 cursor-default' : 'text-white/70 hover:bg-white/10 hover:text-white/90'
+        }`
+        item.innerHTML = `<span>${label}</span><span class="text-white/30 ml-4">${shortcut}</span>`
+        if (!disabled) item.onclick = () => { menu.remove(); action() }
+        menu.appendChild(item)
+      }
+
+      addItem('Copy', '\u2318C', () => {
+        navigator.clipboard.writeText(terminal.getSelection())
+      }, !hasSelection)
+
+      addItem('Paste', '\u2318V', () => {
+        navigator.clipboard.readText().then((text) => {
+          if (text) terminal.paste(text)
+        })
+      })
+
+      addItem('Select All', '\u2318A', () => terminal.selectAll())
+
+      document.body.appendChild(menu)
+
+      // Close on click outside or escape
+      const close = () => { menu.remove(); document.removeEventListener('mousedown', onOutside); document.removeEventListener('keydown', onEsc) }
+      const onOutside = (ev: MouseEvent) => { if (!menu.contains(ev.target as Node)) close() }
+      const onEsc = (ev: KeyboardEvent) => { if (ev.key === 'Escape') close() }
+      setTimeout(() => {
+        document.addEventListener('mousedown', onOutside)
+        document.addEventListener('keydown', onEsc)
+      }, 0)
+    })
+
     try {
       const webgl = new WebglAddon()
       webgl.onContextLoss(() => {
