@@ -6,7 +6,7 @@ import { useToastStore } from '@/stores/toast'
 import { useFileWatcher } from '@/hooks/useFileWatcher'
 import { useInspector } from '@/hooks/useInspector'
 import { useRef, useCallback, useState, useEffect } from 'react'
-import { X, RotateCw, Camera, Monitor, Smartphone, Tablet, ChevronDown, XCircle, Maximize, Minimize, ArrowLeft, ArrowRight, Globe, ScanLine, Zap } from 'lucide-react'
+import { X, RotateCw, Camera, Monitor, Smartphone, Tablet, ChevronDown, XCircle, Maximize, Minimize, ArrowLeft, ArrowRight, Globe, ScanLine } from 'lucide-react'
 import type { DeviceType } from '../../../shared/constants'
 import { ScreenshotOverlay } from './ScreenshotOverlay'
 import { ConsoleOverlay } from './ConsoleOverlay'
@@ -15,7 +15,7 @@ import { Timeline } from '../CheckpointTimeline/Timeline'
 import { DiffView } from '../DiffView/DiffView'
 import { DeployLog } from './DeployLog'
 import { A11yAudit } from './A11yAudit'
-import { CriticPanel } from './CriticPanel'
+// CriticPanel moved to Workspace for canvas-independent access
 import { PerfMetrics } from './PerfMetrics'
 import { DesignFeedback } from './DesignFeedback'
 import { VIEWPORT_PRESETS } from '../../../shared/constants'
@@ -303,8 +303,6 @@ export function CanvasPanel() {
   )
 
   const tabs: CanvasTab[] = ['preview', 'gallery', 'timeline', 'diff', 'deploy', 'a11y']
-  const criticOpen = useWorkspaceStore((s) => s.criticSidebarOpen)
-  const toggleCritic = useWorkspaceStore((s) => s.toggleCriticSidebar)
   const currentPreset = VIEWPORT_PRESETS.find((p) => p.width === viewportWidth) || VIEWPORT_PRESETS[0]
 
   return (
@@ -494,27 +492,6 @@ export function CanvasPanel() {
         {activeTab === 'a11y' && <A11yAudit />}
       </div>
 
-      {/* Critic sidebar toggle */}
-      <button
-        onClick={toggleCritic}
-        className={`absolute bottom-3 right-3 z-30 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full
-          text-[10px] shadow-lg transition-all ${
-          criticOpen
-            ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-            : 'bg-white/10 text-white/50 border border-white/10 hover:bg-white/15 hover:text-white/70'
-        }`}
-        title="Toggle critic panel"
-      >
-        <Zap className="w-3 h-3" />
-        Critic
-      </button>
-
-      {/* Critic sidebar overlay */}
-      {criticOpen && (
-        <div className="absolute top-0 right-0 bottom-0 w-[320px] z-20 border-l border-white/10 bg-[#0A0F1A] shadow-2xl">
-          <CriticPanel onClose={toggleCritic} />
-        </div>
-      )}
     </div>
   )
 }

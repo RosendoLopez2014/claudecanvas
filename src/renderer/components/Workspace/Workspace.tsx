@@ -1,9 +1,10 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
-import { LayoutGrid, GitBranch, Layers } from 'lucide-react'
+import { LayoutGrid, GitBranch, Layers, Zap } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { TerminalView } from '../Terminal/TerminalView'
 import { BootOverlay } from '../BootOverlay/BootOverlay'
 import { CanvasPanel } from '../Canvas/CanvasPanel'
+import { CriticPanel } from '../Canvas/CriticPanel'
 import { FileExplorer } from '../FileExplorer/FileExplorer'
 import { SplitPaneHeader, getGridStyle, shouldSpanFull } from './SplitViewGrid'
 import type { SplitViewTab } from './SplitViewGrid'
@@ -185,6 +186,9 @@ export function Workspace() {
   const splitTabs = useSplitViewTabs()
   const activeTabId = useTabsStore((s) => s.activeTabId)
   const [splitMenuOpen, setSplitMenuOpen] = useState(false)
+
+  const criticOpen = useWorkspaceStore((s) => s.criticSidebarOpen)
+  const toggleCritic = useWorkspaceStore((s) => s.toggleCriticSidebar)
 
   const showCanvas = mode === 'terminal-canvas'
   const isMobile = viewportMode === 'mobile'
@@ -436,6 +440,28 @@ export function Workspace() {
           <CanvasPanel />
         </div>
       </div>
+
+      {/* Critic sidebar toggle — always visible, independent of canvas */}
+      <button
+        onClick={toggleCritic}
+        className={`absolute bottom-3 right-3 z-30 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full
+          text-[10px] shadow-lg transition-all ${
+          criticOpen
+            ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+            : 'bg-white/10 text-white/50 border border-white/10 hover:bg-white/15 hover:text-white/70'
+        }`}
+        title="Toggle critic panel"
+      >
+        <Zap className="w-3 h-3" />
+        Critic
+      </button>
+
+      {/* Critic sidebar overlay — slides in from right edge */}
+      {criticOpen && (
+        <div className="absolute top-0 right-0 bottom-0 w-[320px] z-20 border-l border-white/10 bg-[#0A0F1A] shadow-2xl">
+          <CriticPanel onClose={toggleCritic} />
+        </div>
+      )}
     </div>
   )
 }
