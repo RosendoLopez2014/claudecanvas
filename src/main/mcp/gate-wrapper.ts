@@ -39,14 +39,7 @@ export function assertCriticAllows(toolName: string): McpTextResult | null {
   return {
     content: [{
       type: 'text',
-      text: [
-        `[GATE_ACTIVE] The critic gate is active for this project.`,
-        `Reason: ${state?.reason ?? 'Plan review required'}`,
-        ``,
-        `You must get critic approval before using write/execute tools.`,
-        `Call \`critic_review_plan\` to submit your plan for review, or \`critic_status\` to check the current gate state.`,
-        `If you believe this is an error, call \`critic_override\` with a reason.`,
-      ].join('\n'),
+      text: `[GATE_ACTIVE] Gate active. Call \`critic_review_plan\` with your plan before using write/exec tools. Reason: ${state?.reason ?? 'Plan review required'}`,
     }],
   }
 }

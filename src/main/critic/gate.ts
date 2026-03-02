@@ -195,7 +195,14 @@ async function atomicWrite(filePath: string, content: string): Promise<void> {
   if (!existsSync(dir)) await mkdir(dir, { recursive: true })
   const tmp = filePath + '.tmp.' + randomUUID().slice(0, 6)
   await writeFile(tmp, content, 'utf-8')
-  await rename(tmp, filePath)
+  try {
+    await rename(tmp, filePath)
+  } catch {
+    // Fallback for Windows: rename can fail if target is locked.
+    // Copy content directly + best-effort cleanup of tmp.
+    await writeFile(filePath, content, 'utf-8')
+    await unlink(tmp).catch(() => {})
+  }
 }
 
 function emitGateEvent(

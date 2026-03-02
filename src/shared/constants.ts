@@ -143,11 +143,20 @@ export const GATED_MCP_TOOLS = new Set([
  * Native tools to KEEP in settings.local.json when gated (inverted allowlist).
  * Everything NOT in this list gets removed during gate restriction.
  * Safer than enumerating dangerous commands — we only allow known-safe reads.
+ *
+ * Includes read-only shell commands so Claude can still explore code while gated.
  */
 export const GATED_MODE_ALLOWED_NATIVE = [
   'Read',
   'Bash(ls *)',
   'Bash(cat *)',
+  'Bash(git status*)',
+  'Bash(git diff*)',
+  'Bash(git log*)',
+  'Bash(git show*)',
+  'Bash(grep *)',
+  'Bash(rg *)',
+  'Bash(find *)',
 ]
 
 /** Critic MCP tool IDs (centralized for registration + allowlist) */
