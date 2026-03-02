@@ -1,12 +1,15 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { spawn } from 'node:child_process'
+import { readFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { join, isAbsolute } from 'node:path'
 import { BrowserWindow } from 'electron'
 import { startPlanReview, startResultReview, getActiveRun } from '../critic/engine'
 import { engageGate, releaseGate, getGateState, isGated } from '../critic/gate'
 import { getCriticConfig } from '../critic/config-store'
 import { collectDiagnostics } from '../critic/diagnostics'
-import { formatFeedbackForClaude } from '../../shared/critic/format'
+import { formatFeedbackCompact } from '../../shared/critic/format'
 import { getRequestContext } from './request-context'
 import { errorResponse } from './helpers'
 import { CRITIC_MAX_DIFF_SIZE } from '../../shared/constants'
@@ -38,14 +41,24 @@ export function registerCriticTools(
   // ── critic_review_plan ──────────────────────────────────
   server.tool(
     'critic_review_plan',
-    'Submit your implementation plan for critic review BEFORE writing any code. The critic will analyze it and return structured feedback with verdict (approve/revise/reject). Write/execute tools are BLOCKED until the critic approves.',
+    'Submit your implementation plan for critic review BEFORE writing any code. Provide either inline plan text OR a path to a plan file (e.g. docs/plans/xxx.md). Write/execute tools are BLOCKED until the critic approves.',
     {
-      plan: z.string().describe('The full implementation plan text'),
+      plan: z.string().optional().describe('The full implementation plan text (provide this OR planFile)'),
+      planFile: z.string().optional().describe('Path to a plan file relative to project root (e.g. docs/plans/2026-03-01-feature.md)'),
       context: z.string().optional().describe('Additional project context'),
     },
-    async ({ plan, context }) => {
+    async ({ plan, planFile, context }) => {
       const projectPath = getProjectPath()
       if (!projectPath) return errorResponse('[MCP_CONTEXT_MISSING] Session not initialized')
+
+      // Resolve plan text from inline or file
+      let planText = plan
+      if (!planText && planFile) {
+        const filePath = isAbsolute(planFile) ? planFile : join(projectPath, planFile)
+        if (!existsSync(filePath)) return errorResponse(`Plan file not found: ${planFile}`)
+        planText = await readFile(filePath, 'utf-8')
+      }
+      if (!planText) return errorResponse('Provide either `plan` (inline text) or `planFile` (file path)')
 
       const ctx = getRequestContext()
       const tabId = ctx?.tabId ?? 'unknown'
@@ -60,10 +73,10 @@ export function registerCriticTools(
 
       try {
         const feedback = await startPlanReview(
-          getWindow, tabId, projectPath, plan,
+          getWindow, tabId, projectPath, planText,
           context ?? `Project: ${projectPath}`,
         )
-        const formatted = formatFeedbackForClaude(feedback, 'plan')
+        const formatted = formatFeedbackCompact(feedback, 'plan')
 
         // Both modes: release gate on plan approval
         if (feedback.verdict === 'approve') {
@@ -73,9 +86,9 @@ export function registerCriticTools(
         return {
           content: [{
             type: 'text' as const,
-            text: formatted + '\n---\n' + (feedback.verdict === 'approve'
-              ? 'Gate released. You may proceed with implementation.'
-              : 'The gate remains active. Address the issues and re-submit, or call `critic_override` to proceed anyway.'),
+            text: formatted + (feedback.verdict === 'approve'
+              ? '\nGate released — proceed.'
+              : '\nGate active. Fix issues + re-submit, or `critic_override` to bypass.'),
           }],
         }
       } catch (err) {
@@ -118,7 +131,7 @@ export function registerCriticTools(
           getWindow, tabId, projectPath, gitDiff, diagnostics,
           context ?? `Project: ${projectPath}`,
         )
-        const formatted = formatFeedbackForClaude(feedback, 'result')
+        const formatted = formatFeedbackCompact(feedback, 'result')
 
         // Both modes: release gate on result approval
         if (feedback.verdict === 'approve') {
@@ -128,11 +141,11 @@ export function registerCriticTools(
         return {
           content: [{
             type: 'text' as const,
-            text: formatted + '\n---\n' + (feedback.verdict === 'approve'
-              ? 'Implementation approved. Gate released.'
+            text: formatted + (feedback.verdict === 'approve'
+              ? '\nApproved. Gate released.'
               : config.gateMode === 'strict'
-                ? 'Gate remains active. Address the issues and call `critic_review_result` again.'
-                : 'Please address the issues above and continue.'),
+                ? '\nGate active. Fix issues + call `critic_review_result` again.'
+                : '\nFix the issues above and continue.'),
           }],
         }
       } catch (err) {

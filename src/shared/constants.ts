@@ -157,6 +157,9 @@ export const GATED_MODE_ALLOWED_NATIVE = [
   'Bash(grep *)',
   'Bash(rg *)',
   'Bash(find *)',
+  'Bash(mkdir *)',
+  'Write(*/docs/plans/*)',
+  'Edit(*/docs/plans/*)',
 ]
 
 /** Critic MCP tool IDs (centralized for registration + allowlist) */

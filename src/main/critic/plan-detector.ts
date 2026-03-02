@@ -3,6 +3,12 @@ import type { CriticConfig, PlanDetectedEvent } from '../../shared/critic/types'
 import { CRITIC_PLAN_DETECT_DEBOUNCE_MS, CRITIC_PTY_BUFFER_MAX } from '../../shared/constants'
 import { addPtyDataListener } from '../pty'
 import { getCriticConfig } from './config-store'
+import { startPlanReview } from './engine'
+import { engageGate, releaseGate, isGated } from './gate'
+import { formatFeedbackCompact } from '../../shared/critic/format'
+import { watch, existsSync, mkdirSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { join, basename } from 'node:path'
 
 // Per-PTY rolling buffers
 const ptyBuffers = new Map<string, string>()
@@ -26,6 +32,26 @@ export function unregisterPtyForDetection(ptyId: string): void {
   lastPlanHash.delete(ptyId)
   const timer = ptyTimers.get(ptyId)
   if (timer) { clearTimeout(timer); ptyTimers.delete(ptyId) }
+}
+
+/**
+ * Strip ALL ANSI escape sequences from terminal output.
+ * Covers: CSI sequences (colors, cursor movement, erase), OSC (title),
+ * private mode (DEC), and single-character escapes.
+ */
+function stripAnsi(text: string): string {
+  return text
+    // CSI sequences: \x1b[ ... (any params) ... (final letter)
+    // Covers colors (\x1b[31m), cursor movement (\x1b[12A), erase (\x1b[2J), etc.
+    .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
+    // OSC sequences: \x1b] ... (terminated by BEL \x07 or ST \x1b\\)
+    .replace(/\x1b\].*?(?:\x07|\x1b\\)/g, '')
+    // Single-char escapes: \x1b followed by one character (e.g., \x1b(B)
+    .replace(/\x1b[()][0-9A-Z]/g, '')
+    // Any remaining lone escape characters
+    .replace(/\x1b/g, '')
+    // Carriage returns (overwritten lines in TUI output)
+    .replace(/\r/g, '')
 }
 
 /** Cheap string hash for cooldown dedup. */
@@ -58,7 +84,7 @@ export function setupPlanDetector(getWindow: () => BrowserWindow | null): () => 
     if (existing) clearTimeout(existing)
     ptyTimers.set(ptyId, setTimeout(() => {
       ptyTimers.delete(ptyId)
-      const clean = buf.replace(/\x1b\[[0-9;]*m/g, '')
+      const clean = stripAnsi(buf)
       const planText = extractPlan(clean, config.planDetectionKeywords)
       if (planText) {
         const confidence = computeConfidence(planText)
@@ -80,6 +106,11 @@ export function setupPlanDetector(getWindow: () => BrowserWindow | null): () => 
         if (win && !win.isDestroyed()) {
           win.webContents.send('critic:planDetected', event)
         }
+
+        // Clear buffer after emitting so the next scan starts fresh.
+        // Without this, the old plan stays in the buffer and extractPlan
+        // finds it first on the next scan, hitting the cooldown dedup.
+        ptyBuffers.set(ptyId, '')
       }
     }, CRITIC_PLAN_DETECT_DEBOUNCE_MS))
   })
@@ -125,4 +156,98 @@ function computeConfidence(planText: string): number {
   if (/^#+\s/m.test(planText)) score += 0.2        // headings
   if (lines.length >= 15) score += 0.2
   return Math.min(1, score)
+}
+
+// ── Plan file auto-review watcher ────────────────────────
+
+// Track active watchers per project to prevent duplicates
+const planFileWatchers = new Map<string, ReturnType<typeof watch>>()
+// Debounce per file to avoid duplicate triggers from rapid writes
+const planFileTimers = new Map<string, ReturnType<typeof setTimeout>>()
+// Track files we've already reviewed to avoid re-reviewing on every save
+const reviewedFiles = new Map<string, { mtime: number }>()
+
+/**
+ * Watch `docs/plans/` for new or updated .md files.
+ * When detected, auto-submit to critic engine for review.
+ * Gate engages during review; auto-releases on approve.
+ */
+export function setupPlanFileWatcher(
+  getWindow: () => BrowserWindow | null,
+  projectPath: string,
+  tabId: string,
+): () => void {
+  const plansDir = join(projectPath, 'docs', 'plans')
+
+  // Ensure directory exists
+  if (!existsSync(plansDir)) {
+    mkdirSync(plansDir, { recursive: true })
+  }
+
+  // Don't duplicate watchers for same project
+  if (planFileWatchers.has(projectPath)) {
+    return () => {}
+  }
+
+  const watcher = watch(plansDir, async (eventType, filename) => {
+    if (!filename || !filename.endsWith('.md')) return
+
+    const filePath = join(plansDir, filename)
+    const config = getCriticConfig(projectPath)
+    if (!config.enabled || !config.autoReviewPlan) return
+
+    // Debounce: wait for writes to settle
+    const timerKey = `${projectPath}:${filename}`
+    const existing = planFileTimers.get(timerKey)
+    if (existing) clearTimeout(existing)
+
+    planFileTimers.set(timerKey, setTimeout(async () => {
+      planFileTimers.delete(timerKey)
+
+      if (!existsSync(filePath)) return
+
+      // Skip if already reviewed this version
+      const { mtimeMs } = await import('node:fs').then(fs =>
+        fs.promises.stat(filePath)
+      )
+      const prev = reviewedFiles.get(filePath)
+      if (prev && Math.abs(prev.mtime - mtimeMs) < 1000) return
+      reviewedFiles.set(filePath, { mtime: mtimeMs })
+
+      // Skip if gate is already active (already reviewing something)
+      if (isGated(projectPath)) return
+
+      const planText = await readFile(filePath, 'utf-8')
+      if (planText.length < 50) return // too short to be a real plan
+
+      console.log(`[plan-detector] Auto-reviewing plan file: ${filename}`)
+
+      // Engage gate + run review
+      await engageGate(getWindow, projectPath, tabId, `Auto-reviewing plan: ${filename}`)
+
+      try {
+        const feedback = await startPlanReview(
+          getWindow, tabId, projectPath, planText,
+          `Project: ${projectPath}`,
+        )
+
+        if (feedback.verdict === 'approve') {
+          await releaseGate(getWindow, projectPath, `Plan auto-approved: ${filename}`, 'critic_approve')
+        }
+        // If revise/reject: gate stays active. Claude's next tool call
+        // gets blocked with the verdict via assertCriticAllows().
+        // The full feedback is visible in the CriticPanel.
+      } catch (err) {
+        console.error(`[plan-detector] Auto-review failed:`, err)
+        await releaseGate(getWindow, projectPath, 'Auto-review failed — gate released', 'error')
+      }
+    }, 1500)) // 1.5s debounce for file writes
+  })
+
+  planFileWatchers.set(projectPath, watcher)
+
+  return () => {
+    watcher.close()
+    planFileWatchers.delete(projectPath)
+  }
 }

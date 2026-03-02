@@ -5,7 +5,7 @@ import { getCriticConfig, setCriticConfig } from './config-store'
 import { startPlanReview, startResultReview, getActiveRun, abortRun, completeRun } from './engine'
 import { collectDiagnostics } from './diagnostics'
 import { listRuns, loadArtifact } from './artifact-store'
-import { setupPlanDetector, registerPtyForDetection, unregisterPtyForDetection } from './plan-detector'
+import { setupPlanDetector, registerPtyForDetection, unregisterPtyForDetection, setupPlanFileWatcher } from './plan-detector'
 import { getGateState, releaseGate, cleanupTabGate, restoreStaleBackups } from './gate'
 
 export function setupCriticHandlers(getWindow: () => BrowserWindow | null): void {
@@ -31,9 +31,11 @@ export function setupCriticHandlers(getWindow: () => BrowserWindow | null): void
     return { ok: true }
   })
 
-  // PTY registration for plan detection
+  // PTY registration for plan detection + plan file watcher
   ipcMain.on('critic:registerPty', (_e, ptyId: string, tabId: string, projectPath: string) => {
     registerPtyForDetection(ptyId, tabId, projectPath)
+    // Start watching docs/plans/ for auto-review (idempotent per project)
+    setupPlanFileWatcher(getWindow, projectPath, tabId)
   })
   ipcMain.on('critic:unregisterPty', (_e, ptyId: string) => {
     unregisterPtyForDetection(ptyId)

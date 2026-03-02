@@ -1,5 +1,40 @@
 import type { CriticFeedback } from './types'
 
+/**
+ * Compact format for MCP tool responses (~5 lines).
+ * Claude gets verdict + summary + issue one-liners.
+ * Full details are in the CriticPanel UI.
+ */
+export function formatFeedbackCompact(
+  feedback: CriticFeedback,
+  reviewType: 'plan' | 'result' = 'plan',
+): string {
+  const label = reviewType === 'plan' ? 'Plan' : 'Result'
+  const lines: string[] = []
+
+  lines.push(`[CRITIC] ${feedback.verdict.toUpperCase()} (${label})`)
+  lines.push(feedback.summary)
+
+  if (feedback.issues.length > 0) {
+    const bySeverity = feedback.issues.reduce((acc, i) => {
+      acc[i.severity] = (acc[i.severity] || 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+    const counts = Object.entries(bySeverity).map(([s, n]) => `${n} ${s}`).join(', ')
+    lines.push(`Issues: ${counts}`)
+    // One-liner per issue — no file/recommendation (those are in the panel)
+    feedback.issues.forEach((issue, i) => {
+      lines.push(`  ${i + 1}. [${issue.severity.toUpperCase()}] ${issue.description}`)
+    })
+  }
+
+  return lines.join('\n')
+}
+
+/**
+ * Full verbose format for clipboard copy and detailed logging.
+ * Used by CriticPanel "Copy Feedback" button.
+ */
 export function formatFeedbackForClaude(
   feedback: CriticFeedback,
   reviewType: 'plan' | 'result' = 'plan',
