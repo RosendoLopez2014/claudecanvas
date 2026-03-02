@@ -162,10 +162,8 @@ function CriticChip() {
               <button
                 onClick={() => {
                   setShowPopover(false)
-                  if (tab) {
-                    useWorkspaceStore.getState().openCanvas()
-                    useTabsStore.getState().updateTab(tab.id, { activeCanvasTab: 'critic' })
-                  }
+                  useWorkspaceStore.getState().openCanvas()
+                  useWorkspaceStore.getState().openCriticSidebar()
                 }}
                 className="w-full text-center text-[10px] text-white/30 hover:text-white/60 py-1 transition-colors"
               >

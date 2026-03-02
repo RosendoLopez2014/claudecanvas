@@ -24,6 +24,9 @@ interface WorkspaceStore {
   toggleFileExplorer: () => void
   enterSplitView: (scope: SplitViewScope) => void
   exitSplitView: () => void
+  criticSidebarOpen: boolean
+  toggleCriticSidebar: () => void
+  openCriticSidebar: () => void
 }
 
 export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
@@ -68,4 +71,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     window.api.window.maximize()
   },
   exitSplitView: () => set({ splitViewActive: false }),
+  criticSidebarOpen: false,
+  toggleCriticSidebar: () => set((s) => ({ criticSidebarOpen: !s.criticSidebarOpen })),
+  openCriticSidebar: () => set({ criticSidebarOpen: true }),
 }))
