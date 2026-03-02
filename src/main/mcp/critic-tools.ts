@@ -156,8 +156,15 @@ export function registerCriticTools(
       const ctx = getRequestContext()
       const tabId = ctx?.tabId ?? 'unknown'
       const config = getCriticConfig(projectPath)
-      const gateState = getGateState(projectPath)
       const activeRun = getActiveRun(tabId)
+
+      // Auto-engage gate on first status check when critic is enabled but gate not yet active.
+      // This ensures Claude can't write code before calling critic_review_plan.
+      if (config.enabled && !isGated(projectPath) && !getGateState(projectPath)) {
+        await engageGate(getWindow, projectPath, tabId, 'Critic enabled — plan review required before coding')
+      }
+
+      const gateState = getGateState(projectPath)
 
       const lines: string[] = [
         `Critic enabled: ${config.enabled}`,
@@ -167,10 +174,12 @@ export function registerCriticTools(
 
       if (gateState?.status === 'gated') {
         lines.push(`Gate reason: ${gateState.reason}`)
-        lines.push('', 'Write/execute tools are BLOCKED. Submit a plan via `critic_review_plan` or override via `critic_override`.')
+        lines.push('', 'Write/execute tools are BLOCKED. You MUST call `critic_review_plan` with your plan before writing any code. Use `critic_override` only if absolutely necessary.')
       } else if (gateState?.status === 'overridden') {
         lines.push(`Overridden by: ${gateState.overriddenBy}`)
         lines.push('', 'Gate was overridden. Write/execute tools are available.')
+      } else if (config.enabled) {
+        lines.push('', 'Critic is enabled. Call `critic_review_plan` before writing code.')
       }
 
       if (activeRun) {
