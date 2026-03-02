@@ -222,10 +222,14 @@ export function setupVercelOAuth(getWindow: () => BrowserWindow | null): void {
           authUrl.searchParams.set('redirect_uri', REDIRECT_URI)
           authUrl.searchParams.set('state', state)
 
+          // Share persistent OAuth partition with Supabase so Google/GitHub
+          // sessions carry over between different OAuth flows
+          const { session } = require('electron') as typeof import('electron')
           const authView = new WebContentsView({
             webPreferences: {
               contextIsolation: true,
-              nodeIntegration: false
+              nodeIntegration: false,
+              session: session.fromPartition('persist:oauth')
             }
           })
 

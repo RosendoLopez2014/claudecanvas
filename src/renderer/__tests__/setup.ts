@@ -113,7 +113,9 @@ const mockApi = {
     getConfig: vi.fn().mockResolvedValue(null),
     onOutput: vi.fn().mockReturnValue(vi.fn()),
     onExit: vi.fn().mockReturnValue(vi.fn()),
-    onStatus: vi.fn().mockReturnValue(vi.fn())
+    onStatus: vi.fn().mockReturnValue(vi.fn()),
+    onCrashReport: vi.fn().mockReturnValue(vi.fn()),
+    onRepairEvent: vi.fn().mockReturnValue(vi.fn())
   },
   mcp: {
     projectOpened: vi.fn().mockResolvedValue({ port: 9315 }),
@@ -129,6 +131,53 @@ const mockApi = {
     onDesignSession: vi.fn().mockReturnValue(() => {}),
     onUpdateVariant: vi.fn().mockReturnValue(() => {}),
     gallerySelect: vi.fn()
+  },
+  worktree: {
+    list: vi.fn().mockResolvedValue([]),
+    create: vi.fn().mockResolvedValue({ path: '/tmp/worktree', branch: 'test' }),
+    checkout: vi.fn().mockResolvedValue({ path: '/tmp/worktree', branch: 'test' }),
+    remove: vi.fn().mockResolvedValue({ ok: true }),
+    branches: vi.fn().mockResolvedValue({ current: 'main', branches: ['main'] })
+  },
+  screenshot: {
+    capture: vi.fn().mockResolvedValue('/tmp/screenshot.png'),
+    captureCheckpoint: vi.fn().mockResolvedValue('/tmp/checkpoint.png'),
+    loadCheckpoint: vi.fn().mockResolvedValue(null)
+  },
+  inspector: {
+    inject: vi.fn().mockResolvedValue({ success: true }),
+    findFile: vi.fn().mockResolvedValue(null)
+  },
+  updater: {
+    onStatus: vi.fn().mockReturnValue(vi.fn()),
+    install: vi.fn().mockResolvedValue(undefined)
+  },
+  critic: {
+    getConfig: vi.fn().mockResolvedValue({ enabled: false, model: 'gpt-5.2', maxIterations: 3, autoReviewPlan: false, gateMode: 'recommended', planDetectionKeywords: [] }),
+    setConfig: vi.fn().mockResolvedValue({ ok: true }),
+    hasApiKey: vi.fn().mockResolvedValue(false),
+    setApiKey: vi.fn().mockResolvedValue({ ok: true }),
+    registerPty: vi.fn(),
+    unregisterPty: vi.fn(),
+    reviewPlan: vi.fn().mockResolvedValue({ verdict: 'approve', summary: 'ok', issues: [] }),
+    reviewResult: vi.fn().mockResolvedValue({ verdict: 'approve', summary: 'ok', issues: [] }),
+    getActiveRun: vi.fn().mockResolvedValue(null),
+    abort: vi.fn().mockResolvedValue({ ok: true }),
+    complete: vi.fn().mockResolvedValue({ ok: true }),
+    collectDiagnostics: vi.fn().mockResolvedValue({}),
+    listRuns: vi.fn().mockResolvedValue([]),
+    loadRun: vi.fn().mockResolvedValue(null),
+    onEvent: vi.fn().mockReturnValue(vi.fn()),
+    onPlanDetected: vi.fn().mockReturnValue(vi.fn()),
+    getGateState: vi.fn().mockResolvedValue(null),
+    overrideGate: vi.fn().mockResolvedValue({ ok: true }),
+    tabClosed: vi.fn(),
+    restoreStaleBackups: vi.fn().mockResolvedValue(undefined),
+    onGateEvent: vi.fn().mockReturnValue(vi.fn()),
+  },
+  system: {
+    onSuspend: vi.fn().mockReturnValue(vi.fn()),
+    onResume: vi.fn().mockReturnValue(vi.fn())
   }
 }
 

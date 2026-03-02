@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Loader2, CheckCircle2, XCircle, RotateCw } from 'lucide-react'
 import { useProjectStore } from '@/stores/project'
-import { useTabsStore, selectActiveTab } from '@/stores/tabs'
+import { useActiveTab } from '@/stores/tabs'
 
 interface LogEntry {
   text: string
@@ -18,7 +18,7 @@ export function DeployLog() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const pollingRef = useRef<ReturnType<typeof setInterval>>()
   const projectPath = useProjectStore((s) => s.currentProject?.path)
-  const activeTab = useTabsStore(selectActiveTab)
+  const activeTab = useActiveTab()
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {

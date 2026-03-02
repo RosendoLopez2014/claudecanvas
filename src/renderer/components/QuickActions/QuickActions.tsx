@@ -6,11 +6,10 @@ import {
   FolderOpen, Settings, Search, Terminal, Rocket, Zap, Keyboard,
   Monitor, Trash2, Pencil
 } from 'lucide-react'
-import { useCanvasStore } from '@/stores/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useProjectStore } from '@/stores/project'
 import { useToastStore } from '@/stores/toast'
-import { useTabsStore } from '@/stores/tabs'
+import { useTabsStore, useActiveTab } from '@/stores/tabs'
 
 interface QuickAction {
   id: string
@@ -28,11 +27,11 @@ interface QuickActionsProps {
 
 export function QuickActions({ open, onClose }: QuickActionsProps) {
   const [search, setSearch] = useState('')
-  const { inspectorActive, setInspectorActive, setActiveTab, setScreenshotMode, clearPreviewErrors, clearConsoleLogs } = useCanvasStore()
+  const currentTab = useActiveTab()
+  const inspectorActive = currentTab?.inspectorActive ?? false
   const { mode, openCanvas, closeCanvas } = useWorkspaceStore()
   const { currentProject } = useProjectStore()
-  const activeTabDev = useTabsStore(s => s.getActiveTab()?.dev)
-  const isDevServerRunning = activeTabDev?.status === 'running'
+  const isDevServerRunning = currentTab?.dev.status === 'running'
 
   const actions: QuickAction[] = useMemo(
     () => [
@@ -110,35 +109,35 @@ export function QuickActions({ open, onClose }: QuickActionsProps) {
         category: 'Canvas',
         shortcut: '⌘I',
         icon: Eye,
-        action: () => { setInspectorActive(!inspectorActive); onClose() }
+        action: () => { const tab = useTabsStore.getState().getActiveTab(); if (tab) useTabsStore.getState().updateTab(tab.id, { inspectorActive: !inspectorActive }); onClose() }
       },
       {
         id: 'screenshot',
         label: 'Capture Screenshot',
         category: 'Canvas',
         icon: Camera,
-        action: () => { setScreenshotMode(true); openCanvas(); setActiveTab('preview'); onClose() }
+        action: () => { const tab = useTabsStore.getState().getActiveTab(); if (tab) useTabsStore.getState().updateTab(tab.id, { screenshotMode: true, activeCanvasTab: 'preview' }); openCanvas(); onClose() }
       },
       {
         id: 'open-gallery',
         label: 'Open Gallery',
         category: 'Canvas',
         icon: Image,
-        action: () => { if (mode !== 'terminal-canvas') openCanvas(); setActiveTab('gallery'); onClose() }
+        action: () => { if (mode !== 'terminal-canvas') openCanvas(); const tab = useTabsStore.getState().getActiveTab(); if (tab) useTabsStore.getState().updateTab(tab.id, { activeCanvasTab: 'gallery' }); onClose() }
       },
       {
         id: 'open-timeline',
         label: 'Open Timeline',
         category: 'Canvas',
         icon: Clock,
-        action: () => { if (mode !== 'terminal-canvas') openCanvas(); setActiveTab('timeline'); onClose() }
+        action: () => { if (mode !== 'terminal-canvas') openCanvas(); const tab = useTabsStore.getState().getActiveTab(); if (tab) useTabsStore.getState().updateTab(tab.id, { activeCanvasTab: 'timeline' }); onClose() }
       },
       {
         id: 'open-diff',
         label: 'Open Diff View',
         category: 'Canvas',
         icon: ArrowLeftRight,
-        action: () => { if (mode !== 'terminal-canvas') openCanvas(); setActiveTab('diff'); onClose() }
+        action: () => { if (mode !== 'terminal-canvas') openCanvas(); const tab = useTabsStore.getState().getActiveTab(); if (tab) useTabsStore.getState().updateTab(tab.id, { activeCanvasTab: 'diff' }); onClose() }
       },
       {
         id: 'viewport-responsive',
@@ -153,7 +152,7 @@ export function QuickActions({ open, onClose }: QuickActionsProps) {
       },
       {
         id: 'viewport-mobile',
-        label: 'Set Viewport: iPhone 14',
+        label: 'Set Viewport: Mobile',
         category: 'Canvas',
         icon: Monitor,
         action: () => {
@@ -167,14 +166,14 @@ export function QuickActions({ open, onClose }: QuickActionsProps) {
         label: 'Clear Preview Errors',
         category: 'Canvas',
         icon: Trash2,
-        action: () => { clearPreviewErrors(); onClose() }
+        action: () => { const tab = useTabsStore.getState().getActiveTab(); if (tab) useTabsStore.getState().clearPreviewErrors(tab.id); onClose() }
       },
       {
         id: 'clear-console',
         label: 'Clear Console Logs',
         category: 'Canvas',
         icon: Trash2,
-        action: () => { clearConsoleLogs(); onClose() }
+        action: () => { const tab = useTabsStore.getState().getActiveTab(); if (tab) useTabsStore.getState().clearConsoleLogs(tab.id); onClose() }
       },
 
       // ── Git ──
@@ -299,8 +298,7 @@ export function QuickActions({ open, onClose }: QuickActionsProps) {
         action: () => { onClose() }
       },
     ],
-    [inspectorActive, setInspectorActive, mode, openCanvas, closeCanvas, setActiveTab,
-     setScreenshotMode, clearPreviewErrors, clearConsoleLogs, currentProject,
+    [inspectorActive, mode, openCanvas, closeCanvas, currentProject,
      isDevServerRunning, onClose]
   )
 

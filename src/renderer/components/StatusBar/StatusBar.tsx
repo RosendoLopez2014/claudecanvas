@@ -1,25 +1,191 @@
 import { useProjectStore } from '@/stores/project'
-import { useCanvasStore } from '@/stores/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useToastStore } from '@/stores/toast'
-import { useTabsStore, selectActiveTab } from '@/stores/tabs'
+import { useTabsStore, useActiveTab } from '@/stores/tabs'
+import { useCriticStore } from '@/stores/critic'
 import {
   GitBranch, Play, Square, PanelRight, Eye, Loader2, FolderOpen,
-  ArrowDown, ArrowUp, Check, Rocket, Settings, AlertTriangle
+  ArrowDown, ArrowUp, Check, Rocket, Settings, AlertTriangle, Zap, Shield, ShieldOff, Copy
 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
-import { AnimatePresence } from 'framer-motion'
+import { useCallback, useEffect, useState, useRef } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import { PushPopover } from './PushPopover'
+import { ProcessManager } from './ProcessManager'
 import { TokenGauge } from './TokenGauge'
 import { CommandPicker } from '../CommandPicker/CommandPicker'
+import { formatFeedbackForClaude } from '../../../shared/critic/format'
+
+// ── Critic Status Chip ───────────────────────────────────────
+function CriticChip() {
+  const tab = useActiveTab()
+  const tabId = tab?.id ?? null
+  const { currentProject } = useProjectStore()
+  const projectPath = currentProject?.path ?? null
+  const session = useCriticStore((s) => tabId ? s.activeSessions[tabId] : undefined)
+  const pending = useCriticStore((s) => tabId ? s.pendingPlans[tabId] : undefined)
+  const recentSessions = useCriticStore((s) => s.recentSessions)
+  const recent = recentSessions.find((s) => s.tabId === tabId) ?? null
+  const latest = session ?? recent
+  const gateState = useCriticStore((s) => projectPath ? s.gateStates[projectPath] : undefined)
+  const [showPopover, setShowPopover] = useState(false)
+  const popoverRef = useRef<HTMLDivElement>(null)
+
+  // Close popover on outside click
+  useEffect(() => {
+    if (!showPopover) return
+    const handler = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setShowPopover(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showPopover])
+
+  const isGated = gateState?.status === 'gated'
+  const isOverridden = gateState?.status === 'overridden'
+
+  // Don't render if critic has never been used for this tab and no gate
+  if (!session && !pending && !recent && !isGated && !isOverridden) return null
+
+  const isReviewing = session?.phase === 'critic_reviewing_plan' || session?.phase === 'critic_reviewing_result'
+  const hasFeedback = !!latest?.planFeedback || !!latest?.resultFeedback
+
+  const copyFeedback = (type: 'plan' | 'result') => {
+    const fb = type === 'plan' ? latest?.planFeedback : latest?.resultFeedback
+    if (!fb) return
+    navigator.clipboard.writeText(formatFeedbackForClaude(fb, type))
+    setShowPopover(false)
+  }
+
+  return (
+    <div className="relative" ref={popoverRef}>
+      <button
+        onClick={() => setShowPopover((p) => !p)}
+        className={`flex items-center gap-1 transition-colors ${
+          isGated ? 'text-red-400' :
+          isOverridden ? 'text-yellow-400' :
+          isReviewing ? 'text-purple-400' : hasFeedback ? 'text-purple-300' : pending ? 'text-purple-400/60' : 'text-white/30'
+        } hover:text-purple-300`}
+        title={isGated ? 'Critic gate active — write tools blocked' : 'Critic loop'}
+      >
+        {isGated ? <Shield size={10} /> :
+         isOverridden ? <ShieldOff size={10} /> :
+         isReviewing ? <Loader2 size={10} className="animate-spin" /> : <Zap size={10} />}
+        <span>
+          {isGated ? 'Gated' : isOverridden ? 'Override' :
+           isReviewing ? 'Reviewing...' : pending ? 'Plan detected' : hasFeedback ? 'Feedback' : 'Critic'}
+        </span>
+        {(hasFeedback || pending || isGated) && (
+          <span className={`w-1.5 h-1.5 rounded-full ${isGated ? 'bg-red-400 animate-pulse' : 'bg-purple-400'}`} />
+        )}
+      </button>
+
+      <AnimatePresence>
+        {showPopover && (
+          <motion.div
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            className="absolute bottom-full right-0 mb-2 w-64 bg-[var(--bg-secondary)] border border-white/10
+              rounded-lg shadow-xl overflow-hidden z-50"
+          >
+            <div className="px-3 py-2 border-b border-white/5 flex items-center gap-2">
+              <Zap className="w-3 h-3 text-purple-400" />
+              <span className="text-xs font-medium text-white/80">Critic Loop</span>
+              {latest && (
+                <span className="text-[10px] text-white/30 ml-auto">{latest.phase.replace(/_/g, ' ')}</span>
+              )}
+            </div>
+
+            <div className="p-2 space-y-2">
+              {/* Gate status */}
+              {isGated && (
+                <div className="flex items-center justify-between px-2 py-1.5 bg-red-500/5 rounded text-xs">
+                  <span className="text-red-400 flex items-center gap-1">
+                    <Shield size={10} />
+                    Gate Active
+                  </span>
+                  <button
+                    onClick={async () => {
+                      if (projectPath) {
+                        await window.api.critic.overrideGate(projectPath, 'Manual override from status bar')
+                        setShowPopover(false)
+                      }
+                    }}
+                    className="text-red-400/60 hover:text-red-400 text-[10px] flex items-center gap-0.5"
+                  >
+                    <ShieldOff size={8} />
+                    Override
+                  </button>
+                </div>
+              )}
+              {isOverridden && (
+                <div className="flex items-center gap-1 px-2 py-1 bg-yellow-500/5 rounded text-xs text-yellow-400/60">
+                  <ShieldOff size={10} />
+                  Gate overridden
+                </div>
+              )}
+
+              {/* Latest verdict */}
+              {latest?.planFeedback && (
+                <div className="flex items-center justify-between px-2 py-1 bg-white/5 rounded text-xs">
+                  <span className="text-white/50">Plan: <span className={
+                    latest.planFeedback.verdict === 'approve' ? 'text-green-400' :
+                    latest.planFeedback.verdict === 'reject' ? 'text-red-400' : 'text-yellow-400'
+                  }>{latest.planFeedback.verdict}</span></span>
+                  <button onClick={() => copyFeedback('plan')} className="text-white/30 hover:text-white/60" title="Copy feedback">
+                    <Copy size={10} />
+                  </button>
+                </div>
+              )}
+              {latest?.resultFeedback && (
+                <div className="flex items-center justify-between px-2 py-1 bg-white/5 rounded text-xs">
+                  <span className="text-white/50">Code: <span className={
+                    latest.resultFeedback.verdict === 'approve' ? 'text-green-400' :
+                    latest.resultFeedback.verdict === 'reject' ? 'text-red-400' : 'text-yellow-400'
+                  }>{latest.resultFeedback.verdict}</span></span>
+                  <button onClick={() => copyFeedback('result')} className="text-white/30 hover:text-white/60" title="Copy feedback">
+                    <Copy size={10} />
+                  </button>
+                </div>
+              )}
+
+              {/* Pending plan */}
+              {pending && (
+                <div className="px-2 py-1 bg-purple-500/5 rounded text-xs text-purple-300/60">
+                  Plan detected ({Math.round(pending.confidence * 100)}% conf.)
+                </div>
+              )}
+
+              {/* Open panel link */}
+              <button
+                onClick={() => {
+                  setShowPopover(false)
+                  if (tab) {
+                    useWorkspaceStore.getState().openCanvas()
+                    useTabsStore.getState().updateTab(tab.id, { activeCanvasTab: 'critic' })
+                  }
+                }}
+                className="w-full text-center text-[10px] text-white/30 hover:text-white/60 py-1 transition-colors"
+              >
+                Open Critic Panel
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
 
 export function StatusBar() {
   const { currentProject } = useProjectStore()
-  const { inspectorActive, setInspectorActive } = useCanvasStore()
   const { mode, openCanvas, closeCanvas } = useWorkspaceStore()
   const showCanvas = mode === 'terminal-canvas'
   const [startingStatus, setStartingStatus] = useState<string | null>(null)
-  const activeTab = useTabsStore(selectActiveTab)
+  const activeTab = useActiveTab()
+  const inspectorActive = activeTab?.inspectorActive ?? false
 
   // Dev server state — derived from the active tab (NOT deprecated globals)
   const devStatus = activeTab?.dev.status ?? 'stopped'
@@ -507,6 +673,12 @@ export function StatusBar() {
           </button>
         )}
 
+        {/* Critic status chip */}
+        <CriticChip />
+
+        {/* Process manager */}
+        <ProcessManager />
+
         {/* Token usage gauge */}
         <TokenGauge />
 
@@ -577,7 +749,7 @@ export function StatusBar() {
 
         {/* Inspector toggle */}
         <button
-          onClick={() => setInspectorActive(!inspectorActive)}
+          onClick={() => { if (activeTab) useTabsStore.getState().updateTab(activeTab.id, { inspectorActive: !inspectorActive }) }}
           className={`flex items-center gap-1 hover:text-white/80 transition-colors ${
             inspectorActive ? 'text-[var(--accent-cyan)]' : ''
           }`}

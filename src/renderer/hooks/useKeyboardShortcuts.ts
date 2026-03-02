@@ -1,7 +1,6 @@
 import { useEffect, useCallback } from 'react'
-import { useCanvasStore } from '@/stores/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { useTabsStore } from '@/stores/tabs'
+import { useTabsStore, useActiveTab } from '@/stores/tabs'
 import { useProjectStore } from '@/stores/project'
 import { useGalleryStore } from '@/stores/gallery'
 import { destroyTerminalsForTab } from '@/services/terminalPool'
@@ -14,8 +13,9 @@ interface ShortcutHandlers {
 }
 
 export function useKeyboardShortcuts({ onQuickActions, onShortcutSheet, onSettings, onSearch }: ShortcutHandlers) {
-  const { inspectorActive, setInspectorActive, setActiveTab } = useCanvasStore()
-  const { mode, openCanvas, closeCanvas } = useWorkspaceStore()
+  const currentTab = useActiveTab()
+  const inspectorActive = currentTab?.inspectorActive ?? false
+  const { mode, openCanvas, closeCanvas, canvasFullscreen, toggleCanvasFullscreen } = useWorkspaceStore()
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -106,7 +106,8 @@ export function useKeyboardShortcuts({ onQuickActions, onShortcutSheet, onSettin
       // Cmd+I — Toggle inspector
       if (meta && e.key === 'i' && !e.shiftKey) {
         e.preventDefault()
-        setInspectorActive(!inspectorActive)
+        const activeTab = useTabsStore.getState().getActiveTab()
+        if (activeTab) useTabsStore.getState().updateTab(activeTab.id, { inspectorActive: !inspectorActive })
         return
       }
 
@@ -114,7 +115,8 @@ export function useKeyboardShortcuts({ onQuickActions, onShortcutSheet, onSettin
       if (meta && e.key === 'g') {
         e.preventDefault()
         if (mode !== 'terminal-canvas') openCanvas()
-        setActiveTab('gallery')
+        const activeTab = useTabsStore.getState().getActiveTab()
+        if (activeTab) useTabsStore.getState().updateTab(activeTab.id, { activeCanvasTab: 'gallery' })
         return
       }
 
@@ -147,17 +149,33 @@ export function useKeyboardShortcuts({ onQuickActions, onShortcutSheet, onSettin
       }
 
       // Cmd+\ — Toggle canvas
-      if (meta && e.key === '\\') {
+      if (meta && !e.shiftKey && e.key === '\\') {
         e.preventDefault()
         mode === 'terminal-canvas' ? closeCanvas() : openCanvas()
         return
       }
 
-      // ── Gallery keyboard shortcuts (only when gallery tab is active) ──
-      const canvasActiveTab = useCanvasStore.getState().activeTab
-      const galleryActive = mode === 'terminal-canvas' && canvasActiveTab === 'gallery'
+      // Cmd+Shift+\ — Toggle canvas fullscreen (hide terminal)
+      if (meta && e.shiftKey && e.key === '\\') {
+        e.preventDefault()
+        if (mode === 'terminal-canvas') {
+          toggleCanvasFullscreen()
+        } else {
+          openCanvas()
+          // Defer fullscreen until canvas is open
+          setTimeout(() => useWorkspaceStore.getState().toggleCanvasFullscreen(), 0)
+        }
+        return
+      }
 
-      if (galleryActive && !meta && !e.shiftKey) {
+      // ── Gallery keyboard shortcuts (only when gallery tab is active) ──
+      const currentActiveTab = useTabsStore.getState().getActiveTab()
+      const galleryActive = mode === 'terminal-canvas' && currentActiveTab?.activeCanvasTab === 'gallery'
+
+      // Skip gallery shortcuts when typing in terminal or inputs
+      const tag = (e.target as HTMLElement)?.tagName
+      const inTerminal = tag === 'INPUT' || tag === 'TEXTAREA' || !!(e.target as HTMLElement)?.closest?.('.xterm')
+      if (galleryActive && !meta && !e.shiftKey && !inTerminal) {
         const gallery = useGalleryStore.getState()
         const displayVariants = gallery.activeSessionId
           ? gallery.variants.filter((v) => v.sessionId === gallery.activeSessionId)
@@ -212,25 +230,30 @@ export function useKeyboardShortcuts({ onQuickActions, onShortcutSheet, onSettin
         }
       }
 
-      // Escape — Exit split view / close overlays / deactivate inspector
+      // Escape — Exit fullscreen / split view / close overlays / deactivate inspector
       if (e.key === 'Escape') {
+        if (useWorkspaceStore.getState().canvasFullscreen) {
+          useWorkspaceStore.getState().toggleCanvasFullscreen()
+          return
+        }
         if (useWorkspaceStore.getState().splitViewActive) {
           useWorkspaceStore.getState().exitSplitView()
           return
         }
         if (inspectorActive) {
-          setInspectorActive(false)
+          const activeTab = useTabsStore.getState().getActiveTab()
+          if (activeTab) useTabsStore.getState().updateTab(activeTab.id, { inspectorActive: false })
         }
         return
       }
     },
     [
       inspectorActive,
-      setInspectorActive,
       mode,
+      canvasFullscreen,
       openCanvas,
       closeCanvas,
-      setActiveTab,
+      toggleCanvasFullscreen,
       onQuickActions,
       onShortcutSheet,
       onSettings,

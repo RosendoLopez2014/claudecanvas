@@ -1,7 +1,7 @@
 import { useTabsStore, TabState } from '@/stores/tabs'
-import { GitBranch, X, Plus, Check, Loader2, FolderOpen } from 'lucide-react'
+import { GitBranch, X, Plus, Check, Loader2, FolderOpen, AlertTriangle } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { destroyTerminalsForTab } from '@/services/terminalPool'
 import { NewTabMenu } from './NewTabMenu'
@@ -141,6 +141,24 @@ function BranchTab({ tab, isActive, onActivate, onClose }: {
   const badge = getBranchBadge(tab)
   const devColor = DEV_STATUS_COLORS[tab.dev.status]
 
+  // Boot state for tab loading badge
+  const allDone = tab.boot.ptyReady === true && tab.boot.mcpReady === true && tab.boot.claudeReady === true
+  const hasError = tab.boot.ptyReady === 'error' || tab.boot.mcpReady === 'error' || tab.boot.claudeReady === 'error'
+  const isBooting = !allDone && !hasError
+
+  // Transient checkmark: show briefly when boot completes
+  const [showBootDone, setShowBootDone] = useState(false)
+  const wasBootingRef = useRef(!allDone)
+  useEffect(() => {
+    if (wasBootingRef.current && allDone) {
+      setShowBootDone(true)
+      const timer = setTimeout(() => setShowBootDone(false), 800)
+      wasBootingRef.current = false
+      return () => clearTimeout(timer)
+    }
+    if (!allDone) wasBootingRef.current = true
+  }, [allDone])
+
   return (
     <button
       onClick={onActivate}
@@ -157,7 +175,26 @@ function BranchTab({ tab, isActive, onActivate, onClose }: {
         />
       )}
 
-      <GitBranch size={10} className={isActive ? 'text-[var(--accent-cyan)] shrink-0' : 'text-white/20 shrink-0'} />
+      {isBooting ? (
+        <Loader2
+          size={10}
+          className="text-[var(--accent-cyan)] animate-spin shrink-0"
+          title={`Loading: ${[tab.boot.ptyReady !== true && 'Terminal', tab.boot.mcpReady !== true && 'MCP', tab.boot.claudeReady !== true && 'Claude'].filter(Boolean).join(', ')}`}
+        />
+      ) : hasError ? (
+        <AlertTriangle size={10} className="text-red-400 shrink-0" title="Boot error" />
+      ) : showBootDone ? (
+        <motion.div
+          initial={{ scale: 1.2, opacity: 1 }}
+          animate={{ scale: 1, opacity: 0 }}
+          transition={{ duration: 0.6 }}
+          onAnimationComplete={() => setShowBootDone(false)}
+        >
+          <Check size={10} className="text-emerald-400 shrink-0" />
+        </motion.div>
+      ) : (
+        <GitBranch size={10} className={isActive ? 'text-[var(--accent-cyan)] shrink-0' : 'text-white/20 shrink-0'} />
+      )}
       <span className="truncate">{branchLabel}</span>
 
       {/* Dev server status dot */}

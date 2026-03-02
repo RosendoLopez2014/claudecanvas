@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useProjectStore } from '@/stores/project'
 import { useToastStore } from '@/stores/toast'
-import { useTabsStore } from '@/stores/tabs'
+import { useTabsStore, useActiveTab } from '@/stores/tabs'
 
 interface ServiceStatus {
   github: boolean
@@ -380,10 +380,7 @@ export function ServiceIcons() {
   const [currentBranch, setCurrentBranch] = useState<string | null>(null)
 
   const activeTabId = useTabsStore((s) => s.activeTabId)
-  const activeTab = useTabsStore((s) => {
-    const id = s.activeTabId
-    return id ? s.tabs.find((t) => t.id === id) ?? null : null
-  })
+  const activeTab = useActiveTab()
   const gitAhead = activeTab?.gitAhead ?? 0
   const gitBehind = activeTab?.gitBehind ?? 0
   const gitRemoteConfigured = activeTab?.gitRemoteConfigured ?? false
@@ -420,6 +417,11 @@ export function ServiceIcons() {
   const [copiedSupabaseUrl, setCopiedSupabaseUrl] = useState(false)
   const [showSupabaseProjectPicker, setShowSupabaseProjectPicker] = useState(false)
   const [supabaseProjectSearch, setSupabaseProjectSearch] = useState('')
+  const [showCreateSupabaseProject, setShowCreateSupabaseProject] = useState(false)
+  const [newProjectName, setNewProjectName] = useState('')
+  const [newProjectRegion, setNewProjectRegion] = useState('us-east-1')
+  const [newProjectDbPass, setNewProjectDbPass] = useState('')
+  const [creatingSupabaseProject, setCreatingSupabaseProject] = useState(false)
   const [expandedDropdown, setExpandedDropdown] = useState<string | null>(null)
 
   codeDataRef.current = codeData
@@ -441,6 +443,9 @@ export function ServiceIcons() {
       setShowSupabasePolicies(false)
       setShowSupabaseProjectPicker(false)
       setSupabaseProjectSearch('')
+      setShowCreateSupabaseProject(false)
+      setNewProjectName('')
+      setNewProjectDbPass('')
       return
     }
     const handleClick = (e: MouseEvent) => {
@@ -579,7 +584,10 @@ export function ServiceIcons() {
     // Restore cached values — if null, the fetch effects below will populate them
     if (tab.githubRepoName !== undefined) setRepoName(tab.githubRepoName)
     if (tab.vercelLinkedProject !== undefined) setLinkedProject(tab.vercelLinkedProject)
-    if (tab.supabaseLinkedProject !== undefined) setLinkedSupabaseProject(tab.supabaseLinkedProject)
+    if (tab.supabaseLinkedProject !== undefined) {
+      setLinkedSupabaseProject(tab.supabaseLinkedProject)
+      window.api.mcp.supabaseLinked(tab.supabaseLinkedProject?.ref || null)
+    }
     console.log(`[TAB-DEBUG] ServiceIcons: cache load for ${tab.project.name} — github=${tab.githubRepoName || 'null'}, vercel=${tab.vercelLinkedProject ? 'linked' : 'null'}, supabase=${tab.supabaseLinkedProject ? 'linked' : 'null'}`)
   }, [activeTabId])
 
@@ -761,6 +769,7 @@ export function ServiceIcons() {
       if (linked) {
         console.log(`[TAB-DEBUG] ServiceIcons: Supabase detected — ${linked.name} (tab ${capturedTabId.slice(-6)})`)
         setLinkedSupabaseProject(linked)
+        window.api.mcp.supabaseLinked(linked.ref)
         useTabsStore.getState().updateTab(capturedTabId, {
           supabaseBootstrapped: true,
           supabaseLinkedProject: linked,
@@ -1160,6 +1169,8 @@ export function ServiceIcons() {
     setLinkedSupabaseProject(project)
     setShowSupabaseProjectPicker(false)
     setLoadingSupabaseProject(true)
+    // Tell MCP server which project ref to use
+    window.api.mcp.supabaseLinked(project.ref)
     // Persist to tab store (optimistic)
     const tabId = useTabsStore.getState().activeTabId
     if (tabId) useTabsStore.getState().updateTab(tabId, { supabaseLinkedProject: project })
@@ -1179,6 +1190,28 @@ export function ServiceIcons() {
 
     setLoadingSupabaseProject(false)
   }, [])
+
+  const createSupabaseProject = useCallback(async () => {
+    if (!newProjectName.trim() || !newProjectDbPass.trim()) return
+    setCreatingSupabaseProject(true)
+    const result = await window.api.oauth.supabase.createProject(
+      newProjectName.trim(),
+      newProjectRegion,
+      newProjectDbPass.trim()
+    )
+    setCreatingSupabaseProject(false)
+    if ('error' in result) {
+      useToastStore.getState().addToast(`Failed to create project: ${result.error}`, 'error')
+      return
+    }
+    useToastStore.getState().addToast(`Project "${result.name}" created! It may take a minute to become active.`, 'success')
+    // Reset form
+    setNewProjectName('')
+    setNewProjectDbPass('')
+    setShowCreateSupabaseProject(false)
+    // Select the new project
+    selectSupabaseProject(result)
+  }, [newProjectName, newProjectRegion, newProjectDbPass, selectSupabaseProject])
 
   // Refresh Supabase data when dropdown opens
   useEffect(() => {
@@ -1234,6 +1267,7 @@ export function ServiceIcons() {
     if (key === 'supabase') {
       setSupabaseUser(null)
       setLinkedSupabaseProject(null)
+      window.api.mcp.supabaseLinked(null)
       setSupabaseTables([])
       setSupabaseFunctions([])
       setSupabaseBuckets([])
@@ -2412,6 +2446,83 @@ export function ServiceIcons() {
                         </div>
                       </div>
                     </>
+                  ) : showCreateSupabaseProject ? (
+                    /* ─── Create new project form ─── */
+                    <>
+                      <CompactTopBar
+                        iconBg="#1a3a2a"
+                        icon={<Database size={12} className="text-[var(--v9-sb)]" />}
+                        name="New Project"
+                        statusColor="var(--accent-cyan)"
+                        statusLabel="Create"
+                      />
+                      <div className="border-t border-white/[0.06]">
+                        <div className="px-[14px] pt-2 pb-1">
+                          <button
+                            onClick={() => setShowCreateSupabaseProject(false)}
+                            className="flex items-center gap-1 text-[10px] text-[var(--v9-t3)] hover:text-[var(--v9-t2)] transition mb-1.5"
+                          >
+                            <ArrowLeft size={9} /> Back
+                          </button>
+                        </div>
+                        <div className="px-[14px] pb-3 flex flex-col gap-2">
+                          <div>
+                            <label className="text-[10px] uppercase tracking-wider text-[var(--v9-t3)] mb-1 block">Project Name</label>
+                            <input
+                              value={newProjectName}
+                              onChange={(e) => setNewProjectName(e.target.value)}
+                              placeholder="my-app"
+                              className="w-full bg-white/5 border border-white/[0.06] rounded-md px-2.5 py-1.5 text-xs text-[var(--v9-t1)] placeholder-[var(--v9-t4)] outline-none focus:border-[var(--accent-cyan)]/40"
+                              autoFocus
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] uppercase tracking-wider text-[var(--v9-t3)] mb-1 block">Region</label>
+                            <select
+                              value={newProjectRegion}
+                              onChange={(e) => setNewProjectRegion(e.target.value)}
+                              className="w-full bg-white/5 border border-white/[0.06] rounded-md px-2.5 py-1.5 text-xs text-[var(--v9-t1)] outline-none focus:border-[var(--accent-cyan)]/40 appearance-none cursor-pointer"
+                            >
+                              <option value="us-east-1">US East (N. Virginia)</option>
+                              <option value="us-west-1">US West (N. California)</option>
+                              <option value="us-west-2">US West (Oregon)</option>
+                              <option value="ca-central-1">Canada (Central)</option>
+                              <option value="eu-west-1">EU West (Ireland)</option>
+                              <option value="eu-west-2">EU West (London)</option>
+                              <option value="eu-west-3">EU West (Paris)</option>
+                              <option value="eu-central-1">EU Central (Frankfurt)</option>
+                              <option value="ap-south-1">Asia Pacific (Mumbai)</option>
+                              <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+                              <option value="ap-southeast-2">Asia Pacific (Sydney)</option>
+                              <option value="ap-northeast-1">Asia Pacific (Tokyo)</option>
+                              <option value="ap-northeast-2">Asia Pacific (Seoul)</option>
+                              <option value="sa-east-1">South America (São Paulo)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[10px] uppercase tracking-wider text-[var(--v9-t3)] mb-1 block">Database Password</label>
+                            <input
+                              type="password"
+                              value={newProjectDbPass}
+                              onChange={(e) => setNewProjectDbPass(e.target.value)}
+                              placeholder="Strong password (min 6 chars)"
+                              className="w-full bg-white/5 border border-white/[0.06] rounded-md px-2.5 py-1.5 text-xs text-[var(--v9-t1)] placeholder-[var(--v9-t4)] outline-none focus:border-[var(--accent-cyan)]/40"
+                            />
+                          </div>
+                          <button
+                            onClick={createSupabaseProject}
+                            disabled={creatingSupabaseProject || !newProjectName.trim() || newProjectDbPass.trim().length < 6}
+                            className="w-full mt-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-medium bg-[var(--v9-sb)]/20 text-[var(--v9-sb)] hover:bg-[var(--v9-sb)]/30 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                          >
+                            {creatingSupabaseProject ? (
+                              <><Loader2 size={12} className="animate-spin" /> Creating...</>
+                            ) : (
+                              <><Plus size={12} /> Create Project</>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </>
                   ) : showSupabaseProjectPicker ? (
                     /* ─── Project picker ─── */
                     <>
@@ -2445,7 +2556,7 @@ export function ServiceIcons() {
                         <div className="max-h-[200px] overflow-y-auto px-1 pb-2">
                           {filteredSupabaseProjects.length === 0 ? (
                             <div className="px-2 py-2 text-xs text-[var(--v9-t3)]">
-                              {supabaseProjectSearch ? 'No matching projects' : 'No projects'}
+                              {supabaseProjectSearch ? 'No matching projects' : 'No projects found'}
                             </div>
                           ) : (
                             filteredSupabaseProjects.map((project) => (
@@ -2460,6 +2571,24 @@ export function ServiceIcons() {
                               </button>
                             ))
                           )}
+                        </div>
+                        {/* Create new project button */}
+                        <div className="border-t border-white/[0.06] px-1 py-1">
+                          <button
+                            onClick={() => {
+                              setShowCreateSupabaseProject(true)
+                              setShowSupabaseProjectPicker(false)
+                              // Pre-fill project name from folder
+                              if (currentProject?.path) {
+                                const folderName = currentProject.path.split('/').pop() || ''
+                                setNewProjectName(folderName)
+                              }
+                            }}
+                            className="w-full flex items-center gap-2 py-1.5 px-2 text-xs text-left text-[var(--accent-cyan)] hover:bg-white/[0.04] rounded-md transition"
+                          >
+                            <Plus size={11} className="shrink-0" />
+                            Create New Project
+                          </button>
                         </div>
                       </div>
                     </>
@@ -2485,8 +2614,21 @@ export function ServiceIcons() {
                           onClick={() => setShowSupabaseProjectPicker(true)}
                           className="w-full flex items-center gap-2 px-[14px] py-2 text-xs text-left text-[var(--accent-cyan)] hover:bg-white/[0.04] transition"
                         >
+                          <Database size={11} className="shrink-0" />
+                          Link Existing Project
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowCreateSupabaseProject(true)
+                            if (currentProject?.path) {
+                              const folderName = currentProject.path.split('/').pop() || ''
+                              setNewProjectName(folderName)
+                            }
+                          }}
+                          className="w-full flex items-center gap-2 px-[14px] py-2 text-xs text-left text-[var(--v9-sb)] hover:bg-white/[0.04] transition"
+                        >
                           <Plus size={11} className="shrink-0" />
-                          Link Project
+                          Create New Project
                         </button>
                       </div>
                       <div className="px-[14px] py-[5px] text-center border-t border-white/[0.06]">

@@ -73,6 +73,8 @@ export interface PersistedDevConfig {
     port?: number
     setAt: number
   }
+  /** Per-project git push mode override (falls back to global setting if unset). */
+  gitPushModeOverride?: 'solo' | 'team' | 'contributor'
 }
 
 /** Result of plan validation. */

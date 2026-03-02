@@ -1,8 +1,10 @@
-import { writeFile, unlink, readFile, appendFile, mkdir } from 'node:fs/promises'
+import { writeFile, unlink, readFile, appendFile, mkdir, rename } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
+import { randomBytes } from 'node:crypto'
 import { generateProjectProfile, renderProjectProfile } from '../services/project-profile'
+import { CRITIC_TOOL_IDS } from '../../shared/constants'
 
 const projectPaths = new Set<string>()
 
@@ -128,6 +130,25 @@ const CANVAS_CLAUDE_MD = [
   '- Self-contained HTML/CSS (inline styles or `<style>`, no external deps)',
   '- Realistic content (not Lorem Ipsum)',
   '- Each option must be genuinely different',
+  '',
+  '## Critic Loop',
+  '',
+  'If the Critic Loop is enabled for this project, a second AI model reviews your work:',
+  '',
+  '1. **Before coding:** Call `critic_review_plan` with your implementation plan. The critic analyzes it and returns structured feedback. Write/execute tools are BLOCKED until the critic approves or you call `critic_override`.',
+  '2. **After coding:** Call `critic_review_result` to submit your work for review. Diagnostics (git diff, tsc, tests) are collected automatically.',
+  '3. **Check status:** Call `critic_status` to see if the gate is active and what action to take.',
+  '4. **Override:** Call `critic_override` with a reason if you need to bypass the gate.',
+  '',
+  'When the gate is active, calling write/execute tools (Edit, Write, Bash, canvas_render, etc.) will return an error. Submit your plan for review first.',
+  '',
+  '### When you receive critic feedback',
+  '',
+  '- **Read every issue carefully.** Each has a severity (critical, major, minor, suggestion) and may include a file path and recommendation.',
+  '- **If verdict is "revise"** — Address the issues listed. Fix critical and major issues first, then minor ones. Explain what you changed and why.',
+  '- **If verdict is "reject"** — The approach has fundamental problems. Reconsider your plan before proceeding.',
+  '- **If verdict is "approve"** — The critic is satisfied. The gate is released and you may proceed.',
+  '- **Do NOT argue with the critic.** Fix the issues or explain to the user why you disagree.',
 ].join('\n')
 
 const SOUL_TEMPLATE = `<!--
@@ -182,11 +203,15 @@ async function ensureSoulTemplate(projPath: string): Promise<void> {
   await writeFile(soulPath, SOUL_TEMPLATE + '\n', 'utf-8')
 }
 
-export async function writeMcpConfig(projPath: string, port: number): Promise<void> {
+export async function writeMcpConfig(projPath: string, port: number, token?: string): Promise<void> {
+  // Ensure the project directory exists before writing any files into it
+  if (!existsSync(projPath)) {
+    await mkdir(projPath, { recursive: true })
+  }
   projectPaths.add(projPath)
   const mcpServerConfig = {
     'claude-canvas': {
-      type: 'url',
+      type: 'http',
       url: `http://127.0.0.1:${port}/mcp`
     }
   }
@@ -197,28 +222,30 @@ export async function writeMcpConfig(projPath: string, port: number): Promise<vo
   // Only ~/.claude.json and .mcp.json are read for MCP server discovery.
   const wrote = await writeGlobalClaudeJson(mcpServerConfig, projPath)
 
+  // Per-project .mcp.json with token — ALWAYS overwrite on every projectOpened
+  // so each tab gets a fresh token. Stale tokens from prior sessions are expected
+  // and will produce a clear error from the server.
+  // Atomic write: temp file + rename prevents Claude Code from reading a half-written file.
+  // Use a unique tmp name (random suffix) to avoid ENOENT when two concurrent
+  // project-opened calls race on the same .mcp.json.tmp file.
   const mcpJsonPath = join(projPath, '.mcp.json')
-  if (wrote) {
-    // Clean up stale .mcp.json from older sessions (triggers approval prompt)
-    if (existsSync(mcpJsonPath)) {
-      try {
-        const content = JSON.parse(await readFile(mcpJsonPath, 'utf-8'))
-        if (content?.mcpServers?.['claude-canvas']) {
-          await unlink(mcpJsonPath).catch((e: Error) => console.warn('[mcp-config] cleanup:', e.message))
-        }
-      } catch {
-        // Not JSON or unreadable — leave it alone
+  const mcpJsonTmp = mcpJsonPath + '.tmp.' + randomBytes(4).toString('hex')
+  const tokenUrl = token
+    ? `http://127.0.0.1:${port}/mcp?token=${token}`
+    : `http://127.0.0.1:${port}/mcp`
+  await writeFile(
+    mcpJsonTmp,
+    JSON.stringify({
+      mcpServers: {
+        'claude-canvas': { type: 'http', url: tokenUrl }
       }
-    }
-  } else {
-    // Fallback: write .mcp.json in the project directory.
-    // Claude Code will show an approval prompt, but the MCP server will work.
-    console.log('[mcp-config] using .mcp.json fallback')
-    await writeFile(
-      mcpJsonPath,
-      JSON.stringify({ mcpServers: mcpServerConfig }, null, 2) + '\n',
-      'utf-8'
-    )
+    }, null, 2) + '\n',
+    'utf-8'
+  )
+  await rename(mcpJsonTmp, mcpJsonPath)
+
+  if (!wrote) {
+    console.log('[mcp-config] ~/.claude.json write failed — .mcp.json is the sole discovery path')
   }
 
   // Write tool auto-approvals to .claude/settings.local.json
@@ -254,7 +281,20 @@ export async function removeMcpConfig(): Promise<void> {
     if (existsSync(claudeMdPath)) {
       try {
         const content = await readFile(claudeMdPath, 'utf-8')
-        if (content.startsWith('# Claude Canvas Environment')) {
+        const START_MARKER = '<!-- CLAUDE-CANVAS-START -->'
+        const END_MARKER = '<!-- CLAUDE-CANVAS-END -->'
+
+        if (content.includes(START_MARKER)) {
+          const before = content.substring(0, content.indexOf(START_MARKER))
+          const afterIdx = content.indexOf(END_MARKER)
+          const after = afterIdx >= 0 ? content.substring(afterIdx + END_MARKER.length) : ''
+          const remaining = (before + after).trim()
+          if (remaining) {
+            await writeFile(claudeMdPath, remaining + '\n', 'utf-8')
+          } else {
+            await unlink(claudeMdPath).catch((e: Error) => console.warn('[mcp-config] cleanup:', e.message))
+          }
+        } else if (content.startsWith('# Claude Canvas Environment')) {
           await unlink(claudeMdPath).catch((e: Error) => console.warn('[mcp-config] cleanup:', e.message))
         } else if (content.includes('# Claude Canvas Environment')) {
           const cleaned = content.replace(/\n# Claude Canvas Environment[\s\S]*$/, '')
@@ -362,6 +402,8 @@ async function writeToolPermissions(projPath: string): Promise<void> {
     'mcp__claude-canvas__supabase_list_buckets',
     'mcp__claude-canvas__supabase_get_connection_info',
     'mcp__claude-canvas__supabase_get_rls_policies',
+    // Critic MCP tools (centralized constant)
+    ...CRITIC_TOOL_IDS,
     // Core dev tools — auto-approve so Claude can act immediately
     'Read',
     'Edit',
@@ -396,8 +438,12 @@ async function writeCanvasClaudeMd(
 ): Promise<void> {
   const claudeMdPath = join(projPath, 'CLAUDE.md')
 
-  // Build dynamic CLAUDE.md from three parts
+  const START_MARKER = '<!-- CLAUDE-CANVAS-START -->'
+  const END_MARKER = '<!-- CLAUDE-CANVAS-END -->'
+
+  // Build dynamic CLAUDE.md from three parts, wrapped in markers
   const parts: string[] = []
+  parts.push(START_MARKER)
 
   // Part 1: Dynamic project profile
   parts.push(profileMd)
@@ -410,15 +456,25 @@ async function writeCanvasClaudeMd(
     parts.push(soul.trim())
   }
 
-  // Part 3: Static canvas instructions (unchanged)
+  // Part 3: Static canvas instructions
   parts.push('')
   parts.push(CANVAS_CLAUDE_MD)
+  parts.push(END_MARKER)
 
   const fullContent = parts.join('\n')
 
-  // Always overwrite to ensure latest instructions
+  // Replace the marked section if it exists, otherwise write fresh
   if (existsSync(claudeMdPath)) {
     const content = await readFile(claudeMdPath, 'utf-8')
+    if (content.includes(START_MARKER)) {
+      // Replace everything between markers (inclusive)
+      const before = content.substring(0, content.indexOf(START_MARKER))
+      const afterIdx = content.indexOf(END_MARKER)
+      const after = afterIdx >= 0 ? content.substring(afterIdx + END_MARKER.length) : ''
+      await writeFile(claudeMdPath, before.trimEnd() + '\n\n' + fullContent + after, 'utf-8')
+      return
+    }
+    // Legacy: old format used '# Claude Canvas Environment' without markers
     if (content.includes('# Claude Canvas Environment')) {
       const before = content.split('# Claude Canvas Environment')[0]
       await writeFile(claudeMdPath, before.trimEnd() + '\n\n' + fullContent + '\n', 'utf-8')
