@@ -112,17 +112,9 @@ export default function App() {
   useEffect(() => {
     window.api.settings.get('onboardingComplete').then(async (complete) => {
       if (complete) {
-        // Try to restore previous session before deciding which screen to show.
-        // This handles renderer reload during sleep, GPU crash, HMR reconnect, etc.
-        restoringTabsRef.current = true
-        await restoreTabs()
-        restoringTabsRef.current = false
-        const { tabs } = useTabsStore.getState()
-        if (tabs.length > 0) {
-          setScreen('workspace')
-        } else {
-          setScreen('project-picker')
-        }
+        // Always start at the project picker so the user chooses their project.
+        // Tab restoration is reserved for system resume / HMR recovery (below).
+        setScreen('project-picker')
       }
     })
   }, [setScreen])
