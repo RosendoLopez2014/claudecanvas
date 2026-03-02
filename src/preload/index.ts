@@ -29,7 +29,7 @@ const api = {
   },
 
   pty: {
-    spawn: (shell?: string, cwd?: string): Promise<string> => ipcRenderer.invoke('pty:spawn', shell, cwd),
+    spawn: (shell?: string, cwd?: string, tabId?: string): Promise<string> => ipcRenderer.invoke('pty:spawn', shell, cwd, tabId),
     write: (id: string, data: string) => ipcRenderer.send('pty:write', id, data),
     resize: (id: string, cols: number, rows: number) => ipcRenderer.send('pty:resize', id, cols, rows),
     kill: (id: string) => ipcRenderer.send('pty:kill', id),
@@ -68,6 +68,7 @@ const api = {
       ipcRenderer.invoke('fs:tree', rootPath, depth) as Promise<
         Array<{ name: string; path: string; type: 'file' | 'directory'; children?: unknown[] }>
       >,
+    readFile: (filePath: string) => ipcRenderer.invoke('fs:readFile', filePath) as Promise<string | null>,
     watch: (path: string) => ipcRenderer.invoke('fs:watch', path),
     unwatch: (path?: string) => ipcRenderer.invoke('fs:unwatch', path),
     onChange: (cb: (data: { projectPath: string; path: string }) => void) => onIpc('fs:change', cb),
@@ -110,6 +111,10 @@ const api = {
       ipcRenderer.invoke('component:parse', filePath, projectPath) as Promise<
         { name: string; html: string; relativePath: string } | null
       >,
+    previewSetup: (projectPath: string) =>
+      ipcRenderer.invoke('component:preview-setup', projectPath) as Promise<string | null>,
+    previewCleanup: (projectPath: string) =>
+      ipcRenderer.invoke('component:preview-cleanup', projectPath) as Promise<void>,
   },
 
   git: {
@@ -140,6 +145,10 @@ const api = {
       ipcRenderer.invoke('git:createPr', projectPath, opts) as Promise<
         { url: string; number: number } | { error: string }
       >,
+    getProjectPushMode: (projectPath: string) =>
+      ipcRenderer.invoke('git:getProjectPushMode', projectPath) as Promise<string | null>,
+    setProjectPushMode: (projectPath: string, mode: string) =>
+      ipcRenderer.invoke('git:setProjectPushMode', projectPath, mode) as Promise<void>,
     cleanup: (projectPath: string) => ipcRenderer.invoke('git:cleanup', projectPath),
     rollback: (projectPath: string, hash: string) =>
       ipcRenderer.invoke('git:rollback', projectPath, hash) as Promise<{ success: boolean; error?: string }>,
@@ -147,7 +156,17 @@ const api = {
       ipcRenderer.invoke('git:revertFile', projectPath, hash, filePath) as Promise<{ success: boolean; error?: string }>,
   },
 
+  process: {
+    list: (opts?: { tabId?: string }) =>
+      ipcRenderer.invoke('process:list', opts) as Promise<
+        Array<{ pid: number; type: string; label: string; cwd: string; startedAt: number; tabId?: string; cpu?: number; memory?: number }>
+      >,
+    kill: (opts: { pid: number }) =>
+      ipcRenderer.invoke('process:kill', opts) as Promise<{ success: boolean; error?: string }>,
+  },
+
   oauth: {
+    clearSession: () => ipcRenderer.invoke('oauth:clearSession') as Promise<{ cleared: boolean }>,
     github: {
       requestCode: () =>
         ipcRenderer.invoke('oauth:github:requestCode') as Promise<
@@ -281,6 +300,10 @@ const api = {
         ipcRenderer.invoke('oauth:supabase:getConnectionInfo', projectRef) as Promise<
           { url: string; anonKey: string; serviceKey: string; dbUrl: string } | { error: string }
         >,
+      createProject: (name: string, region: string, dbPass: string) =>
+        ipcRenderer.invoke('oauth:supabase:createProject', name, region, dbPass) as Promise<
+          { id: string; name: string; ref: string; region: string; status: string } | { error: string }
+        >,
       onExpired: (cb: () => void) => onIpc('oauth:supabase:expired', cb)
     }
   },
@@ -297,12 +320,29 @@ const api = {
     getConfig: (projectPath: string) => ipcRenderer.invoke('devserver:getConfig', projectPath),
     onOutput: (cb: (data: { cwd: string; data: string }) => void) => onIpc('dev:output', cb),
     onExit: (cb: (data: { cwd: string; code: number }) => void) => onIpc('dev:exit', cb),
-    onStatus: (cb: (status: { cwd?: string; stage: string; message: string; url?: string }) => void) => onIpc('dev:status', cb)
+    onStatus: (cb: (status: { cwd?: string; stage: string; message: string; url?: string }) => void) => onIpc('dev:status', cb),
+    onCrashReport: (cb: (data: { cwd: string; code: number; output: string }) => void) => onIpc('dev:crash-report', cb),
+    onRepairEvent: (cb: (data: {
+      sessionId: string
+      cwd: string
+      phase: string
+      attempt: number
+      maxAttempts: number
+      message: string
+      timestamp: number
+      detail?: Record<string, unknown>
+      repairId?: string
+      level?: 'info' | 'warning' | 'error' | 'success'
+    }) => void) => onIpc('dev:repair-event', cb)
   },
 
   mcp: {
-    projectOpened: (projectPath: string) => ipcRenderer.invoke('mcp:project-opened', projectPath),
-    projectClosed: () => ipcRenderer.invoke('mcp:project-closed'),
+    projectOpened: (opts: { tabId: string; projectPath: string }) =>
+      ipcRenderer.invoke('mcp:project-opened', opts),
+    projectClosed: (opts: { tabId: string }) =>
+      ipcRenderer.invoke('mcp:project-closed', opts),
+    shutdownAll: () => ipcRenderer.invoke('mcp:shutdown-all'),
+    supabaseLinked: (ref: string | null) => ipcRenderer.invoke('mcp:supabase-linked', ref),
 
     onCanvasRender: (cb: (data: { projectPath?: string; html: string; css?: string }) => void) =>
       onIpc('mcp:canvas-render', cb),
@@ -319,6 +359,7 @@ const api = {
       label: string
       html: string
       css?: string
+      componentPath?: string
       description?: string
       category?: string
       pros?: string[]
@@ -379,6 +420,38 @@ const api = {
       percent?: number
     }) => void) => onIpc('updater:status', cb),
     install: () => ipcRenderer.invoke('updater:install')
+  },
+
+  critic: {
+    getConfig: (projectPath: string) => ipcRenderer.invoke('critic:getConfig', projectPath),
+    setConfig: (projectPath: string, config: unknown) => ipcRenderer.invoke('critic:setConfig', projectPath, config),
+    hasApiKey: () => ipcRenderer.invoke('critic:hasApiKey') as Promise<boolean>,
+    setApiKey: (key: string) => ipcRenderer.invoke('critic:setApiKey', key),
+    registerPty: (ptyId: string, tabId: string, projectPath: string) =>
+      ipcRenderer.send('critic:registerPty', ptyId, tabId, projectPath),
+    unregisterPty: (ptyId: string) => ipcRenderer.send('critic:unregisterPty', ptyId),
+    reviewPlan: (tabId: string, projectPath: string, planText: string, ctx: string) =>
+      ipcRenderer.invoke('critic:reviewPlan', tabId, projectPath, planText, ctx),
+    reviewResult: (tabId: string, projectPath: string, diff: string, diag: unknown, ctx: string) =>
+      ipcRenderer.invoke('critic:reviewResult', tabId, projectPath, diff, diag, ctx),
+    getActiveRun: (tabId: string) => ipcRenderer.invoke('critic:getActiveRun', tabId),
+    abort: (tabId: string) => ipcRenderer.invoke('critic:abort', tabId),
+    complete: (tabId: string) => ipcRenderer.invoke('critic:complete', tabId),
+    collectDiagnostics: (projectPath: string) => ipcRenderer.invoke('critic:collectDiagnostics', projectPath),
+    listRuns: (projectPath: string) => ipcRenderer.invoke('critic:listRuns', projectPath),
+    loadRun: (projectPath: string, runId: string) => ipcRenderer.invoke('critic:loadRun', projectPath, runId),
+    onEvent: (cb: (data: unknown) => void) => onIpc('critic:event', cb),
+    onPlanDetected: (cb: (data: unknown) => void) => onIpc('critic:planDetected', cb),
+    getGateState: (projectPath: string) => ipcRenderer.invoke('critic:getGateState', projectPath),
+    overrideGate: (projectPath: string, reason: string) => ipcRenderer.invoke('critic:overrideGate', projectPath, reason),
+    tabClosed: (tabId: string, projectPath: string) => ipcRenderer.send('critic:tabClosed', tabId, projectPath),
+    restoreStaleBackups: (projectPath: string) => ipcRenderer.invoke('critic:restoreStaleBackups', projectPath),
+    onGateEvent: (cb: (data: unknown) => void) => onIpc('critic:gateEvent', cb),
+  },
+
+  system: {
+    onSuspend: (cb: () => void) => onIpc('system:suspend', cb),
+    onResume: (cb: () => void) => onIpc('system:resume', cb)
   }
 }
 

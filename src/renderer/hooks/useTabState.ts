@@ -1,4 +1,4 @@
-import { useTabsStore, TabState } from '@/stores/tabs'
+import { useTabsStore, useActiveTab, TabState } from '@/stores/tabs'
 import { useCallback } from 'react'
 
 /**
@@ -6,10 +6,7 @@ import { useCallback } from 'react'
  * Components use this instead of direct store access for per-tab state.
  */
 export function useTabState() {
-  const activeTab = useTabsStore((s) => {
-    const id = s.activeTabId
-    return id ? s.tabs.find((t) => t.id === id) || null : null
-  })
+  const activeTab = useActiveTab()
 
   const update = useCallback((partial: Omit<Partial<TabState>, 'id' | 'project'>) => {
     const id = useTabsStore.getState().activeTabId

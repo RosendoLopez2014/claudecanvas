@@ -3,64 +3,72 @@ import { useTabsStore } from '@/stores/tabs'
 import { useGalleryStore } from '@/stores/gallery'
 
 /**
- * Generate a simple HTML placeholder card for a discovered component.
+ * Build the preview URL for a component rendered via the dev server.
  */
-function componentPlaceholderHtml(name: string, relativePath: string): string {
-  return [
-    '<div style="padding:16px;font-family:system-ui,sans-serif;',
-    'background:#1a1a2e;color:#e0e0e0;border-radius:8px;',
-    'border:1px solid rgba(74,234,255,0.15)">',
-    `<h3 style="margin:0 0 4px;color:#4AEAFF">${name}</h3>`,
-    `<p style="margin:0;color:#888;font-size:13px">Component from ${relativePath}</p>`,
-    '</div>',
-  ].join('')
+function buildPreviewUrl(devUrl: string, previewFilename: string, relativePath: string): string {
+  return `${devUrl}/${previewFilename}?c=${encodeURIComponent(relativePath)}`
 }
 
 /**
- * Auto-scan components when the active project changes.
- * Discovers .tsx/.jsx files in src/components/ and adds them to the gallery
- * with source='auto-scan' so they can be distinguished from manual variants.
+ * Gallery hook — no auto-scanning. The gallery only shows items Claude adds
+ * via the canvas_add_to_gallery MCP tool.
+ *
+ * This hook handles one thing: when the dev server comes online, upgrade
+ * MCP-added variants that have a componentPath with live preview URLs
+ * so they render the actual component with HMR.
  */
 export function useAutoGallery() {
-  const activeTabId = useTabsStore((s) => s.activeTabId)
-  const scannedProjectsRef = useRef(new Set<string>())
+  const upgradedRef = useRef(false)
+
+  const devStatus = useTabsStore(
+    (s) => {
+      const tab = s.tabs.find((t) => t.id === s.activeTabId)
+      return tab?.dev?.status ?? 'stopped'
+    },
+    Object.is
+  )
+  const devUrl = useTabsStore(
+    (s) => {
+      const tab = s.tabs.find((t) => t.id === s.activeTabId)
+      return tab?.dev?.url ?? null
+    },
+    Object.is
+  )
 
   useEffect(() => {
+    if (devStatus !== 'running' || !devUrl) {
+      upgradedRef.current = false
+      return
+    }
+    if (upgradedRef.current) return
+
     const activeTab = useTabsStore.getState().getActiveTab()
     if (!activeTab) return
-
     const projectPath = activeTab.project.path
     if (!projectPath) return
 
-    // Only scan each project once per session
-    if (scannedProjectsRef.current.has(projectPath)) return
-    scannedProjectsRef.current.add(projectPath)
+    upgradedRef.current = true
 
-    // Scan in the background — don't block rendering
-    window.api.component.scan(projectPath).then((components) => {
-      if (!components || components.length === 0) return
+    // Write the preview harness, then upgrade MCP-added variants that have
+    // a componentPath but no previewUrl yet (gives them live HMR previews)
+    window.api.component.previewSetup(projectPath).then((previewFilename) => {
+      if (!previewFilename) return
 
       const gallery = useGalleryStore.getState()
+      const upgradeable = gallery.variants.filter(
+        (v) => v.componentPath && !v.previewUrl
+      )
+      if (upgradeable.length === 0) return
 
-      // Check existing variants to avoid duplicates
-      const existingLabels = new Set(gallery.variants.map((v) => v.label))
-
-      for (const comp of components) {
-        // Skip if a variant with this label already exists
-        if (existingLabels.has(comp.name)) continue
-
-        gallery.addVariant({
-          id: `auto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          label: comp.name,
-          html: componentPlaceholderHtml(comp.name, comp.relativePath),
-          description: `Auto-discovered from ${comp.relativePath}`,
-          category: 'auto-scan',
-          status: 'proposal',
-          createdAt: Date.now(),
+      for (const v of upgradeable) {
+        gallery.updateVariant(v.id, {
+          previewUrl: buildPreviewUrl(devUrl, previewFilename, v.componentPath!),
+          previewStatus: undefined,
+          previewError: undefined,
         })
       }
     }).catch((err) => {
-      console.warn('[auto-gallery] Failed to scan components:', err)
+      console.warn('[auto-gallery] Failed to upgrade previews:', err)
     })
-  }, [activeTabId])
+  }, [devStatus, devUrl])
 }

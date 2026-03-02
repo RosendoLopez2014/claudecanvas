@@ -193,7 +193,8 @@ const OVERLAY_JS = `(function() {
   // Inject pulse animation
   var styleEl = document.createElement('style');
   styleEl.id = '__claude_inspector_style__';
-  styleEl.textContent = '@keyframes __ci_pulse{0%,100%{border-color:rgba(74,234,255,0.8)}50%{border-color:rgba(74,234,255,0.3)}}';
+  styleEl.textContent = '@keyframes __ci_pulse{0%,100%{border-color:rgba(74,234,255,0.8)}50%{border-color:rgba(74,234,255,0.3)}}' +
+    '@keyframes __ci_editing_glow{0%,100%{border-color:rgba(255,176,58,0.9);box-shadow:0 0 12px rgba(255,176,58,0.3)}50%{border-color:rgba(255,176,58,0.5);box-shadow:0 0 6px rgba(255,176,58,0.15)}}';
   document.head.appendChild(styleEl);
 
   var container = document.createElement('div');
@@ -580,6 +581,60 @@ const OVERLAY_JS = `(function() {
     setTimeout(clearAllPersistHighlights, 600);
   }
 
+  var editingMode = false;
+
+  function switchToEditingMode() {
+    if (editingMode || persistHighlights.length === 0) return;
+    editingMode = true;
+    var EDIT_BORDER = 'position:fixed;pointer-events:none;border:2px solid rgba(255,176,58,0.9);' +
+      'border-radius:3px;animation:__ci_editing_glow 1.5s ease-in-out infinite;' +
+      'box-shadow:0 0 12px rgba(255,176,58,0.3),0 0 4px rgba(255,176,58,0.2);';
+    var EDIT_LABEL = 'position:fixed;pointer-events:none;background:rgba(255,176,58,0.9);' +
+      'color:#0A0F1A;padding:2px 6px;font-size:9px;border-radius:2px;' +
+      "font-family:'JetBrains Mono',monospace;font-weight:600;letter-spacing:0.5px;";
+    persistHighlights.forEach(function(h) {
+      h.persist.style.cssText = EDIT_BORDER;
+      h.label.style.cssText = EDIT_LABEL;
+      updateOnePersistPosition(h);
+    });
+  }
+
+  function runVerifyScan() {
+    var scanLines = [];
+    persistHighlights.forEach(function(h) {
+      if (!h.el || !document.body.contains(h.el)) return;
+      var rect = h.el.getBoundingClientRect();
+
+      // Create a scan line that sweeps top to bottom
+      var scanLine = document.createElement('div');
+      scanLine.style.cssText = 'position:fixed;pointer-events:none;z-index:1000000;' +
+        'left:' + (rect.left - 4) + 'px;width:' + (rect.width + 8) + 'px;height:2px;' +
+        'background:rgba(74,234,255,0.9);' +
+        'box-shadow:0 0 12px rgba(74,234,255,0.6),0 2px 20px rgba(74,234,255,0.3);' +
+        'top:' + rect.top + 'px;transition:top 0.8s ease-in-out;';
+      container.appendChild(scanLine);
+      scanLines.push(scanLine);
+
+      // Switch border to verified cyan
+      h.persist.style.borderColor = 'rgba(74,234,255,0.9)';
+      h.persist.style.boxShadow = '0 0 15px rgba(74,234,255,0.4)';
+      h.persist.style.animation = 'none';
+
+      // Trigger the sweep on next frame
+      requestAnimationFrame(function() {
+        scanLine.style.top = (rect.top + rect.height) + 'px';
+      });
+    });
+
+    // After scan completes: clean up scan lines, notify parent, fade highlights
+    setTimeout(function() {
+      scanLines.forEach(function(sl) { sl.remove(); });
+      window.parent.postMessage({ type: 'inspector:verifyComplete' }, '*');
+      fadeAllPersistHighlights();
+      editingMode = false;
+    }, 1200);
+  }
+
   function updateOnePersistPosition(h) {
     if (!h.el || !document.body.contains(h.el)) return false;
     var rect = h.el.getBoundingClientRect();
@@ -743,7 +798,7 @@ const OVERLAY_JS = `(function() {
         rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
         html: el.outerHTML.substring(0, 500)
       }
-    }, window.location.origin);
+    }, '*');  // targetOrigin '*': iframe (localhost:N) and parent (localhost:M) are different origins; parent validates e.source
   };
   document.addEventListener('click', window.__ciClickHandler, true);
 
@@ -767,83 +822,26 @@ const OVERLAY_JS = `(function() {
     if (e.data.type === 'inspector:fadeHighlight') {
       fadeAllPersistHighlights();
     }
+    if (e.data.type === 'inspector:startEditing') {
+      switchToEditingMode();
+    }
+    if (e.data.type === 'inspector:verifyEdit') {
+      runVerifyScan();
+    }
   };
   window.addEventListener('message', window.__ciMessageHandler);
 
-  // ── Error Capture + Overlay ─────────────────────────────────
-  var errorBuffer = [];
-  var MAX_ERRORS = 20;
-  var overlayVisible = false;
-
-  // Create error overlay (hidden by default)
-  var errorOverlay = document.createElement('div');
-  errorOverlay.id = '__claude_error_overlay__';
-  errorOverlay.style.cssText =
-    'position:fixed;bottom:0;left:0;right:0;max-height:40%;overflow-y:auto;' +
-    'background:rgba(15,0,0,0.95);color:#ff6b6b;font-family:ui-monospace,monospace;' +
-    'font-size:12px;z-index:999998;display:none;border-top:2px solid #ff4444;' +
-    'backdrop-filter:blur(8px);';
-
-  var errorHeader = document.createElement('div');
-  errorHeader.style.cssText =
-    'display:flex;align-items:center;justify-content:space-between;padding:8px 12px;' +
-    'background:rgba(255,68,68,0.15);border-bottom:1px solid rgba(255,68,68,0.2);' +
-    'position:sticky;top:0;';
-
-  var headerLabel = document.createElement('span');
-  headerLabel.style.cssText = 'font-weight:600;color:#ff8888;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;';
-  headerLabel.textContent = 'Runtime Errors';
-  errorHeader.appendChild(headerLabel);
-
-  var dismissBtn = document.createElement('button');
-  dismissBtn.textContent = 'Dismiss';
-  dismissBtn.style.cssText =
-    'background:none;border:1px solid rgba(255,68,68,0.3);color:#ff8888;font-size:10px;' +
-    'padding:2px 8px;border-radius:3px;cursor:pointer;font-family:inherit;';
-  dismissBtn.onclick = function() { hideErrorOverlay(); };
-  errorHeader.appendChild(dismissBtn);
-  errorOverlay.appendChild(errorHeader);
-
-  var errorList = document.createElement('div');
-  errorList.style.cssText = 'padding:8px 0;';
-  errorOverlay.appendChild(errorList);
-  document.body.appendChild(errorOverlay);
-
-  function showErrorOverlay() {
-    overlayVisible = true;
-    errorOverlay.style.display = 'block';
-  }
-
-  function hideErrorOverlay() {
-    overlayVisible = false;
-    errorOverlay.style.display = 'none';
-  }
-
-  function renderErrorItem(err) {
-    var item = document.createElement('div');
-    item.style.cssText =
-      'padding:6px 12px;border-bottom:1px solid rgba(255,255,255,0.05);';
-    var msg = document.createElement('div');
-    msg.style.cssText = 'color:#ff6b6b;word-break:break-word;';
-    msg.textContent = err.message;
-    item.appendChild(msg);
-    if (err.file || err.line) {
-      var loc = document.createElement('div');
-      loc.style.cssText = 'color:#666;font-size:10px;margin-top:2px;';
-      loc.textContent = (err.file || '?') + (err.line ? ':' + err.line : '') + (err.column ? ':' + err.column : '');
-      item.appendChild(loc);
-    }
-    return item;
-  }
+  // ── Error Capture (no in-iframe overlay) ─────────────────────
+  // Errors are sent to the parent frame via postMessage.
+  // The parent's ConsoleOverlay displays them — no overlay inside the iframe.
 
   function postError(err) {
-    if (errorBuffer.length >= MAX_ERRORS) errorBuffer.shift();
-    errorBuffer.push(err);
-    window.parent.postMessage({ type: 'inspector:runtimeError', error: err }, window.location.origin);
-
-    // Update overlay
-    errorList.appendChild(renderErrorItem(err));
-    showErrorOverlay();
+    window.parent.postMessage({ type: 'inspector:runtimeError', error: err }, '*');  // targetOrigin '*': iframe (localhost:N) and parent (localhost:M) are different origins; parent validates e.source
+    // Also route through console log channel so ConsoleOverlay shows errors
+    window.parent.postMessage({
+      type: 'inspector:consoleLog',
+      log: { level: 'error', message: err.message + (err.file ? ' (' + err.file + (err.line ? ':' + err.line : '') + ')' : ''), timestamp: Date.now() }
+    }, '*');  // targetOrigin '*': iframe (localhost:N) and parent (localhost:M) are different origins; parent validates e.source
   }
 
   window.onerror = function(message, source, lineno, colno) {
@@ -871,19 +869,35 @@ const OVERLAY_JS = `(function() {
     postError({ message: parts.join(' '), file: null, line: null, column: null });
   };
 
-  // Allow parent to clear/dismiss overlay (handled by __ciMessageHandler above)
-  if (window.__ciErrorHandler) {
-    window.removeEventListener('message', window.__ciErrorHandler);
-  }
-  window.__ciErrorHandler = function(e) {
-    if (e.source !== window.parent) return;
-    if (e.data && e.data.type === 'inspector:clearErrors') {
-      errorBuffer = [];
-      while (errorList.firstChild) errorList.removeChild(errorList.firstChild);
-      hideErrorOverlay();
+  // ── Vite Error Overlay Killer ───────────────────────────────
+  // Vite injects a <vite-error-overlay> custom element for HMR/compile errors.
+  // We capture the error text, route it to ConsoleOverlay, then remove the element.
+  var oldViteOverlay = document.querySelector('vite-error-overlay');
+  if (oldViteOverlay) oldViteOverlay.remove();
+
+  var viteKiller = new MutationObserver(function(mutations) {
+    for (var mi = 0; mi < mutations.length; mi++) {
+      for (var ni = 0; ni < mutations[mi].addedNodes.length; ni++) {
+        var node = mutations[mi].addedNodes[ni];
+        if (node.nodeType === 1 && node.tagName && node.tagName.toLowerCase() === 'vite-error-overlay') {
+          // Extract error text from shadow DOM before removing
+          var shadow = node.shadowRoot;
+          var text = '';
+          if (shadow) {
+            var body = shadow.querySelector('.message-body') || shadow.querySelector('.message');
+            if (body) text = body.textContent || '';
+          }
+          if (!text) text = node.textContent || '';
+          text = text.trim().substring(0, 500);
+          if (text) {
+            postError({ message: '[Vite] ' + text, file: null, line: null, column: null });
+          }
+          node.remove();
+        }
+      }
     }
-  };
-  window.addEventListener('message', window.__ciErrorHandler);
+  });
+  viteKiller.observe(document.documentElement, { childList: true, subtree: true });
 
   // ── Console Log Interception ──────────────────────────────
   var origLog = console.log;
@@ -893,24 +907,51 @@ const OVERLAY_JS = `(function() {
   function formatArg(a) {
     if (a === null) return 'null';
     if (a === undefined) return 'undefined';
-    if (typeof a === 'string') return a;
+    if (typeof a === 'string') return a.replace(/%c/g, '');
     if (typeof a === 'number' || typeof a === 'boolean') return String(a);
     if (a instanceof Error) return a.message;
     try { return JSON.stringify(a, null, 2).substring(0, 500); } catch(e) { return String(a); }
   }
 
+  // Filter out CSS styling args (the strings after %c that are just colors)
+  function filterArgs(args) {
+    var filtered = [];
+    var skipNext = false;
+    for (var i = 0; i < args.length; i++) {
+      if (skipNext) { skipNext = false; continue; }
+      var a = args[i];
+      if (typeof a === 'string' && a.indexOf('%c') !== -1) {
+        filtered.push(a);
+        skipNext = true;  // Skip the CSS style string that follows %c
+      } else if (typeof a === 'string' && /^(color:|font-|background)/.test(a.trim())) {
+        continue;  // Skip standalone CSS style strings
+      } else {
+        filtered.push(a);
+      }
+    }
+    return filtered;
+  }
+
   function postLog(level, args) {
+    var clean = filterArgs(args);
     var parts = [];
-    for (var i = 0; i < args.length; i++) parts.push(formatArg(args[i]));
+    for (var i = 0; i < clean.length; i++) parts.push(formatArg(clean[i]));
     window.parent.postMessage({
       type: 'inspector:consoleLog',
       log: { level: level, message: parts.join(' '), timestamp: Date.now() }
-    }, window.location.origin);
+    }, '*');  // targetOrigin '*': iframe (localhost:N) and parent (localhost:M) are different origins; parent validates e.source
   }
 
   console.log = function() { origLog.apply(console, arguments); postLog('log', arguments); };
   console.warn = function() { origWarn.apply(console, arguments); postLog('warn', arguments); };
   console.info = function() { origInfo.apply(console, arguments); postLog('info', arguments); };
+
+  var origGroup = console.group;
+  var origGroupCollapsed = console.groupCollapsed;
+  var origGroupEnd = console.groupEnd;
+  console.group = function() { origGroup.apply(console, arguments); if (arguments.length > 0) postLog('log', arguments); };
+  console.groupCollapsed = function() { origGroupCollapsed.apply(console, arguments); if (arguments.length > 0) postLog('log', arguments); };
+  console.groupEnd = function() { origGroupEnd.apply(console, arguments); };
 })();`
 
 export function setupInspectorHandlers(getWindow: () => BrowserWindow | null): void {

@@ -43,8 +43,7 @@ describe('Phase 1: updateDevForProject', () => {
     useTabsStore.getState().reset()
   })
 
-  it('updates dev state for ALL tabs sharing the same project path', () => {
-    useTabsStore.getState().addTab({ name: 'App', path: '/app' })
+  it('updates dev state for the tab matching the project path', () => {
     useTabsStore.getState().addTab({ name: 'App', path: '/app' })
     useTabsStore.getState().addTab({ name: 'Other', path: '/other' })
 
@@ -55,14 +54,12 @@ describe('Phase 1: updateDevForProject', () => {
     })
 
     const tabs = useTabsStore.getState().tabs
-    // Both /app tabs should be updated
+    // /app tab should be updated
     expect(tabs[0].dev.status).toBe('running')
     expect(tabs[0].dev.url).toBe('http://localhost:3000')
-    expect(tabs[1].dev.status).toBe('running')
-    expect(tabs[1].dev.url).toBe('http://localhost:3000')
     // /other tab should be untouched
-    expect(tabs[2].dev.status).toBe('stopped')
-    expect(tabs[2].dev.url).toBeNull()
+    expect(tabs[1].dev.status).toBe('stopped')
+    expect(tabs[1].dev.url).toBeNull()
   })
 
   it('merges partial updates (does not reset unmentioned fields)', () => {
@@ -92,8 +89,7 @@ describe('Phase 1: updateTabsByProject', () => {
     useTabsStore.getState().reset()
   })
 
-  it('updates generic fields for all matching tabs', () => {
-    useTabsStore.getState().addTab({ name: 'App', path: '/app' })
+  it('updates generic fields for the matching tab', () => {
     useTabsStore.getState().addTab({ name: 'App', path: '/app' })
 
     useTabsStore.getState().updateTabsByProject('/app', {
@@ -102,7 +98,16 @@ describe('Phase 1: updateTabsByProject', () => {
 
     const tabs = useTabsStore.getState().tabs
     expect(tabs[0].previewUrl).toBe('http://localhost:3000')
-    expect(tabs[1].previewUrl).toBe('http://localhost:3000')
+  })
+
+  it('addTab reuses existing tab for same project path', () => {
+    const id1 = useTabsStore.getState().addTab({ name: 'App', path: '/app' })
+    const id2 = useTabsStore.getState().addTab({ name: 'App', path: '/app' })
+
+    // Should return the same tab ID (dedup guard)
+    expect(id1).toBe(id2)
+    expect(useTabsStore.getState().tabs).toHaveLength(1)
+    expect(useTabsStore.getState().activeTabId).toBe(id1)
   })
 
   it('does not affect tabs from different projects', () => {

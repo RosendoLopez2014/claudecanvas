@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron'
-import { readdir, stat } from 'fs/promises'
+import { readdir, readFile, stat } from 'fs/promises'
 import { join, basename } from 'path'
 
 export interface FileNode {
@@ -52,5 +52,13 @@ async function readTree(dirPath: string, depth: number): Promise<FileNode[]> {
 export function setupFileTreeHandlers(): void {
   ipcMain.handle('fs:tree', async (_event, rootPath: string, depth = 4) => {
     return readTree(rootPath, depth)
+  })
+
+  ipcMain.handle('fs:readFile', async (_event, filePath: string) => {
+    try {
+      return await readFile(filePath, 'utf-8')
+    } catch {
+      return null
+    }
   })
 }

@@ -13,8 +13,20 @@ import * as runner from './runner'
 import * as configStore from './config-store'
 import { parseCommandString, validatePlan, commandToString, extractScriptName } from '../../shared/devserver/types'
 import type { DevServerPlan, SafeCommand } from '../../shared/devserver/types'
+import { runSelfHealingLoop } from './self-healing-loop'
+import { isLocked } from './repair-lock'
+import { repairSessions } from './repair-session'
 
 export function setupDevServerSystem(getWindow: () => BrowserWindow | null): void {
+  // ── Wire self-healing loop to runner crash events ─────────────
+  runner.setCrashHandler(({ cwd, exitCode, crashOutput, getWindow: gw }) => {
+    // Skip if a repair is already in progress for this project
+    if (isLocked(cwd) || repairSessions.has(cwd)) return
+    runSelfHealingLoop({ cwd, exitCode, crashOutput, getWindow: gw }).catch((err) => {
+      console.error('[self-heal] Loop error:', err)
+    })
+  })
+
   // ── Resolve ─────────────────────────────────────────────────────
   ipcMain.handle('devserver:resolve', (_event, projectPath: string) => {
     if (!isValidPath(projectPath)) return { error: 'Invalid project path' }

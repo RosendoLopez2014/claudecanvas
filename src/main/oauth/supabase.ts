@@ -6,12 +6,11 @@ import http from 'http'
 import crypto from 'crypto'
 
 /**
- * OAuth credentials — loaded from environment variables.
- * In development: set SUPABASE_CLIENT_ID / SUPABASE_CLIENT_SECRET in .env
- * In production: a backend gateway should handle the token exchange.
+ * OAuth credentials — read lazily from process.env so that the .env loader
+ * in index.ts (which runs after import hoisting) has time to populate them.
  */
-const SUPABASE_CLIENT_ID = process.env.SUPABASE_CLIENT_ID || ''
-const SUPABASE_CLIENT_SECRET = process.env.SUPABASE_CLIENT_SECRET || ''
+function getClientId(): string { return process.env.SUPABASE_CLIENT_ID || '' }
+function getClientSecret(): string { return process.env.SUPABASE_CLIENT_SECRET || '' }
 const AUTH_URL = 'https://api.supabase.com/v1/oauth/authorize'
 const TOKEN_URL = 'https://api.supabase.com/v1/oauth/token'
 const REDIRECT_PORT = 38903
@@ -113,7 +112,7 @@ async function doRefresh(): Promise<string | null> {
       return null
     }
 
-    const basicAuth = Buffer.from(`${SUPABASE_CLIENT_ID}:${SUPABASE_CLIENT_SECRET}`).toString('base64')
+    const basicAuth = Buffer.from(`${getClientId()}:${getClientSecret()}`).toString('base64')
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
       refresh_token: refreshToken
@@ -131,8 +130,8 @@ async function doRefresh(): Promise<string | null> {
 
     if (!res.ok) {
       console.error('[Supabase] Token refresh failed:', res.status)
-      // 400/401/403 = token is definitively dead, clear it
-      if (res.status === 400 || res.status === 401 || res.status === 403) {
+      // 400/401/403/422 = token is definitively dead, clear it
+      if (res.status === 400 || res.status === 401 || res.status === 403 || res.status === 422) {
         clearSupabaseAuth()
       }
       return null
@@ -256,9 +255,13 @@ export function setupSupabaseOAuth(getWindow: () => BrowserWindow | null): void 
   getMainWindow = getWindow
   // ── OAuth start: child BrowserWindow + local callback server ──────────
   ipcMain.handle('oauth:supabase:start', async () => {
+    const clientId = getClientId()
+    const clientSecret = getClientSecret()
+    console.log(`[Supabase] OAuth start — clientId=${clientId ? clientId.slice(0, 8) + '…' : '(empty)'}, secretLen=${clientSecret.length}`)
     const win = getWindow()
     if (!win) return { error: 'No window available' }
-    if (!SUPABASE_CLIENT_ID || !SUPABASE_CLIENT_SECRET) {
+    if (!clientId || !clientSecret) {
+      console.error('[Supabase] OAuth not configured — env vars missing. SUPABASE_CLIENT_ID:', process.env.SUPABASE_CLIENT_ID ? 'SET' : 'UNSET', 'SUPABASE_CLIENT_SECRET:', process.env.SUPABASE_CLIENT_SECRET ? 'SET' : 'UNSET')
       return { error: 'Supabase OAuth not configured — set SUPABASE_CLIENT_ID and SUPABASE_CLIENT_SECRET environment variables' }
     }
 
@@ -303,7 +306,7 @@ export function setupSupabaseOAuth(getWindow: () => BrowserWindow | null): void 
 
         // Exchange code for access token (Basic Auth + PKCE)
         try {
-          const basicAuth = Buffer.from(`${SUPABASE_CLIENT_ID}:${SUPABASE_CLIENT_SECRET}`).toString('base64')
+          const basicAuth = Buffer.from(`${getClientId()}:${getClientSecret()}`).toString('base64')
           const body = new URLSearchParams({
             grant_type: 'authorization_code',
             code,
@@ -389,14 +392,19 @@ export function setupSupabaseOAuth(getWindow: () => BrowserWindow | null): void 
       // Listen on fixed port, then open auth URL in child window
       server.listen(REDIRECT_PORT, '127.0.0.1', () => {
         const authUrl = new URL(AUTH_URL)
-        authUrl.searchParams.set('client_id', SUPABASE_CLIENT_ID)
+        authUrl.searchParams.set('client_id', getClientId())
         authUrl.searchParams.set('redirect_uri', REDIRECT_URI)
         authUrl.searchParams.set('response_type', 'code')
         authUrl.searchParams.set('state', state)
         authUrl.searchParams.set('code_challenge', codeChallenge)
         authUrl.searchParams.set('code_challenge_method', 'S256')
 
-        // Open a child window centered on the parent
+        // Open a child window centered on the parent.
+        // Use a persistent shared partition so Google/GitHub sessions carry over
+        // between auth attempts. The "Switch Account" IPC clears this partition.
+        const { session } = require('electron') as typeof import('electron')
+        const authSession = session.fromPartition('persist:oauth')
+
         const parentBounds = win.getBounds()
         const width = 520
         const height = 700
@@ -406,13 +414,17 @@ export function setupSupabaseOAuth(getWindow: () => BrowserWindow | null): void 
           x: Math.round(parentBounds.x + (parentBounds.width - width) / 2),
           y: Math.round(parentBounds.y + (parentBounds.height - height) / 2),
           parent: win,
-          modal: true,
+          modal: false,
+          closable: true,
+          minimizable: false,
+          maximizable: false,
           show: false,
           title: 'Connect to Supabase',
           backgroundColor: '#1a1a2e',
           webPreferences: {
             contextIsolation: true,
-            nodeIntegration: false
+            nodeIntegration: false,
+            session: authSession
           }
         })
 
@@ -439,6 +451,15 @@ export function setupSupabaseOAuth(getWindow: () => BrowserWindow | null): void 
       pendingResolve = null
     }
     return { cancelled: true }
+  })
+
+  // ── Clear OAuth browser session (switch accounts) ──────────────────
+  ipcMain.handle('oauth:clearSession', async () => {
+    const { session } = require('electron') as typeof import('electron')
+    const oauthSession = session.fromPartition('persist:oauth')
+    await oauthSession.clearStorageData()
+    console.log('[OAuth] Cleared persist:oauth session (switch accounts)')
+    return { cleared: true }
   })
 
   // ── Update bounds (no-op — child window manages its own size) ───────
@@ -772,6 +793,59 @@ export function setupSupabaseOAuth(getWindow: () => BrowserWindow | null): void 
       } catch (err: any) {
         if (err?.message === 'Not connected to Supabase') return { error: err.message }
         return { error: `Failed to fetch connection info: ${err}` }
+      }
+    }
+  )
+
+  // ── Create a new project ───────────────────────────────────
+  ipcMain.handle(
+    'oauth:supabase:createProject',
+    async (
+      _event,
+      name: string,
+      region: string,
+      dbPass: string
+    ): Promise<
+      { id: string; name: string; ref: string; region: string; status: string } | { error: string }
+    > => {
+      try {
+        // Resolve org ID
+        const token = getSupabaseToken()
+        if (!token) return { error: 'Not connected to Supabase' }
+        const orgId = (settingsStore.get('supabaseAuth') as { orgId?: string })?.orgId
+          || await fetchSupabaseOrg(token)
+        if (!orgId) return { error: 'No organization found — reconnect to Supabase' }
+
+        console.log(`[Supabase] Creating project "${name}" in region ${region}, org ${orgId}`)
+        const res = await supabaseFetch(supabaseApi('/projects'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            organization_id: orgId,
+            name,
+            region,
+            db_pass: dbPass
+          })
+        })
+        if (!res.ok) {
+          const errBody = await res.text()
+          console.error('[Supabase] createProject error:', res.status, errBody)
+          return { error: `Failed to create project (${res.status}): ${errBody}` }
+        }
+        const project = (await res.json()) as {
+          id: string; name: string; ref: string; region: string; status: string
+        }
+        console.log(`[Supabase] Project created: ${project.name} (${project.ref})`)
+        return {
+          id: project.id,
+          name: project.name,
+          ref: project.ref,
+          region: project.region,
+          status: project.status
+        }
+      } catch (err: any) {
+        if (err?.message === 'Not connected to Supabase') return { error: err.message }
+        return { error: `Failed to create project: ${err}` }
       }
     }
   )

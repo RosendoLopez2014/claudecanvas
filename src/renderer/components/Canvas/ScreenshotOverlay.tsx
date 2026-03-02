@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useCanvasStore } from '@/stores/canvas'
-import { useTerminalStore } from '@/stores/terminal'
+import { useTabsStore } from '@/stores/tabs'
 import { useToastStore } from '@/stores/toast'
 
 interface SelectionRect {
@@ -11,7 +10,10 @@ interface SelectionRect {
 }
 
 export function ScreenshotOverlay() {
-  const { setScreenshotMode } = useCanvasStore()
+  const setScreenshotMode = useCallback((active: boolean) => {
+    const tab = useTabsStore.getState().getActiveTab()
+    if (tab) useTabsStore.getState().updateTab(tab.id, { screenshotMode: active })
+  }, [])
   const overlayRef = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState<SelectionRect | null>(null)
   const [capturing, setCapturing] = useState(false)
@@ -82,18 +84,19 @@ export function ScreenshotOverlay() {
     }
 
     try {
-      await window.api.screenshot.capture(captureRect)
+      const filepath = await window.api.screenshot.capture(captureRect)
 
-      // Send message to Claude Code — use \r to submit as Enter
-      const { ptyId } = useTerminalStore.getState()
-      if (ptyId) {
+      // Write the file path directly into the terminal.
+      // Claude Code's Read tool natively displays images — no MCP roundtrip needed.
+      const tab = useTabsStore.getState().getActiveTab()
+      if (tab?.ptyId) {
         window.api.pty.write(
-          ptyId,
-          'View my screenshot with canvas_get_screenshot\r'
+          tab.ptyId,
+          `Look at this screenshot I just captured: ${filepath}\r`
         )
       }
 
-      useToastStore.getState().addToast('Screenshot sent to Claude', 'success')
+      useToastStore.getState().addToast('Screenshot pasted to terminal', 'success')
     } catch (err) {
       console.error('Screenshot capture failed:', err)
       useToastStore.getState().addToast('Screenshot capture failed', 'error')
@@ -114,6 +117,19 @@ export function ScreenshotOverlay() {
       }
     : null
 
+  // Build a CSS clip-path that cuts out the selection area,
+  // so the dim overlay covers everything EXCEPT the selected region.
+  const clipPath = selRect && selRect.width > 0 && selRect.height > 0
+    ? `polygon(
+        0% 0%, 0% 100%, 100% 100%, 100% 0%, 0% 0%,
+        ${selRect.left}px ${selRect.top}px,
+        ${selRect.left}px ${selRect.top + selRect.height}px,
+        ${selRect.left + selRect.width}px ${selRect.top + selRect.height}px,
+        ${selRect.left + selRect.width}px ${selRect.top}px,
+        ${selRect.left}px ${selRect.top}px
+      )`
+    : undefined
+
   return (
     <div
       ref={overlayRef}
@@ -123,20 +139,38 @@ export function ScreenshotOverlay() {
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
     >
-      {/* Dimmed background */}
-      <div className="absolute inset-0 bg-black/20" />
+      {/* Dimmed background with cutout hole for the selection */}
+      <div
+        className="absolute inset-0 bg-black/50 transition-[clip-path] duration-0"
+        style={clipPath ? { clipPath } : undefined}
+      />
 
-      {/* Selection rectangle */}
+      {/* Selection border — sits on top of the clear cutout */}
       {selRect && selRect.width > 0 && selRect.height > 0 && (
         <div
-          className="absolute border-2 border-dashed border-cyan-400 bg-cyan-400/10"
+          className="absolute border-2 border-solid border-cyan-400 shadow-[0_0_0_1px_rgba(0,0,0,0.3)]"
           style={{
             left: selRect.left,
             top: selRect.top,
             width: selRect.width,
-            height: selRect.height
+            height: selRect.height,
+            boxShadow: '0 0 0 1px rgba(0,0,0,0.3), 0 0 12px rgba(74,234,255,0.3)',
           }}
         />
+      )}
+
+      {/* Dimension label */}
+      {selRect && selRect.width > 30 && selRect.height > 20 && (
+        <div
+          className="absolute bg-black/80 text-cyan-400 text-[10px] font-mono px-1.5 py-0.5 rounded"
+          style={{
+            left: selRect.left + selRect.width / 2,
+            top: selRect.top + selRect.height + 6,
+            transform: 'translateX(-50%)',
+          }}
+        >
+          {Math.round(selRect.width)} &times; {Math.round(selRect.height)}
+        </div>
       )}
 
       {/* Instructions */}

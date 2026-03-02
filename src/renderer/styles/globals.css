@@ -2,15 +2,18 @@
 @import "tailwindcss";
 
 :root {
+  /* Core theme — neutral gray */
   --accent-cyan: #4AEAFF;
   --accent-coral: #FF6B4A;
-  --bg-primary: #0A0F1A;
-  --bg-secondary: #111827;
-  --bg-tertiary: #1F2937;
+  --bg-primary: #18181B;
+  --bg-secondary: #27272A;
+  --bg-tertiary: #3F3F46;
   --border: rgba(255, 255, 255, 0.1);
-  --v9-surface: #111113;
-  --v9-raised: #19191d;
-  --v9-hover: #1f1f24;
+
+  /* Service integration palette (GitHub/Vercel/Supabase panels in ServiceIcons) */
+  --v9-surface: #1C1C1F;
+  --v9-raised: #232326;
+  --v9-hover: #2C2C30;
   --v9-t1: #ededed;
   --v9-t2: rgba(255,255,255,0.50);
   --v9-t3: rgba(255,255,255,0.25);
@@ -46,7 +49,7 @@ body {
 
 /* Glass effect for overlays */
 .glass {
-  background: rgba(17, 24, 39, 0.8);
+  background: rgba(24, 24, 27, 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -87,6 +90,15 @@ body {
 /* xterm inline render decoration transitions */
 .xterm-decoration-container {
   transition: opacity 0.3s ease;
+}
+
+/* Hide scrollbar utility */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 /* Line clamp utility */

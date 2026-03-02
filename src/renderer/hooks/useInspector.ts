@@ -1,10 +1,12 @@
 import { useEffect, useCallback, useRef, RefObject } from 'react'
-import { useCanvasStore, ElementContext } from '@/stores/canvas'
+import { useTabsStore, useActiveTab } from '@/stores/tabs'
+import type { ElementContext } from '@/types/canvas'
 import { useTerminalStore } from '@/stores/terminal'
 import { useProjectStore } from '@/stores/project'
 
 export function useInspector(iframeRef: RefObject<HTMLIFrameElement | null>) {
-  const { inspectorActive, addSelectedElement, clearSelectedElements } = useCanvasStore()
+  const currentTab = useActiveTab()
+  const inspectorActive = currentTab?.inspectorActive ?? false
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Listen for messages from inspector overlay in iframe
@@ -20,6 +22,11 @@ export function useInspector(iframeRef: RefObject<HTMLIFrameElement | null>) {
       // Only process known inspector message types
       if (typeof event.data?.type !== 'string' ||
           !event.data.type.startsWith('inspector:')) {
+        return
+      }
+      if (event.data?.type === 'inspector:verifyComplete') {
+        const tab = useTabsStore.getState().getActiveTab()
+        if (tab) useTabsStore.getState().updateTab(tab.id, { selectedElements: [] })
         return
       }
       if (event.data?.type === 'inspector:elementSelected') {
@@ -62,7 +69,8 @@ export function useInspector(iframeRef: RefObject<HTMLIFrameElement | null>) {
         }
 
         // Append to selection (multi-select: each click adds)
-        addSelectedElement(el)
+        const tab = useTabsStore.getState().getActiveTab()
+        if (tab) useTabsStore.getState().updateTab(tab.id, { selectedElements: [...tab.selectedElements, el] })
         pasteContextToTerminal(el)
 
         // Inspector stays active — user toggles off manually
@@ -73,21 +81,21 @@ export function useInspector(iframeRef: RefObject<HTMLIFrameElement | null>) {
 
     window.addEventListener('message', handler)
     return () => window.removeEventListener('message', handler)
-  }, [addSelectedElement])
+  }, [])
 
   // Fade all highlights when files change (HMR edit landed)
   useEffect(() => {
     const cleanup = window.api.fs.onChange((_data: { projectPath: string; path: string }) => {
-      const { selectedElements } = useCanvasStore.getState()
-      if (selectedElements.length === 0) return
+      const tab = useTabsStore.getState().getActiveTab()
+      if (!tab || tab.selectedElements.length === 0) return
 
       // Debounce: reset timer on each file change, fade 2s after last change
       if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current)
       fadeTimerRef.current = setTimeout(() => {
         fadeTimerRef.current = null
         const iframe = iframeRef.current
-        iframe?.contentWindow?.postMessage({ type: 'inspector:fadeHighlight' }, '*')  // targetOrigin '*' OK: iframe origin varies (localhost:N); overlay validates e.source
-        clearSelectedElements()
+        // Trigger scan animation + fade — clearSelectedElements happens on verifyComplete
+        iframe?.contentWindow?.postMessage({ type: 'inspector:verifyEdit' }, '*')  // targetOrigin '*' OK: iframe origin varies (localhost:N); overlay validates e.source
       }, 2000)
     })
 
@@ -95,7 +103,7 @@ export function useInspector(iframeRef: RefObject<HTMLIFrameElement | null>) {
       cleanup()
       if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current)
     }
-  }, [iframeRef, clearSelectedElements])
+  }, [iframeRef])
 
   // Toggle inspector in iframe via postMessage (works cross-origin)
   useEffect(() => {
@@ -116,7 +124,7 @@ export function useInspector(iframeRef: RefObject<HTMLIFrameElement | null>) {
       return
     }
 
-    const { inspectorActive: isActive } = useCanvasStore.getState()
+    const isActive = useTabsStore.getState().getActiveTab()?.inspectorActive ?? false
     if (isActive) {
       const iframe = iframeRef.current
       iframe?.contentWindow?.postMessage({ type: 'inspector:activate' }, '*')  // targetOrigin '*' OK: iframe origin varies (localhost:N); overlay validates e.source
@@ -127,8 +135,9 @@ export function useInspector(iframeRef: RefObject<HTMLIFrameElement | null>) {
   const clearHighlight = useCallback(() => {
     const iframe = iframeRef.current
     iframe?.contentWindow?.postMessage({ type: 'inspector:clearHighlight' }, '*')  // targetOrigin '*' OK: iframe origin varies (localhost:N); overlay validates e.source
-    clearSelectedElements()
-  }, [iframeRef, clearSelectedElements])
+    const tab = useTabsStore.getState().getActiveTab()
+    if (tab) useTabsStore.getState().updateTab(tab.id, { selectedElements: [] })
+  }, [iframeRef])
 
   return { injectInspector, clearHighlight }
 }
@@ -145,8 +154,9 @@ export function useInspector(iframeRef: RefObject<HTMLIFrameElement | null>) {
  * in window.__inspectorContext and available via canvas_get_context MCP tool.
  */
 function pasteContextToTerminal(el: ElementContext): void {
-  const { ptyId } = useTerminalStore.getState()
-  if (!ptyId) return
+  const tab = useTabsStore.getState().getActiveTab()
+  if (!tab?.ptyId) return
+  const ptyId = tab.ptyId
 
   let tag: string
   if (el.a11y?.role && el.a11y?.name) {

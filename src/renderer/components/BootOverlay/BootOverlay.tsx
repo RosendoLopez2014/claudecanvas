@@ -1,15 +1,17 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTabsStore } from '@/stores/tabs'
-import { Terminal, Radio, Sparkles, Check, Loader2 } from 'lucide-react'
+import { Terminal, Radio, Sparkles, Check, Loader2, AlertTriangle, RotateCcw } from 'lucide-react'
 
 const FEATURES = ['Canvas', 'Gallery', 'Timeline', 'Inspector', 'Preview']
+const DEFAULT_BOOT = { ptyReady: false as boolean | 'error', mcpReady: false as boolean | 'error', claudeReady: false as boolean | 'error' }
 
 interface BootStep {
   key: string
   label: string
   icon: React.ReactNode
   done: boolean
+  error: boolean
 }
 
 interface BootOverlayProps {
@@ -18,12 +20,16 @@ interface BootOverlayProps {
 }
 
 export function BootOverlay({ tabId, projectName }: BootOverlayProps) {
-  const boot = useTabsStore((s) => {
-    const tab = s.tabs.find((t) => t.id === tabId)
-    return tab?.boot ?? { ptyReady: false, mcpReady: false, claudeReady: false }
-  })
+  const boot = useTabsStore(
+    (s) => {
+      const tab = s.tabs.find((t) => t.id === tabId)
+      return tab?.boot ?? DEFAULT_BOOT
+    },
+    (a, b) => a.ptyReady === b.ptyReady && a.mcpReady === b.mcpReady && a.claudeReady === b.claudeReady
+  )
 
-  const allDone = boot.ptyReady && boot.mcpReady && boot.claudeReady
+  const allDone = boot.ptyReady === true && boot.mcpReady === true && boot.claudeReady === true
+  const hasError = boot.ptyReady === 'error' || boot.mcpReady === 'error' || boot.claudeReady === 'error'
 
   // Start dismissed if boot already completed (e.g. tab switch back)
   const [dismissed, setDismissed] = useState(allDone)
@@ -55,27 +61,31 @@ export function BootOverlay({ tabId, projectName }: BootOverlayProps) {
   const steps: BootStep[] = useMemo(() => [
     {
       key: 'pty',
-      label: 'Terminal',
+      label: boot.ptyReady === 'error' ? 'Terminal (failed)' : 'Terminal',
       icon: <Terminal size={14} />,
-      done: boot.ptyReady,
+      done: boot.ptyReady === true,
+      error: boot.ptyReady === 'error',
     },
     {
       key: 'mcp',
-      label: 'MCP bridge',
+      label: boot.mcpReady === 'error' ? 'MCP bridge (failed)' : 'MCP bridge',
       icon: <Radio size={14} />,
-      done: boot.mcpReady,
+      done: boot.mcpReady === true,
+      error: boot.mcpReady === 'error',
     },
     {
       key: 'claude',
-      label: 'Claude Code',
+      label: boot.claudeReady === 'error' ? 'Claude Code (failed)' : 'Claude Code',
       icon: <Sparkles size={14} />,
-      done: boot.claudeReady,
+      done: boot.claudeReady === true,
+      error: boot.claudeReady === 'error',
     },
   ], [boot.ptyReady, boot.mcpReady, boot.claudeReady])
 
-  // Calculate progress percentage
+  // Calculate progress percentage (errors count as "resolved" for progress but not for ready)
   const doneCount = steps.filter((s) => s.done).length
-  const progress = showReady ? 100 : (doneCount / (steps.length + 1)) * 100
+  const resolvedCount = steps.filter((s) => s.done || s.error).length
+  const progress = showReady ? 100 : hasError ? (resolvedCount / steps.length) * 80 : (doneCount / (steps.length + 1)) * 100
 
   return (
     <AnimatePresence>
@@ -104,8 +114,8 @@ export function BootOverlay({ tabId, projectName }: BootOverlayProps) {
             {/* Steps */}
             <div className="w-full space-y-3">
               {steps.map((step, i) => {
-                // Active = first undone step
-                const isActive = !step.done && steps.slice(0, i).every((s) => s.done)
+                // Active = first undone step (that isn't errored)
+                const isActive = !step.done && !step.error && steps.slice(0, i).every((s) => s.done || s.error)
                 return (
                   <motion.div
                     key={step.key}
@@ -116,9 +126,11 @@ export function BootOverlay({ tabId, projectName }: BootOverlayProps) {
                     style={{
                       backgroundColor: step.done
                         ? 'rgba(74, 234, 255, 0.05)'
-                        : isActive
-                          ? 'rgba(255, 255, 255, 0.03)'
-                          : 'transparent',
+                        : step.error
+                          ? 'rgba(239, 68, 68, 0.08)'
+                          : isActive
+                            ? 'rgba(255, 255, 255, 0.03)'
+                            : 'transparent',
                     }}
                   >
                     <div className="flex items-center gap-3">
@@ -126,26 +138,42 @@ export function BootOverlay({ tabId, projectName }: BootOverlayProps) {
                         className={
                           step.done
                             ? 'text-[var(--accent-cyan)]'
-                            : isActive
-                              ? 'text-white/60'
-                              : 'text-white/20'
+                            : step.error
+                              ? 'text-red-400'
+                              : isActive
+                                ? 'text-white/60'
+                                : 'text-white/20'
                         }
                       >
-                        {step.icon}
+                        {step.error ? <AlertTriangle size={14} /> : step.icon}
                       </div>
                       <span
                         className={`text-sm font-mono ${
                           step.done
                             ? 'text-white/70'
-                            : isActive
-                              ? 'text-white/50'
-                              : 'text-white/20'
+                            : step.error
+                              ? 'text-red-400'
+                              : isActive
+                                ? 'text-white/50'
+                                : 'text-white/20'
                         }`}
                       >
                         {step.label}
                       </span>
                     </div>
-                    <div className="flex items-center">
+                    <div className="flex items-center gap-2">
+                      {step.error && step.key === 'mcp' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            useTabsStore.getState().retryMcp(tabId)
+                          }}
+                          className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-red-300 hover:text-white bg-red-500/10 hover:bg-red-500/20 rounded transition-colors"
+                        >
+                          <RotateCcw size={10} />
+                          Retry
+                        </button>
+                      )}
                       {step.done ? (
                         <motion.div
                           initial={{ scale: 0 }}
@@ -154,6 +182,8 @@ export function BootOverlay({ tabId, projectName }: BootOverlayProps) {
                         >
                           <Check size={14} className="text-[var(--accent-cyan)]" />
                         </motion.div>
+                      ) : step.error ? (
+                        <AlertTriangle size={14} className="text-red-400" />
                       ) : isActive ? (
                         <Loader2 size={14} className="text-white/40 animate-spin" />
                       ) : (

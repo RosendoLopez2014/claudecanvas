@@ -7,6 +7,7 @@ interface WorkspaceStore {
   /** @deprecated Use `useTabsStore.getActiveTab().workspaceMode` for per-tab state */
   mode: WorkspaceMode
   canvasSplit: number
+  canvasFullscreen: boolean
   fileExplorerOpen: boolean
   splitViewActive: boolean
   splitViewScope: SplitViewScope
@@ -19,14 +20,19 @@ interface WorkspaceStore {
   /** @deprecated Use `useTabsStore.updateTab(id, { workspaceMode: 'terminal-only' })` */
   closeCanvas: () => void
   setCanvasSplit: (split: number) => void
+  toggleCanvasFullscreen: () => void
   toggleFileExplorer: () => void
   enterSplitView: (scope: SplitViewScope) => void
   exitSplitView: () => void
+  criticSidebarOpen: boolean
+  toggleCriticSidebar: () => void
+  openCriticSidebar: () => void
 }
 
 export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   mode: 'terminal-only',
   canvasSplit: 50,
+  canvasFullscreen: false,
   fileExplorerOpen: false,
   splitViewActive: false,
   splitViewScope: 'project',
@@ -44,12 +50,18 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     const { _returnToSplit } = get()
     set({
       mode: 'terminal-only',
+      canvasFullscreen: false,
       splitViewActive: _returnToSplit.active,
       splitViewScope: _returnToSplit.scope,
       _returnToSplit: { active: false, scope: 'project' },
     })
   },
   setCanvasSplit: (canvasSplit) => set({ canvasSplit }),
+  toggleCanvasFullscreen: () => {
+    const { mode } = get()
+    if (mode !== 'terminal-canvas') return
+    set((s) => ({ canvasFullscreen: !s.canvasFullscreen }))
+  },
   toggleFileExplorer: () => set((s) => ({ fileExplorerOpen: !s.fileExplorerOpen })),
   enterSplitView: (scope) => {
     const { mode } = get()
@@ -59,4 +71,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     window.api.window.maximize()
   },
   exitSplitView: () => set({ splitViewActive: false }),
+  criticSidebarOpen: false,
+  toggleCriticSidebar: () => set((s) => ({ criticSidebarOpen: !s.criticSidebarOpen })),
+  openCriticSidebar: () => set({ criticSidebarOpen: true }),
 }))

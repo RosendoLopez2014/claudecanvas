@@ -5,7 +5,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { useTabsStore } from '@/stores/tabs'
 import { useToastStore } from '@/stores/toast'
-import { useCanvasStore } from '@/stores/canvas'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 // ── Phase 1: Memory Leaks & Race Conditions ─────────────────────────

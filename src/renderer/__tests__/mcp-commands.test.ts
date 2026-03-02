@@ -1,33 +1,36 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useCanvasStore } from '@/stores/canvas'
+import { useTabsStore } from '@/stores/tabs'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useGalleryStore } from '@/stores/gallery'
 import { useToastStore } from '@/stores/toast'
 
 describe('MCP Command Effects', () => {
+  let tabId: string
+
   beforeEach(() => {
-    useCanvasStore.setState({ activeTab: 'preview', previewUrl: null, inspectorActive: false, selectedElements: [] })
+    useTabsStore.setState({ tabs: [], activeTabId: null })
+    tabId = useTabsStore.getState().addTab({ name: 'test', path: '/tmp/test' })
     useWorkspaceStore.setState({ mode: 'terminal-only', canvasSplit: 50 })
     useGalleryStore.setState({ variants: [], selectedId: null })
     useToastStore.setState({ toasts: [] })
   })
 
   it('canvas_set_preview_url opens canvas and sets URL', () => {
-    useCanvasStore.getState().setPreviewUrl('http://localhost:3000')
+    useTabsStore.getState().updateTab(tabId, { previewUrl: 'http://localhost:3000' })
     useWorkspaceStore.getState().openCanvas()
-    useCanvasStore.getState().setActiveTab('preview')
+    useTabsStore.getState().updateTab(tabId, { activeCanvasTab: 'preview' })
 
-    expect(useCanvasStore.getState().previewUrl).toBe('http://localhost:3000')
+    expect(useTabsStore.getState().tabs[0].previewUrl).toBe('http://localhost:3000')
     expect(useWorkspaceStore.getState().mode).toBe('terminal-canvas')
-    expect(useCanvasStore.getState().activeTab).toBe('preview')
+    expect(useTabsStore.getState().tabs[0].activeCanvasTab).toBe('preview')
   })
 
   it('canvas_open_tab opens canvas and switches tab', () => {
     useWorkspaceStore.getState().openCanvas()
-    useCanvasStore.getState().setActiveTab('gallery')
+    useTabsStore.getState().updateTab(tabId, { activeCanvasTab: 'gallery' })
 
     expect(useWorkspaceStore.getState().mode).toBe('terminal-canvas')
-    expect(useCanvasStore.getState().activeTab).toBe('gallery')
+    expect(useTabsStore.getState().tabs[0].activeCanvasTab).toBe('gallery')
   })
 
   it('canvas_add_to_gallery adds variant and switches to gallery', () => {
@@ -37,11 +40,11 @@ describe('MCP Command Effects', () => {
       html: '<button>Click</button>'
     })
     useWorkspaceStore.getState().openCanvas()
-    useCanvasStore.getState().setActiveTab('gallery')
+    useTabsStore.getState().updateTab(tabId, { activeCanvasTab: 'gallery' })
 
     expect(useGalleryStore.getState().variants).toHaveLength(1)
     expect(useGalleryStore.getState().variants[0].label).toBe('Primary Button')
-    expect(useCanvasStore.getState().activeTab).toBe('gallery')
+    expect(useTabsStore.getState().tabs[0].activeCanvasTab).toBe('gallery')
   })
 
   it('canvas_notify adds toast', () => {

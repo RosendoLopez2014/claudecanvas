@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow, ipcMain, clipboard } from 'electron'
 import { writeFile, readFile, mkdir } from 'fs/promises'
 import { existsSync } from 'fs'
 import { join } from 'path'
@@ -39,6 +39,10 @@ export function setupScreenshotHandlers(getWindow: () => BrowserWindow | null): 
       await writeFile(filepath, png)
 
       latestScreenshotPath = filepath
+
+      // Copy to system clipboard so user can also Cmd+V elsewhere
+      clipboard.writeImage(image)
+
       return filepath
     }
   )

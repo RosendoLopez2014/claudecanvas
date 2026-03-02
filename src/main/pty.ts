@@ -9,7 +9,19 @@ import * as path from 'path'
 import { PTY_BUFFER_BATCH_MS } from '../shared/constants'
 
 const ptys = new Map<string, IPty>()
+const ptyCwds = new Map<string, string>()
+const ptyStartTimes = new Map<string, number>()
+const ptyTabIds = new Map<string, string>()
 const closingPtys = new Set<string>()
+
+// External data listeners (e.g., critic plan detector)
+type PtyDataListener = (ptyId: string, data: string) => void
+const externalDataListeners = new Set<PtyDataListener>()
+
+export function addPtyDataListener(listener: PtyDataListener): () => void {
+  externalDataListeners.add(listener)
+  return () => { externalDataListeners.delete(listener) }
+}
 
 // Expose PTY count for EBADF diagnostics (read by git.ts via globalThis)
 ;(globalThis as any).__ptyCount = () => ptys.size
@@ -32,7 +44,7 @@ const ALLOWED_SHELLS = new Set([
 ])
 
 export function setupPtyHandlers(getWindow: () => BrowserWindow | null): void {
-  ipcMain.handle('pty:spawn', (_event, shell?: string, cwd?: string) => {
+  ipcMain.handle('pty:spawn', (_event, shell?: string, cwd?: string, tabId?: string) => {
     // Validate cwd if provided
     if (cwd && (!path.isAbsolute(cwd) || !existsSync(cwd))) {
       return { error: `Invalid working directory: ${cwd}` }
@@ -77,8 +89,11 @@ export function setupPtyHandlers(getWindow: () => BrowserWindow | null): void {
     })
 
     ptys.set(id, ptyProcess)
+    ptyCwds.set(id, cwd || process.env.HOME || '/')
+    ptyStartTimes.set(id, Date.now())
+    if (tabId) ptyTabIds.set(id, tabId)
     markPtyChurn()
-    console.log(`[pty] SPAWN ${id} (pid=${ptyProcess.pid}, total=${ptys.size})`)
+    console.log(`[pty] SPAWN ${id} (pid=${ptyProcess.pid}, total=${ptys.size}${tabId ? `, tab=${tabId}` : ''})`)
 
     // Buffer PTY output and send in batches
     let buffer = ''
@@ -86,6 +101,10 @@ export function setupPtyHandlers(getWindow: () => BrowserWindow | null): void {
 
     ptyProcess.onData((data) => {
       buffer += data
+      // Notify external listeners (e.g., critic plan detector)
+      for (const listener of externalDataListeners) {
+        try { listener(id, data) } catch { /* ignore listener errors */ }
+      }
       if (!sendScheduled) {
         sendScheduled = true
         setTimeout(() => {
@@ -112,6 +131,9 @@ export function setupPtyHandlers(getWindow: () => BrowserWindow | null): void {
         win.webContents.send(`pty:exit:${id}`, exitCode)
       }
       ptys.delete(id)
+      ptyCwds.delete(id)
+      ptyStartTimes.delete(id)
+      ptyTabIds.delete(id)
     })
 
     return id
@@ -166,6 +188,22 @@ export function setupPtyHandlers(getWindow: () => BrowserWindow | null): void {
   ipcMain.on('pty:setCwd', (_event, id: string, cwd: string) => {
     ptys.get(id)?.write(`cd ${JSON.stringify(cwd)}\r`)
   })
+}
+
+/** Get info about all active PTY processes for the process manager. */
+export function getActivePtyInfo(): Array<{ pid: number; id: string; cwd: string; startedAt: number; tabId?: string }> {
+  const result: Array<{ pid: number; id: string; cwd: string; startedAt: number; tabId?: string }> = []
+  for (const [id, pty] of ptys) {
+    if (closingPtys.has(id)) continue
+    result.push({
+      pid: pty.pid,
+      id,
+      cwd: ptyCwds.get(id) || '',
+      startedAt: ptyStartTimes.get(id) || Date.now(),
+      tabId: ptyTabIds.get(id),
+    })
+  }
+  return result
 }
 
 export function killAllPtys(): void {

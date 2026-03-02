@@ -24,28 +24,28 @@ const TERMINAL_OPTIONS = {
   lineHeight: 1.4,
   letterSpacing: 0,
   theme: {
-    background: '#0A0F1A',
-    foreground: '#C8D6E5',
+    background: '#18181B',
+    foreground: '#D4D4D8',
     cursor: '#4AEAFF',
-    cursorAccent: '#0A0F1A',
+    cursorAccent: '#18181B',
     selectionBackground: 'rgba(74, 234, 255, 0.2)',
     selectionForeground: '#FFFFFF',
-    black: '#1a1e2e',
+    black: '#27272A',
     red: '#FF6B4A',
     green: '#4ADE80',
     yellow: '#FACC15',
     blue: '#60A5FA',
     magenta: '#C084FC',
     cyan: '#4AEAFF',
-    white: '#C8D6E5',
-    brightBlack: '#4B5563',
+    white: '#D4D4D8',
+    brightBlack: '#52525B',
     brightRed: '#FF8A6A',
     brightGreen: '#6EE7A0',
     brightYellow: '#FDE047',
     brightBlue: '#93C5FD',
     brightMagenta: '#D8B4FE',
     brightCyan: '#7EEDFF',
-    brightWhite: '#F9FAFB'
+    brightWhite: '#FAFAFA'
   },
   allowProposedApi: true,
   scrollback: 10000,
@@ -103,9 +103,94 @@ function SplitPane({
 
     terminal.open(container)
 
+    // Let Cmd+C (with selection), Cmd+V, Cmd+A, and Cmd+X pass through to
+    // the browser/Electron menu instead of being captured by xterm.
+    // Return false = browser handles it, true = xterm handles it.
+    terminal.attachCustomKeyEventHandler((e) => {
+      const isMeta = e.metaKey  // Cmd on macOS
+      if (!isMeta) return true  // not a Cmd shortcut — let xterm handle
+
+      switch (e.key) {
+        case 'c':
+        case 'C':
+          // Only pass through to browser (copy) if there's a selection;
+          // otherwise let xterm send Ctrl+C (SIGINT) to the PTY
+          if (terminal.hasSelection()) {
+            navigator.clipboard.writeText(terminal.getSelection())
+            return false
+          }
+          return true
+        case 'v':
+        case 'V':
+          // Read clipboard and write to PTY (paste)
+          navigator.clipboard.readText().then((text) => {
+            if (text) terminal.paste(text)
+          })
+          return false
+        case 'a':
+        case 'A':
+          terminal.selectAll()
+          return false
+        case 'x':
+        case 'X':
+          return false  // browser handles cut
+        default:
+          return true   // xterm handles everything else
+      }
+    })
+
+    // Right-click context menu for copy/paste
+    container.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      const hasSelection = terminal.hasSelection()
+
+      // Remove any existing context menu
+      document.getElementById('xterm-ctx-menu')?.remove()
+
+      const menu = document.createElement('div')
+      menu.id = 'xterm-ctx-menu'
+      menu.className = 'fixed z-50 bg-[#1e1e2e] border border-white/10 rounded-lg py-1 shadow-xl min-w-[140px] text-xs'
+      menu.style.left = `${e.clientX}px`
+      menu.style.top = `${e.clientY}px`
+
+      const addItem = (label: string, shortcut: string, action: () => void, disabled = false) => {
+        const item = document.createElement('button')
+        item.className = `flex items-center justify-between w-full px-3 py-1.5 text-left transition-colors ${
+          disabled ? 'text-white/20 cursor-default' : 'text-white/70 hover:bg-white/10 hover:text-white/90'
+        }`
+        item.innerHTML = `<span>${label}</span><span class="text-white/30 ml-4">${shortcut}</span>`
+        if (!disabled) item.onclick = () => { menu.remove(); action() }
+        menu.appendChild(item)
+      }
+
+      addItem('Copy', '\u2318C', () => {
+        navigator.clipboard.writeText(terminal.getSelection())
+      }, !hasSelection)
+
+      addItem('Paste', '\u2318V', () => {
+        navigator.clipboard.readText().then((text) => {
+          if (text) terminal.paste(text)
+        })
+      })
+
+      addItem('Select All', '\u2318A', () => terminal.selectAll())
+
+      document.body.appendChild(menu)
+
+      // Close on click outside or escape
+      const close = () => { menu.remove(); document.removeEventListener('mousedown', onOutside); document.removeEventListener('keydown', onEsc) }
+      const onOutside = (ev: MouseEvent) => { if (!menu.contains(ev.target as Node)) close() }
+      const onEsc = (ev: KeyboardEvent) => { if (ev.key === 'Escape') close() }
+      setTimeout(() => {
+        document.addEventListener('mousedown', onOutside)
+        document.addEventListener('keydown', onEsc)
+      }, 0)
+    })
+
     try {
       const webgl = new WebglAddon()
       webgl.onContextLoss(() => {
+        console.warn('[terminal] WebGL context lost — disposing, will recreate on next fit')
         webgl.dispose()
         webglRef.current = null
       })
@@ -116,8 +201,23 @@ function SplitPane({
     }
 
     fitAddon.fit()
-    connect(terminal, cwd, { autoLaunchClaude, tabId })
+    // connect() spawns the PTY at default 80×24.  After it resolves,
+    // immediately resize the PTY to match xterm's measured dimensions.
+    // Without this, doFit never detects a change (xterm already has the
+    // correct cols) so the PTY stays at 80 cols forever.
+    connect(terminal, cwd, { autoLaunchClaude, tabId }).then(() => {
+      resize(terminal.cols, terminal.rows)
+    })
     useTerminalStore.getState().setFocusFn(() => terminal.focus())
+
+    // Refit after web fonts load — initial fit may use fallback font metrics,
+    // giving wrong character width → wrong column count
+    document.fonts.ready.then(() => {
+      requestAnimationFrame(() => {
+        fitAddon.fit()
+        resize(terminal.cols, terminal.rows)
+      })
+    })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Track terminal dimensions to avoid redundant fit()/resize() calls
@@ -127,6 +227,20 @@ function SplitPane({
     if (!fitAddonRef.current) return
     const t0 = performance.now()
     const terminal = getOrCreateTerminal(poolKey, TERMINAL_OPTIONS)
+
+    // Attempt to recover WebGL if previously lost
+    if (!webglRef.current && terminal) {
+      try {
+        const webgl = new WebglAddon()
+        webgl.onContextLoss(() => {
+          webgl.dispose()
+          webglRef.current = null
+        })
+        terminal.loadAddon(webgl)
+        webglRef.current = webgl
+      } catch { /* stay on canvas renderer */ }
+    }
+
     const prevCols = terminal.cols
     const prevRows = terminal.rows
     fitAddonRef.current.fit()
@@ -151,8 +265,11 @@ function SplitPane({
       timer = setTimeout(doFit, 150)
     })
 
-    // Defer initial fit slightly to let the layout settle after tab switch
-    const fitTimer = setTimeout(doFit, 100)
+    // Defer initial fit to let layout + fonts settle after tab switch/mount
+    const fitTimer = setTimeout(doFit, 200)
+    // Safety-net refit — catches cases where the first fit ran before
+    // the Electron window finished maximizing or fonts finished loading
+    const safetyTimer = setTimeout(doFit, 600)
 
     observer.observe(containerRef.current)
 
@@ -160,7 +277,20 @@ function SplitPane({
       observer.disconnect()
       if (timer) clearTimeout(timer)
       clearTimeout(fitTimer)
+      clearTimeout(safetyTimer)
     }
+  }, [visible, doFit])
+
+  // Also refit on explicit window resize events (fired by Workspace after
+  // canvas animation completes, and on actual window resize).  ResizeObserver
+  // debounce can miss the final size during CSS transitions.
+  useEffect(() => {
+    if (!visible) return
+    const handler = () => {
+      if (fitAddonRef.current) setTimeout(doFit, 50)
+    }
+    window.addEventListener('resize', handler)
+    return () => window.removeEventListener('resize', handler)
   }, [visible, doFit])
 
   // WebGL stays alive on hidden terminals — disposing/recreating GPU contexts on
@@ -187,6 +317,8 @@ function SplitPane({
   )
 }
 
+const DEFAULT_SPLITS: string[] = ['main']
+
 /** Terminal content for a single instance (may contain splits) */
 function TerminalContent({
   tabId,
@@ -201,10 +333,13 @@ function TerminalContent({
   autoLaunchClaude: boolean
   visible: boolean
 }) {
-  const splits = useTabsStore((s) => {
-    const tab = s.tabs.find((t) => t.id === tabId)
-    return tab?.splits ?? ['main']
-  })
+  const splits = useTabsStore(
+    (s) => {
+      const tab = s.tabs.find((t) => t.id === tabId)
+      return tab?.splits ?? DEFAULT_SPLITS
+    },
+    (a, b) => a.length === b.length && a.every((v, i) => v === b[i])
+  )
 
   const mainKey = `${tabId}:${instanceId}`
   const allPanes = splits.map((splitId, idx) => ({
@@ -337,7 +472,7 @@ export function TerminalView({ cwd, tabId, autoLaunchClaude = true, isTabActive 
     <div className="w-full h-full flex flex-col relative">
       {/* Terminal toolbar — only visible with multiple terminals */}
       {showToolbar && (
-        <div className="h-7 flex-shrink-0 flex items-center justify-between px-2 bg-[#0A0F1A] border-b border-white/5">
+        <div className="h-7 flex-shrink-0 flex items-center justify-between px-2 bg-[#18181B] border-b border-white/5">
           <div className="relative">
             <button
               onClick={() => setSelectorOpen((v) => !v)}

@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { GitBranch, FolderPlus, Plus, Loader2, ArrowLeft } from 'lucide-react'
-import { useTabsStore, selectActiveTab } from '@/stores/tabs'
+import { useTabsStore, useActiveTab } from '@/stores/tabs'
 import { useProjectStore } from '@/stores/project'
 import { useToastStore } from '@/stores/toast'
 
@@ -10,7 +10,7 @@ interface NewTabMenuProps {
 }
 
 export function NewTabMenu({ onClose }: NewTabMenuProps) {
-  const activeTab = useTabsStore(selectActiveTab)
+  const activeTab = useActiveTab()
   const [mode, setMode] = useState<'menu' | 'new-branch' | 'existing-branch'>('menu')
   const [branchName, setBranchName] = useState('')
   const [branches, setBranches] = useState<string[]>([])
@@ -62,11 +62,7 @@ export function NewTabMenu({ onClose }: NewTabMenuProps) {
         worktreeBranch: result.branch,
         worktreePath: result.path,
       })
-      // Write CLAUDE.md, tool permissions, and trust settings to the worktree dir
-      // so Claude Code running there has canvas instructions and auto-approvals
-      window.api.mcp.projectOpened(result.path).then(({ port }) => {
-        useTabsStore.getState().updateTab(tabId, { mcpReady: true, mcpPort: port })
-      })
+      // MCP init handled by useTabMcpInit in Workspace on tab mount
       useToastStore.getState().addToast(`Created worktree: ${name}`, 'success')
       onClose()
     } catch (err: any) {
@@ -109,9 +105,7 @@ export function NewTabMenu({ onClose }: NewTabMenuProps) {
             worktreeBranch: existing.branch,
             worktreePath: existing.path,
           })
-          window.api.mcp.projectOpened(existing.path).then(({ port }) => {
-            useTabsStore.getState().updateTab(tabId, { mcpReady: true, mcpPort: port })
-          })
+          // MCP init handled by useTabMcpInit in Workspace on tab mount
           useToastStore.getState().addToast(`Opened ${branch}`, 'success')
           onClose()
           setLoading(false)
@@ -140,10 +134,7 @@ export function NewTabMenu({ onClose }: NewTabMenuProps) {
         worktreeBranch: result.branch,
         worktreePath: result.path,
       })
-      // Write CLAUDE.md, tool permissions, and trust settings to the worktree dir
-      window.api.mcp.projectOpened(result.path).then(({ port }) => {
-        useTabsStore.getState().updateTab(tabId, { mcpReady: true, mcpPort: port })
-      })
+      // MCP init handled by useTabMcpInit in Workspace on tab mount
       useToastStore.getState().addToast(`Opened worktree: ${branch}`, 'success')
       onClose()
     } catch (err: any) {
