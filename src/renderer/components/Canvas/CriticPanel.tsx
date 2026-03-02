@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import {
   Settings, Key, Play, Square, Clock, CheckCircle, XCircle,
   AlertTriangle, ChevronDown, ChevronRight, Loader2, Eye, Trash2,
-  MessageSquare, Zap, Shield, Copy, ShieldOff
+  MessageSquare, Zap, Shield, Copy, ShieldOff, RotateCcw
 } from 'lucide-react'
 import { useActiveTab } from '@/stores/tabs'
 import { useCriticStore, type CriticSession } from '@/stores/critic'
@@ -613,6 +613,24 @@ export function CriticPanel() {
               The critic loop reviews plans and implementations via OpenAI.
               Enable it in settings and start a Claude session.
             </p>
+          </div>
+        )}
+
+        {/* Panic restore — escape hatch if gate state machine is confused */}
+        {projectPath && (
+          <div className="border-t border-white/5 pt-2 mt-2">
+            <button
+              onClick={async () => {
+                await window.api.critic.restoreStaleBackups(projectPath)
+                useCriticStore.getState().setGateState(projectPath, 'open', 'Manual restore')
+              }}
+              className="flex items-center gap-1.5 px-2 py-1 text-[10px] text-white/20 hover:text-white/50
+                transition-colors"
+              title="Restore original tool permissions if stuck in gated state"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Restore tool permissions
+            </button>
           </div>
         )}
       </div>
