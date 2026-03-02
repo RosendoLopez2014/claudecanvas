@@ -13,5 +13,10 @@ export function registerMcpTools(
   registerCanvasTools(server, getWindow, getProjectPath)
   registerSupabaseTools(server, getWindow, getProjectPath)
   registerDevServerTools(server, getWindow, getProjectPath)
-  registerCriticTools(server, getWindow, getProjectPath)
+  try {
+    registerCriticTools(server, getWindow, getProjectPath)
+    console.log('[MCP] Critic tools registered successfully')
+  } catch (err) {
+    console.error('[MCP] FAILED to register critic tools:', err)
+  }
 }

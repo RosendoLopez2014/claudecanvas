@@ -281,6 +281,9 @@ app.whenReady().then(() => {
   })
 
   // MCP Bridge — stop session when a tab closes
+  // NOTE: Do NOT stop the HTTP server here. React strict mode double-mount
+  // fires cleanup → re-mount in dev, which would kill the server mid-restart.
+  // The server is cheap to keep alive — it shuts down on app quit.
   ipcMain.handle('mcp:project-closed', async (_event, opts: { tabId: string }) => {
     const session = tabSessions.get(opts.tabId)
     if (session?.token) unregisterSessionToken(session.token)
@@ -288,7 +291,6 @@ app.whenReady().then(() => {
     console.log(`[MCP][tabId=${opts.tabId}] Closed (${tabSessions.size} remaining)`)
     if (tabSessions.size === 0) {
       await removeMcpConfig()
-      await stopMcpServer()
     }
   })
 
@@ -297,7 +299,6 @@ app.whenReady().then(() => {
     tabSessions.clear()
     clearTokenRegistry()
     await removeMcpConfig()
-    await stopMcpServer()
   })
 
   // MCP Bridge — renderer tells us the linked Supabase project ref

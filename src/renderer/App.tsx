@@ -100,14 +100,17 @@ export default function App() {
 
   // MCP lifecycle is per-tab (useTabMcpInit in Workspace).
   // This effect only handles complete teardown when all tabs close.
+  // Guard: only run after workspace has been shown (workspaceMounted) to prevent
+  // premature shutdown on cold start when tabCount is initially 0.
   useEffect(() => {
+    if (!workspaceMounted) return
     if (tabCount === 0) {
       window.api.mcp.shutdownAll()
       if (currentProject?.path) {
         window.api.component.previewCleanup(currentProject.path).catch(() => {})
       }
     }
-  }, [tabCount, currentProject?.path])
+  }, [tabCount, workspaceMounted, currentProject?.path])
 
   useEffect(() => {
     window.api.settings.get('onboardingComplete').then(async (complete) => {
