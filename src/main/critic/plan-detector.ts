@@ -166,11 +166,29 @@ const planFileWatchers = new Map<string, ReturnType<typeof watch>>()
 const planFileTimers = new Map<string, ReturnType<typeof setTimeout>>()
 // Track files we've already reviewed to avoid re-reviewing on every save
 const reviewedFiles = new Map<string, { mtime: number }>()
+// Guard against concurrent auto-reviews
+let autoReviewInFlight = false
 
 /**
- * Watch `docs/plans/` for new or updated .md files.
- * When detected, auto-submit to critic engine for review.
- * Gate engages during review; auto-releases on approve.
+ * Markers that distinguish implementation plans from design docs/notes.
+ * A file must contain at least one of these to trigger auto-review.
+ */
+const PLAN_MARKERS = [
+  'executing-plans',        // superpowers skill reference
+  '## Task',                // numbered task sections
+  '### Task',
+  '**Step ',                // step-by-step instructions
+  'Implementation Plan',    // common plan title
+]
+
+function looksLikePlan(content: string): boolean {
+  return PLAN_MARKERS.some((marker) => content.includes(marker))
+}
+
+/**
+ * Watch `docs/plans/` for new implementation plan files.
+ * Filters out design docs and non-plan files using content markers.
+ * Auto-submits to critic engine; gate auto-releases on approve.
  */
 export function setupPlanFileWatcher(
   getWindow: () => BrowserWindow | null,
@@ -196,7 +214,7 @@ export function setupPlanFileWatcher(
     const config = getCriticConfig(projectPath)
     if (!config.enabled || !config.autoReviewPlan) return
 
-    // Debounce: wait for writes to settle
+    // Debounce: wait for writes to settle (3s — Write tool can be slow for large files)
     const timerKey = `${projectPath}:${filename}`
     const existing = planFileTimers.get(timerKey)
     if (existing) clearTimeout(existing)
@@ -206,19 +224,25 @@ export function setupPlanFileWatcher(
 
       if (!existsSync(filePath)) return
 
-      // Skip if already reviewed this version
-      const { mtimeMs } = await import('node:fs').then(fs =>
-        fs.promises.stat(filePath)
-      )
-      const prev = reviewedFiles.get(filePath)
-      if (prev && Math.abs(prev.mtime - mtimeMs) < 1000) return
-      reviewedFiles.set(filePath, { mtime: mtimeMs })
+      // Skip if already reviewing something
+      if (autoReviewInFlight || isGated(projectPath)) return
 
-      // Skip if gate is already active (already reviewing something)
-      if (isGated(projectPath)) return
+      // Skip if already reviewed this version
+      const stat = await import('node:fs').then(fs => fs.promises.stat(filePath))
+      const prev = reviewedFiles.get(filePath)
+      if (prev && Math.abs(prev.mtime - stat.mtimeMs) < 1000) return
 
       const planText = await readFile(filePath, 'utf-8')
-      if (planText.length < 50) return // too short to be a real plan
+
+      // Must look like an implementation plan (not a design doc or notes)
+      if (!looksLikePlan(planText)) {
+        console.log(`[plan-detector] Skipping ${filename} — no plan markers found`)
+        return
+      }
+
+      // Mark as reviewed BEFORE starting (prevents duplicate triggers)
+      reviewedFiles.set(filePath, { mtime: stat.mtimeMs })
+      autoReviewInFlight = true
 
       console.log(`[plan-detector] Auto-reviewing plan file: ${filename}`)
 
@@ -240,8 +264,10 @@ export function setupPlanFileWatcher(
       } catch (err) {
         console.error(`[plan-detector] Auto-review failed:`, err)
         await releaseGate(getWindow, projectPath, 'Auto-review failed — gate released', 'error')
+      } finally {
+        autoReviewInFlight = false
       }
-    }, 1500)) // 1.5s debounce for file writes
+    }, 3000)) // 3s debounce — Write tool can be slow for large plan files
   })
 
   planFileWatchers.set(projectPath, watcher)
