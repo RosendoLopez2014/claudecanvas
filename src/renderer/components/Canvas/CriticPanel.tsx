@@ -1,24 +1,31 @@
 import { useState, useCallback, useEffect } from 'react'
 import {
-  Settings, Key, Send, Play, Square, Clock, CheckCircle, XCircle,
+  Settings, Key, Play, Square, Clock, CheckCircle, XCircle,
   AlertTriangle, ChevronDown, ChevronRight, Loader2, Eye, Trash2,
-  MessageSquare, Zap
+  MessageSquare, Zap, Shield, Copy, ShieldOff
 } from 'lucide-react'
-import { useActiveTab, useTabsStore } from '@/stores/tabs'
+import { useActiveTab } from '@/stores/tabs'
 import { useCriticStore, type CriticSession } from '@/stores/critic'
 import { useProjectStore } from '@/stores/project'
-import type { CriticFeedback, CriticIssue, CriticConfig } from '../../../shared/critic/types'
+import type { CriticFeedback, CriticConfig } from '../../../shared/critic/types'
 import { DEFAULT_CRITIC_CONFIG } from '../../../shared/critic/types'
 import { formatFeedbackForClaude } from '../../../shared/critic/format'
 
 // ── Available models ─────────────────────────────────────────
 const OPENAI_MODELS = [
-  { value: 'gpt-4o', label: 'GPT-4o' },
-  { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-  { value: 'o1', label: 'o1' },
-  { value: 'o1-mini', label: 'o1 Mini' },
+  // Flagship
+  { value: 'gpt-5.2', label: 'GPT-5.2' },
+  { value: 'gpt-5.2-pro', label: 'GPT-5.2 Pro' },
+  { value: 'gpt-5', label: 'GPT-5' },
+  { value: 'gpt-5-mini', label: 'GPT-5 Mini' },
+  { value: 'gpt-5-nano', label: 'GPT-5 Nano' },
+  // Reasoning
+  { value: 'o3', label: 'o3' },
+  { value: 'o3-pro', label: 'o3 Pro' },
+  { value: 'o4-mini', label: 'o4 Mini' },
   { value: 'o3-mini', label: 'o3 Mini' },
+  // Legacy
+  { value: 'gpt-4.1', label: 'GPT-4.1' },
 ]
 
 // ── Severity config ──────────────────────────────────────────
@@ -156,6 +163,39 @@ function CriticSettings({ projectPath, hasKey, onKeyDeleted }: {
             />
           </div>
 
+          {/* Automation section */}
+          <div className="pt-1 border-t border-white/5">
+            <div className="text-[10px] text-white/30 uppercase tracking-wide mb-2">Automation</div>
+            <label className="flex items-center gap-2 text-xs text-white/60 mb-1.5">
+              <input
+                type="checkbox"
+                checked={config.autoReviewPlan}
+                onChange={(e) => updateConfig({ autoReviewPlan: e.target.checked })}
+                className="rounded border-white/20"
+              />
+              Auto-review detected plans
+            </label>
+            <p className="text-[10px] text-white/25 ml-5 mb-2">
+              Send plans to critic automatically when detected
+            </p>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-white/40 w-20">Gate mode:</span>
+              <select
+                value={config.gateMode}
+                onChange={(e) => updateConfig({ gateMode: e.target.value as 'recommended' | 'strict' })}
+                className="flex-1 px-2 py-1 text-xs bg-white/5 border border-white/10 rounded text-white/70
+                  focus:outline-none focus:border-[#4AEAFF]/50 appearance-none cursor-pointer"
+                style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'6\'%3E%3Cpath d=\'M0 0l5 6 5-6z\' fill=\'%23666\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}
+              >
+                <option value="recommended">Recommended</option>
+                <option value="strict">Strict</option>
+              </select>
+            </div>
+            <p className="text-[10px] text-white/25 ml-5">
+              Recommended: gate before first code only. Strict: re-gate between iterations.
+            </p>
+          </div>
+
           {/* API Key status */}
           <div className="flex items-center gap-2 text-xs">
             <Key className="w-3 h-3 text-white/30" />
@@ -181,10 +221,9 @@ function CriticSettings({ projectPath, hasKey, onKeyDeleted }: {
 }
 
 // ── Feedback Card ────────────────────────────────────────────
-function FeedbackCard({ feedback, type, onSendToClaude }: {
+function FeedbackCard({ feedback, type }: {
   feedback: CriticFeedback
   type: 'plan' | 'result'
-  onSendToClaude: () => void
 }) {
   const [expandedIssue, setExpandedIssue] = useState<number | null>(null)
   const vc = VERDICT_CONFIG[feedback.verdict]
@@ -261,12 +300,15 @@ function FeedbackCard({ feedback, type, onSendToClaude }: {
       {/* Actions */}
       <div className="border-t border-white/5 px-3 py-2 flex gap-2">
         <button
-          onClick={onSendToClaude}
+          onClick={() => {
+            const text = formatFeedbackForClaude(feedback, type)
+            navigator.clipboard.writeText(text)
+          }}
           className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-white/10 hover:bg-white/15
             rounded text-white/80 transition-colors"
         >
-          <Send className="w-3 h-3" />
-          Send to Claude
+          <Copy className="w-3 h-3" />
+          Copy Feedback
         </button>
       </div>
     </div>
@@ -370,7 +412,6 @@ function EventTimeline({ session }: { session: CriticSession }) {
 export function CriticPanel() {
   const currentTab = useActiveTab()
   const tabId = currentTab?.id ?? null
-  const ptyId = currentTab?.ptyId ?? null
   const { currentProject } = useProjectStore()
   const projectPath = currentProject?.path ?? null
 
@@ -379,6 +420,7 @@ export function CriticPanel() {
   const recentSessions = useCriticStore((s) => s.recentSessions)
   const latestSession = session ?? recentSessions.find((s) => s.tabId === tabId) ?? null
   const pendingPlan = useCriticStore((s) => tabId ? s.pendingPlans[tabId] : undefined)
+  const gateState = useCriticStore((s) => projectPath ? s.gateStates[projectPath] : undefined)
 
   // Lifted hasKey state — shared between setup prompt and settings
   const [hasKey, setHasKey] = useState(false)
@@ -387,12 +429,6 @@ export function CriticPanel() {
   }, [])
 
   const [runningDiagnostics, setRunningDiagnostics] = useState(false)
-
-  const sendFeedbackToClaude = useCallback((feedback: CriticFeedback, type: 'plan' | 'result') => {
-    if (!ptyId) return
-    const text = formatFeedbackForClaude(feedback, type)
-    window.api.pty.write(ptyId, text)
-  }, [ptyId])
 
   const [reviewError, setReviewError] = useState<string | null>(null)
 
@@ -405,8 +441,14 @@ export function CriticPanel() {
         window.api.critic.collectDiagnostics(projectPath),
         window.api.git.diff(projectPath).catch(() => ''),
       ])
+      // Don't send to OpenAI if there's nothing to review
+      const diffStr = (diff as string).trim()
+      if (!diffStr && !diagnostics?.tscOutput?.trim() && !diagnostics?.testOutput?.trim()) {
+        setReviewError('Nothing to review — no code changes or diagnostics found. Make some changes first.')
+        return
+      }
       const result = await window.api.critic.reviewResult(
-        tabId, projectPath, diff as string, diagnostics,
+        tabId, projectPath, diffStr, diagnostics,
         `Project: ${projectPath}`
       )
       if (result && typeof result === 'object' && 'error' in result) {
@@ -451,6 +493,38 @@ export function CriticPanel() {
       {/* Settings */}
       <CriticSettings projectPath={projectPath} hasKey={hasKey} onKeyDeleted={() => setHasKey(false)} />
 
+      {/* Gate status indicator */}
+      {gateState && gateState.status !== 'open' && (
+        <div className={`flex items-center gap-2 px-4 py-2 border-b border-white/5 ${
+          gateState.status === 'gated' ? 'bg-red-500/5' : 'bg-yellow-500/5'
+        }`}>
+          {gateState.status === 'gated' ? (
+            <>
+              <Shield className="w-3.5 h-3.5 text-red-400" />
+              <span className="text-xs text-red-400 font-medium">Gate Active</span>
+              <span className="text-[10px] text-red-400/50 truncate flex-1">{gateState.reason}</span>
+              <button
+                onClick={async () => {
+                  if (!projectPath) return
+                  await window.api.critic.overrideGate(projectPath, 'Manual override from panel')
+                }}
+                className="flex items-center gap-1 px-2 py-0.5 text-[10px] bg-red-500/10 hover:bg-red-500/20
+                  rounded text-red-400/80 transition-colors flex-shrink-0"
+              >
+                <ShieldOff className="w-3 h-3" />
+                Override
+              </button>
+            </>
+          ) : (
+            <>
+              <AlertTriangle className="w-3.5 h-3.5 text-yellow-400" />
+              <span className="text-xs text-yellow-400 font-medium">Overridden</span>
+              <span className="text-[10px] text-yellow-400/50 truncate">{gateState.reason}</span>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Content area */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {/* Pending plan */}
@@ -469,7 +543,6 @@ export function CriticPanel() {
           <FeedbackCard
             feedback={latestSession.planFeedback}
             type="plan"
-            onSendToClaude={() => sendFeedbackToClaude(latestSession.planFeedback!, 'plan')}
           />
         )}
 
@@ -478,7 +551,6 @@ export function CriticPanel() {
           <FeedbackCard
             feedback={latestSession.resultFeedback}
             type="result"
-            onSendToClaude={() => sendFeedbackToClaude(latestSession.resultFeedback!, 'result')}
           />
         )}
 
@@ -487,6 +559,7 @@ export function CriticPanel() {
           <button
             onClick={handleRunReview}
             disabled={runningDiagnostics || (session?.phase === 'critic_reviewing_result')}
+            title={!session ? 'Reviews uncommitted changes via git diff + tsc + tests' : undefined}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-white/10 hover:bg-white/15
               rounded-md text-white/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >

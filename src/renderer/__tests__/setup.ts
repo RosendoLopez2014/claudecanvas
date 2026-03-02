@@ -153,7 +153,7 @@ const mockApi = {
     install: vi.fn().mockResolvedValue(undefined)
   },
   critic: {
-    getConfig: vi.fn().mockResolvedValue({ enabled: false, model: 'gpt-4o', maxIterations: 3, autoSendFeedback: false, planDetectionKeywords: [] }),
+    getConfig: vi.fn().mockResolvedValue({ enabled: false, model: 'gpt-5.2', maxIterations: 3, autoReviewPlan: false, gateMode: 'recommended', planDetectionKeywords: [] }),
     setConfig: vi.fn().mockResolvedValue({ ok: true }),
     hasApiKey: vi.fn().mockResolvedValue(false),
     setApiKey: vi.fn().mockResolvedValue({ ok: true }),
@@ -169,6 +169,11 @@ const mockApi = {
     loadRun: vi.fn().mockResolvedValue(null),
     onEvent: vi.fn().mockReturnValue(vi.fn()),
     onPlanDetected: vi.fn().mockReturnValue(vi.fn()),
+    getGateState: vi.fn().mockResolvedValue(null),
+    overrideGate: vi.fn().mockResolvedValue({ ok: true }),
+    tabClosed: vi.fn(),
+    restoreStaleBackups: vi.fn().mockResolvedValue(undefined),
+    onGateEvent: vi.fn().mockReturnValue(vi.fn()),
   },
   system: {
     onSuspend: vi.fn().mockReturnValue(vi.fn()),

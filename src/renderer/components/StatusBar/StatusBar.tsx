@@ -5,7 +5,7 @@ import { useTabsStore, useActiveTab } from '@/stores/tabs'
 import { useCriticStore } from '@/stores/critic'
 import {
   GitBranch, Play, Square, PanelRight, Eye, Loader2, FolderOpen,
-  ArrowDown, ArrowUp, Check, Rocket, Settings, AlertTriangle, Zap, Send
+  ArrowDown, ArrowUp, Check, Rocket, Settings, AlertTriangle, Zap, Shield, ShieldOff, Copy
 } from 'lucide-react'
 import { useCallback, useEffect, useState, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -19,12 +19,14 @@ import { formatFeedbackForClaude } from '../../../shared/critic/format'
 function CriticChip() {
   const tab = useActiveTab()
   const tabId = tab?.id ?? null
-  const ptyId = tab?.ptyId ?? null
+  const { currentProject } = useProjectStore()
+  const projectPath = currentProject?.path ?? null
   const session = useCriticStore((s) => tabId ? s.activeSessions[tabId] : undefined)
   const pending = useCriticStore((s) => tabId ? s.pendingPlans[tabId] : undefined)
   const recentSessions = useCriticStore((s) => s.recentSessions)
   const recent = recentSessions.find((s) => s.tabId === tabId) ?? null
   const latest = session ?? recent
+  const gateState = useCriticStore((s) => projectPath ? s.gateStates[projectPath] : undefined)
   const [showPopover, setShowPopover] = useState(false)
   const popoverRef = useRef<HTMLDivElement>(null)
 
@@ -40,17 +42,19 @@ function CriticChip() {
     return () => document.removeEventListener('mousedown', handler)
   }, [showPopover])
 
-  // Don't render if critic has never been used for this tab
-  if (!session && !pending && !recent) return null
+  const isGated = gateState?.status === 'gated'
+  const isOverridden = gateState?.status === 'overridden'
+
+  // Don't render if critic has never been used for this tab and no gate
+  if (!session && !pending && !recent && !isGated && !isOverridden) return null
 
   const isReviewing = session?.phase === 'critic_reviewing_plan' || session?.phase === 'critic_reviewing_result'
   const hasFeedback = !!latest?.planFeedback || !!latest?.resultFeedback
 
-  const sendToClaude = (type: 'plan' | 'result') => {
-    if (!ptyId) return
+  const copyFeedback = (type: 'plan' | 'result') => {
     const fb = type === 'plan' ? latest?.planFeedback : latest?.resultFeedback
     if (!fb) return
-    window.api.pty.write(ptyId, formatFeedbackForClaude(fb, type))
+    navigator.clipboard.writeText(formatFeedbackForClaude(fb, type))
     setShowPopover(false)
   }
 
@@ -59,14 +63,21 @@ function CriticChip() {
       <button
         onClick={() => setShowPopover((p) => !p)}
         className={`flex items-center gap-1 transition-colors ${
+          isGated ? 'text-red-400' :
+          isOverridden ? 'text-yellow-400' :
           isReviewing ? 'text-purple-400' : hasFeedback ? 'text-purple-300' : pending ? 'text-purple-400/60' : 'text-white/30'
         } hover:text-purple-300`}
-        title="Critic loop"
+        title={isGated ? 'Critic gate active — write tools blocked' : 'Critic loop'}
       >
-        {isReviewing ? <Loader2 size={10} className="animate-spin" /> : <Zap size={10} />}
-        <span>{isReviewing ? 'Reviewing...' : pending ? 'Plan detected' : hasFeedback ? 'Feedback' : 'Critic'}</span>
-        {(hasFeedback || pending) && (
-          <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+        {isGated ? <Shield size={10} /> :
+         isOverridden ? <ShieldOff size={10} /> :
+         isReviewing ? <Loader2 size={10} className="animate-spin" /> : <Zap size={10} />}
+        <span>
+          {isGated ? 'Gated' : isOverridden ? 'Override' :
+           isReviewing ? 'Reviewing...' : pending ? 'Plan detected' : hasFeedback ? 'Feedback' : 'Critic'}
+        </span>
+        {(hasFeedback || pending || isGated) && (
+          <span className={`w-1.5 h-1.5 rounded-full ${isGated ? 'bg-red-400 animate-pulse' : 'bg-purple-400'}`} />
         )}
       </button>
 
@@ -88,6 +99,34 @@ function CriticChip() {
             </div>
 
             <div className="p-2 space-y-2">
+              {/* Gate status */}
+              {isGated && (
+                <div className="flex items-center justify-between px-2 py-1.5 bg-red-500/5 rounded text-xs">
+                  <span className="text-red-400 flex items-center gap-1">
+                    <Shield size={10} />
+                    Gate Active
+                  </span>
+                  <button
+                    onClick={async () => {
+                      if (projectPath) {
+                        await window.api.critic.overrideGate(projectPath, 'Manual override from status bar')
+                        setShowPopover(false)
+                      }
+                    }}
+                    className="text-red-400/60 hover:text-red-400 text-[10px] flex items-center gap-0.5"
+                  >
+                    <ShieldOff size={8} />
+                    Override
+                  </button>
+                </div>
+              )}
+              {isOverridden && (
+                <div className="flex items-center gap-1 px-2 py-1 bg-yellow-500/5 rounded text-xs text-yellow-400/60">
+                  <ShieldOff size={10} />
+                  Gate overridden
+                </div>
+              )}
+
               {/* Latest verdict */}
               {latest?.planFeedback && (
                 <div className="flex items-center justify-between px-2 py-1 bg-white/5 rounded text-xs">
@@ -95,8 +134,8 @@ function CriticChip() {
                     latest.planFeedback.verdict === 'approve' ? 'text-green-400' :
                     latest.planFeedback.verdict === 'reject' ? 'text-red-400' : 'text-yellow-400'
                   }>{latest.planFeedback.verdict}</span></span>
-                  <button onClick={() => sendToClaude('plan')} className="text-white/30 hover:text-white/60">
-                    <Send size={10} />
+                  <button onClick={() => copyFeedback('plan')} className="text-white/30 hover:text-white/60" title="Copy feedback">
+                    <Copy size={10} />
                   </button>
                 </div>
               )}
@@ -106,8 +145,8 @@ function CriticChip() {
                     latest.resultFeedback.verdict === 'approve' ? 'text-green-400' :
                     latest.resultFeedback.verdict === 'reject' ? 'text-red-400' : 'text-yellow-400'
                   }>{latest.resultFeedback.verdict}</span></span>
-                  <button onClick={() => sendToClaude('result')} className="text-white/30 hover:text-white/60">
-                    <Send size={10} />
+                  <button onClick={() => copyFeedback('result')} className="text-white/30 hover:text-white/60" title="Copy feedback">
+                    <Copy size={10} />
                   </button>
                 </div>
               )}

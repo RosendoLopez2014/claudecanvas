@@ -2,7 +2,9 @@ import { writeFile, unlink, readFile, appendFile, mkdir, rename } from 'node:fs/
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
+import { randomBytes } from 'node:crypto'
 import { generateProjectProfile, renderProjectProfile } from '../services/project-profile'
+import { CRITIC_TOOL_IDS } from '../../shared/constants'
 
 const projectPaths = new Set<string>()
 
@@ -128,6 +130,25 @@ const CANVAS_CLAUDE_MD = [
   '- Self-contained HTML/CSS (inline styles or `<style>`, no external deps)',
   '- Realistic content (not Lorem Ipsum)',
   '- Each option must be genuinely different',
+  '',
+  '## Critic Loop',
+  '',
+  'If the Critic Loop is enabled for this project, a second AI model reviews your work:',
+  '',
+  '1. **Before coding:** Call `critic_review_plan` with your implementation plan. The critic analyzes it and returns structured feedback. Write/execute tools are BLOCKED until the critic approves or you call `critic_override`.',
+  '2. **After coding:** Call `critic_review_result` to submit your work for review. Diagnostics (git diff, tsc, tests) are collected automatically.',
+  '3. **Check status:** Call `critic_status` to see if the gate is active and what action to take.',
+  '4. **Override:** Call `critic_override` with a reason if you need to bypass the gate.',
+  '',
+  'When the gate is active, calling write/execute tools (Edit, Write, Bash, canvas_render, etc.) will return an error. Submit your plan for review first.',
+  '',
+  '### When you receive critic feedback',
+  '',
+  '- **Read every issue carefully.** Each has a severity (critical, major, minor, suggestion) and may include a file path and recommendation.',
+  '- **If verdict is "revise"** — Address the issues listed. Fix critical and major issues first, then minor ones. Explain what you changed and why.',
+  '- **If verdict is "reject"** — The approach has fundamental problems. Reconsider your plan before proceeding.',
+  '- **If verdict is "approve"** — The critic is satisfied. The gate is released and you may proceed.',
+  '- **Do NOT argue with the critic.** Fix the issues or explain to the user why you disagree.',
 ].join('\n')
 
 const SOUL_TEMPLATE = `<!--
@@ -183,6 +204,10 @@ async function ensureSoulTemplate(projPath: string): Promise<void> {
 }
 
 export async function writeMcpConfig(projPath: string, port: number, token?: string): Promise<void> {
+  // Ensure the project directory exists before writing any files into it
+  if (!existsSync(projPath)) {
+    await mkdir(projPath, { recursive: true })
+  }
   projectPaths.add(projPath)
   const mcpServerConfig = {
     'claude-canvas': {
@@ -201,8 +226,10 @@ export async function writeMcpConfig(projPath: string, port: number, token?: str
   // so each tab gets a fresh token. Stale tokens from prior sessions are expected
   // and will produce a clear error from the server.
   // Atomic write: temp file + rename prevents Claude Code from reading a half-written file.
+  // Use a unique tmp name (random suffix) to avoid ENOENT when two concurrent
+  // project-opened calls race on the same .mcp.json.tmp file.
   const mcpJsonPath = join(projPath, '.mcp.json')
-  const mcpJsonTmp = mcpJsonPath + '.tmp'
+  const mcpJsonTmp = mcpJsonPath + '.tmp.' + randomBytes(4).toString('hex')
   const tokenUrl = token
     ? `http://127.0.0.1:${port}/mcp?token=${token}`
     : `http://127.0.0.1:${port}/mcp`
@@ -375,6 +402,8 @@ async function writeToolPermissions(projPath: string): Promise<void> {
     'mcp__claude-canvas__supabase_list_buckets',
     'mcp__claude-canvas__supabase_get_connection_info',
     'mcp__claude-canvas__supabase_get_rls_policies',
+    // Critic MCP tools (centralized constant)
+    ...CRITIC_TOOL_IDS,
     // Core dev tools — auto-approve so Claude can act immediately
     'Read',
     'Edit',

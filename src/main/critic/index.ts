@@ -6,6 +6,7 @@ import { startPlanReview, startResultReview, getActiveRun, abortRun, completeRun
 import { collectDiagnostics } from './diagnostics'
 import { listRuns, loadArtifact } from './artifact-store'
 import { setupPlanDetector, registerPtyForDetection, unregisterPtyForDetection } from './plan-detector'
+import { getGateState, releaseGate, cleanupTabGate, restoreStaleBackups } from './gate'
 
 export function setupCriticHandlers(getWindow: () => BrowserWindow | null): void {
   // Plan detection
@@ -64,4 +65,28 @@ export function setupCriticHandlers(getWindow: () => BrowserWindow | null): void
   // History
   ipcMain.handle('critic:listRuns', (_e, p: string) => listRuns(p))
   ipcMain.handle('critic:loadRun', (_e, p: string, runId: string) => loadArtifact(p, runId))
+
+  // Gate status
+  ipcMain.handle('critic:getGateState', (_e, projectPath: string) => {
+    if (!isValidPath(projectPath)) return null
+    return getGateState(projectPath)
+  })
+
+  // Manual gate override from renderer
+  ipcMain.handle('critic:overrideGate', async (_e, projectPath: string, reason: string) => {
+    if (!isValidPath(projectPath)) return { error: 'Invalid path' }
+    await releaseGate(getWindow, projectPath, `Manual override: ${reason}`, 'user')
+    return { ok: true }
+  })
+
+  // Tab cleanup — restore settings if last tab closes
+  ipcMain.on('critic:tabClosed', async (_e, tabId: string, projectPath: string) => {
+    await cleanupTabGate(getWindow, projectPath, tabId)
+  })
+
+  // Startup restore — call when project opens to fix crash-while-gated
+  ipcMain.handle('critic:restoreStaleBackups', async (_e, projectPath: string) => {
+    if (!isValidPath(projectPath)) return
+    await restoreStaleBackups(projectPath)
+  })
 }

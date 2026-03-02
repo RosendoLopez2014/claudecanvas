@@ -5,7 +5,7 @@
  * Consumed by CriticPanel, StatusBar chip, and useMcpStateExposer.
  */
 import { create } from 'zustand'
-import type { CriticPhase, CriticEvent, CriticFeedback } from '../../shared/critic/types'
+import type { CriticPhase, CriticEvent, CriticFeedback, GateStatus } from '../../shared/critic/types'
 import { TERMINAL_CRITIC_PHASES } from '../../shared/critic/types'
 
 export interface CriticSession {
@@ -36,17 +36,21 @@ interface CriticState {
   recentSessions: CriticSession[]
   /** Pending plans awaiting user action, keyed by tabId */
   pendingPlans: Record<string, PendingPlan>
+  /** Gate states keyed by projectPath */
+  gateStates: Record<string, { status: GateStatus; reason: string }>
 
   pushEvent: (event: CriticEvent) => void
   setPendingPlan: (tabId: string, planText: string, confidence: number) => void
   dismissPendingPlan: (tabId: string) => void
   clearSession: (tabId: string) => void
+  setGateState: (projectPath: string, status: GateStatus, reason: string) => void
 }
 
 export const useCriticStore = create<CriticState>((set) => ({
   activeSessions: {},
   recentSessions: [],
   pendingPlans: {},
+  gateStates: {},
 
   pushEvent: (event) =>
     set((state) => {
@@ -117,4 +121,9 @@ export const useCriticStore = create<CriticState>((set) => ({
       const { [tabId]: _, ...remaining } = state.activeSessions
       return { activeSessions: remaining }
     }),
+
+  setGateState: (projectPath, status, reason) =>
+    set((state) => ({
+      gateStates: { ...state.gateStates, [projectPath]: { status, reason } },
+    })),
 }))

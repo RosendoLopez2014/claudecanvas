@@ -442,6 +442,11 @@ const api = {
     loadRun: (projectPath: string, runId: string) => ipcRenderer.invoke('critic:loadRun', projectPath, runId),
     onEvent: (cb: (data: unknown) => void) => onIpc('critic:event', cb),
     onPlanDetected: (cb: (data: unknown) => void) => onIpc('critic:planDetected', cb),
+    getGateState: (projectPath: string) => ipcRenderer.invoke('critic:getGateState', projectPath),
+    overrideGate: (projectPath: string, reason: string) => ipcRenderer.invoke('critic:overrideGate', projectPath, reason),
+    tabClosed: (tabId: string, projectPath: string) => ipcRenderer.send('critic:tabClosed', tabId, projectPath),
+    restoreStaleBackups: (projectPath: string) => ipcRenderer.invoke('critic:restoreStaleBackups', projectPath),
+    onGateEvent: (cb: (data: unknown) => void) => onIpc('critic:gateEvent', cb),
   },
 
   system: {
